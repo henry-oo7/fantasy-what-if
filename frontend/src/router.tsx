@@ -8,6 +8,9 @@ import App from "./App";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
+import {
+  ScheduleSwapPage,
+} from "./pages/ScheduleSwapPage";
 
 export function AppRouter() {
   return (
@@ -27,6 +30,15 @@ export function AppRouter() {
         element={
           <ProtectedRoute>
             <App />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/schedule-swap"
+        element={
+          <ProtectedRoute>
+            <ScheduleSwapPage />
           </ProtectedRoute>
         }
       />

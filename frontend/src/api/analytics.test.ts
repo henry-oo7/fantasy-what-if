@@ -1,0 +1,94 @@
+import {
+  QueryClient,
+} from "@tanstack/react-query";
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import {
+  analyticsQueryKeys,
+  scheduleSwapQueryOptions,
+} from "./analytics";
+
+
+function jsonResponse(
+  body: unknown,
+): Response {
+  return new Response(
+    JSON.stringify(body),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    },
+  );
+}
+
+describe("analytics API", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("creates a stable schedule-swap query key", () => {
+    expect(
+      analyticsQueryKeys.scheduleSwap(1, 2),
+    ).toEqual([
+      "analytics",
+      "schedule-swap",
+      1,
+      2,
+    ]);
+  });
+
+  it("disables a swap between the same team", () => {
+    const options =
+      scheduleSwapQueryOptions(1, 1);
+
+    expect(options.enabled).toBe(false);
+  });
+
+  it("requests both selected team IDs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        first_team: {},
+        second_team: {},
+        completed_weeks: [
+          1,
+          2,
+        ],
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient();
+
+    await queryClient.fetchQuery(
+      scheduleSwapQueryOptions(1, 2),
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    const [requestedUrl, options] =
+      fetchMock.mock.calls[0];
+
+    expect(String(requestedUrl)).toContain(
+      "/analytics/schedule-swap",
+    );
+    expect(String(requestedUrl)).toContain(
+      "first_team_id=1",
+    );
+    expect(String(requestedUrl)).toContain(
+      "second_team_id=2",
+    );
+    expect(options).toMatchObject({
+      method: "GET",
+      credentials: "include",
+    });
+  });
+});

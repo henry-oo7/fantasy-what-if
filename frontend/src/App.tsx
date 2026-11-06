@@ -11,6 +11,7 @@ import {
   allPlayQueryOptions,
   currentLeagueQueryOptions,
 } from "./api/league";
+import { AppNavigation } from "./components/AppNavigation";
 import { AuthenticatedUserMenu } from "./components/AuthenticatedUserMenu";
 import "./App.css";
 
@@ -70,6 +71,7 @@ function App() {
         </div>
 
         <div className="header-actions">
+          <AppNavigation />
           <AuthenticatedUserMenu />
 
           <div className="season-badge">
