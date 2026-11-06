@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   GitCompareArrows,
@@ -6,6 +7,7 @@ import {
   LogOut,
   Menu,
   ShieldCheck,
+  UserPlus,
   X,
 } from "lucide-react";
 import {
@@ -14,6 +16,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 
+import { currentLeagueQueryOptions } from "../../api/league";
 import { useAuth } from "../../auth/AuthProvider";
 import "./AppShell.css";
 
@@ -41,6 +44,9 @@ const navigationItems: NavigationItem[] = [
 export function AppShell() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const leagueQuery = useQuery(
+    currentLeagueQueryOptions(),
+  );
   const [drawerOpen, setDrawerOpen] =
     useState(false);
   const [loggingOut, setLoggingOut] =
@@ -180,10 +186,16 @@ export function AppShell() {
         </div>
 
         <div className="sidebar-league">
-          <span>League workspace</span>
-          <strong>Jimmy and Friends</strong>
+          <strong>
+            {leagueQuery.data?.name ??
+              "Jimmy and Friends"}
+          </strong>
+
           <small>
-            {auth.user.season ?? "Current"} season
+            {leagueQuery.data?.season ??
+              auth.user.season ??
+              "Current"}{" "}
+            season
           </small>
         </div>
 
@@ -229,6 +241,33 @@ export function AppShell() {
             </div>
           </div>
         </nav>
+
+        {auth.user.role === "admin" ? (
+          <nav
+            className="sidebar-admin-navigation"
+            aria-label="Administration"
+          >
+            <span className="navigation-section-label">
+              Administration
+            </span>
+
+            <NavLink
+                to="/admin/invitations"
+                onClick={() => {
+                  setDrawerOpen(false);
+                }}
+                className={({ isActive }) =>
+                  isActive
+                    ? "sidebar-link sidebar-link-active"
+                    : "sidebar-link"
+                }
+              >
+                <UserPlus aria-hidden="true" />
+                <span>Invitations</span>
+              </NavLink>
+
+          </nav>
+        ) : null}
 
         <div className="sidebar-account">
           <div className="sidebar-user">

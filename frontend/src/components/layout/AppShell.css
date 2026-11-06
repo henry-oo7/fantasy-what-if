@@ -347,3 +347,42 @@
     margin-left: 0;
   }
 }
+
+/* Compact live league identity */
+.sidebar-league {
+  gap: 3px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.sidebar-league strong {
+  font-family:
+    "Barlow Condensed",
+    "Arial Narrow",
+    sans-serif;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.sidebar-league small {
+  color: #9ebaaa;
+  font-size: 0.7rem;
+}
+
+/* Admin tools remain out of the primary league navigation. */
+.sidebar-admin-navigation {
+  display: grid;
+  gap: 5px;
+  margin-top: auto;
+  padding: 12px 13px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.sidebar-admin-navigation + .sidebar-account {
+  margin-top: 0;
+}
+
+.sidebar-admin-navigation .navigation-section-label {
+  margin-top: 0;
+}
