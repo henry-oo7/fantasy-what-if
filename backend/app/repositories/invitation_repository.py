@@ -217,3 +217,56 @@ class InvitationRepository:
         ).all()
 
         return tuple(invitations)
+
+
+@dataclass(frozen=True, slots=True)
+class InvitationListItem:
+    invitation: RegistrationInvite
+    team_id: int
+    team_name: str
+    season_year: int
+
+
+def list_invitations_with_teams(
+    session: Session,
+    *,
+    espn_league_id: int,
+    season_year: int,
+) -> tuple[InvitationListItem, ...]:
+    rows = session.execute(
+        select(
+            RegistrationInvite,
+            Team,
+            Season,
+        )
+        .join(
+            Team,
+            RegistrationInvite.team_id == Team.id,
+        )
+        .join(
+            Season,
+            RegistrationInvite.season_id == Season.id,
+        )
+        .join(
+            League,
+            Season.league_id == League.id,
+        )
+        .where(
+            League.espn_league_id == espn_league_id,
+            Season.year == season_year,
+        )
+        .order_by(
+            RegistrationInvite.created_at.desc(),
+            RegistrationInvite.id.desc(),
+        )
+    ).all()
+
+    return tuple(
+        InvitationListItem(
+            invitation=invitation,
+            team_id=team.espn_team_id,
+            team_name=team.name,
+            season_year=season.year,
+        )
+        for invitation, team, season in rows
+    )

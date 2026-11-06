@@ -29,6 +29,7 @@ type AuthenticationStatus =
 interface AuthenticationContextValue {
   status: AuthenticationStatus;
   user: AuthenticatedUser | null;
+  csrfToken: string | null;
   error: string | null;
   loginUser: (
     request: LoginRequest,
@@ -172,6 +173,7 @@ export function AuthProvider({
     () => ({
       status,
       user,
+      csrfToken,
       error,
       loginUser,
       logoutUser,
@@ -180,6 +182,7 @@ export function AuthProvider({
     [
       status,
       user,
+      csrfToken,
       error,
       loginUser,
       logoutUser,

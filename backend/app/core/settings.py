@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     app_secret_key: SecretStr
 
     frontend_origin: str = "http://localhost:5173"
+    frontend_app_url: str = "http://localhost:5173"
     trusted_origins: str = "http://localhost:5173"
 
     session_cookie_name: str = "fantasy_session"
@@ -122,6 +123,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "frontend_origin",
+        "frontend_app_url",
         "trusted_origins",
     )
     @classmethod
@@ -202,6 +204,9 @@ class Settings(BaseSettings):
 
         if not frontend_origin.startswith("https://"):
             raise ValueError("FRONTEND_ORIGIN must use HTTPS in production.")
+
+        if not self.frontend_app_url.startswith("https://"):
+            raise ValueError("FRONTEND_APP_URL must use HTTPS in production.")
 
         if any(not origin.startswith("https://") for origin in origins):
             raise ValueError("Every production trusted origin must use HTTPS.")

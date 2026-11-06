@@ -5,6 +5,7 @@ import {
 } from "react-router-dom";
 
 import App from "./App";
+import { AdminInvitationsPage } from "./pages/AdminInvitationsPage";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
 import { LoginPage } from "./pages/LoginPage";
@@ -41,6 +42,11 @@ export function AppRouter() {
         <Route
           path="schedule-swap"
           element={<ScheduleSwapPage />}
+        />
+
+        <Route
+          path="admin/invitations"
+          element={<AdminInvitationsPage />}
         />
       </Route>
 

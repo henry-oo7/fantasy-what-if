@@ -108,7 +108,7 @@ def main() -> None:
             session.commit()
 
             registration_url = (
-                settings.frontend_origin.rstrip("/") + "/register?invite=" + created.raw_token
+                settings.frontend_app_url.rstrip("/") + "/register?invite=" + created.raw_token
             )
 
             print("=== REGISTRATION INVITATION CREATED ===")
