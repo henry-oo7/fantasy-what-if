@@ -4,12 +4,19 @@ import {
 
 import { getJson } from "./client";
 import type {
+  LeagueAverageStanding,
   ScheduleSwapResult,
 } from "../types/analytics";
 
 
 export const analyticsQueryKeys = {
   all: ["analytics"] as const,
+
+  leagueAverage: () =>
+    [
+      ...analyticsQueryKeys.all,
+      "league-average",
+    ] as const,
 
   scheduleSwap: (
     firstTeamId: number,
@@ -49,3 +56,17 @@ export function scheduleSwapQueryOptions(
     staleTime: 60_000,
   });
 }
+
+
+export function leagueAverageQueryOptions() {
+  return queryOptions({
+    queryKey: analyticsQueryKeys.leagueAverage(),
+    queryFn: ({ signal }) =>
+      getJson<LeagueAverageStanding[]>(
+        "/analytics/league-average",
+        signal,
+      ),
+    staleTime: 60_000,
+  });
+}
+

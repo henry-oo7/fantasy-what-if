@@ -40,6 +40,11 @@ const navigationItems: NavigationItem[] = [
     icon: BarChart3,
   },
   {
+    label: "League Average",
+    path: "/league-average",
+    icon: BarChart3,
+  },
+  {
     label: "Schedule Swap",
     path: "/schedule-swap",
     icon: GitCompareArrows,

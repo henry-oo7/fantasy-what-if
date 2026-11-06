@@ -92,3 +92,54 @@ describe("analytics API", () => {
     });
   });
 });
+
+
+describe("league average API", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("creates a stable league-average query key", async () => {
+    const { analyticsQueryKeys } =
+      await import("./analytics");
+
+    expect(
+      analyticsQueryKeys.leagueAverage(),
+    ).toEqual([
+      "analytics",
+      "league-average",
+    ]);
+  });
+
+  it("requests league-average standings", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse([]),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const {
+      leagueAverageQueryOptions,
+    } = await import("./analytics");
+
+    const queryClient = new QueryClient();
+
+    await queryClient.fetchQuery(
+      leagueAverageQueryOptions(),
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    const [requestedUrl, options] =
+      fetchMock.mock.calls[0];
+
+    expect(String(requestedUrl)).toContain(
+      "/analytics/league-average",
+    );
+
+    expect(options).toMatchObject({
+      method: "GET",
+      credentials: "include",
+    });
+  });
+});

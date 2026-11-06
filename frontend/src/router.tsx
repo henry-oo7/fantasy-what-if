@@ -6,6 +6,7 @@ import {
 
 import App from "./App";
 import { AllPlayPage } from "./pages/AllPlayPage";
+import { LeagueAveragePage } from "./pages/LeagueAveragePage";
 import { AdminInvitationsPage } from "./pages/AdminInvitationsPage";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
@@ -43,6 +44,11 @@ export function AppRouter() {
         <Route
           path="all-play"
           element={<AllPlayPage />}
+        />
+
+        <Route
+          path="league-average"
+          element={<LeagueAveragePage />}
         />
 
         <Route

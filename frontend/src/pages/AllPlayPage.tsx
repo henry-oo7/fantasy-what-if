@@ -158,9 +158,10 @@ export function AllPlayPage() {
         <h1>All-Play Standings</h1>
 
         <p>
-          Every completed week is recalculated as if
-          each team played every other team in the
-          league.
+          All-play shows what each team&apos;s record
+          would be if everyone played everyone each
+          week. It removes schedule luck and provides
+          a clearer measure of weekly team strength.
         </p>
       </header>
 
@@ -181,10 +182,14 @@ export function AllPlayPage() {
         </article>
 
         <article className="all-play-summary-item">
-          <span>Teams compared</span>
-          <strong>{standings.length}</strong>
+          <span>Current week</span>
+          <strong>
+            Week {league.current_week}
+          </strong>
           <small>
-            {league.current_week - 1} completed weeks
+            Through week{" "}
+            {Math.max(league.current_week - 1, 0)}{" "}
+            results included
           </small>
         </article>
 

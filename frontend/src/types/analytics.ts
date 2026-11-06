@@ -39,3 +39,28 @@ export interface ScheduleSwapResult {
   second_team: TeamScheduleSwapResult;
   completed_weeks: number[];
 }
+
+
+export interface LeagueAverageWeek {
+  week: number;
+  team_score: number;
+  league_average: number;
+  actual_opponent_id: number;
+  actual_opponent_name: string;
+  actual_opponent_score: number;
+  actual_result: MatchupResult;
+  average_result: MatchupResult;
+}
+
+export interface LeagueAverageStanding {
+  rank: number;
+  team_id: number;
+  team_name: string;
+  actual_record: AnalyticsRecord;
+  average_record: AnalyticsRecord;
+  combined_record: AnalyticsRecord;
+  points_for: number;
+  average_points_per_week: number;
+  weeks_played: number;
+  weekly_results: LeagueAverageWeek[];
+}
