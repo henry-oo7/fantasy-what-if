@@ -5,6 +5,7 @@ import {
 } from "react-router-dom";
 
 import App from "./App";
+import { AllPlayPage } from "./pages/AllPlayPage";
 import { AdminInvitationsPage } from "./pages/AdminInvitationsPage";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
@@ -37,6 +38,11 @@ export function AppRouter() {
         <Route
           index
           element={<App />}
+        />
+
+        <Route
+          path="all-play"
+          element={<AllPlayPage />}
         />
 
         <Route

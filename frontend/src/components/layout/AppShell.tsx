@@ -35,6 +35,11 @@ const navigationItems: NavigationItem[] = [
     end: true,
   },
   {
+    label: "All-Play Standings",
+    path: "/all-play",
+    icon: BarChart3,
+  },
+  {
     label: "Schedule Swap",
     path: "/schedule-swap",
     icon: GitCompareArrows,
