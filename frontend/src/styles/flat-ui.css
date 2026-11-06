@@ -1,0 +1,229 @@
+/*
+ * Global flat football interface.
+ *
+ * Rectangular containers use minimal corner rounding.
+ * Circles remain only where the shape has semantic value:
+ * avatars, status dots, and small result indicators.
+ */
+
+/* Shared panels and large surfaces */
+.team-hero,
+.summary-card,
+.dashboard-panel,
+.swap-controls,
+.swap-empty-state,
+.swap-summary-card,
+.auth-card,
+.invitation-summary,
+.sidebar-league {
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+/* Nested content surfaces */
+.team-stat-grid,
+.record-comparison,
+.analytics-action,
+.progress-panel,
+.season-progress-panel {
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+/* Interactive controls */
+button,
+input,
+select,
+textarea,
+.auth-submit,
+.sidebar-logout,
+.mobile-menu-button,
+.drawer-close-button,
+.navigation-link,
+.sidebar-link,
+.logout-button,
+.swap-direction,
+.form-error,
+.user-menu-error {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+/* Icon containers */
+.brand-mark,
+.summary-icon,
+.analytics-action-icon,
+.auth-card-icon,
+.invitation-summary-icon,
+.user-avatar,
+.metric-icon {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+/* Preserve circular identity and status elements */
+.sidebar-user-avatar,
+.mobile-user-avatar,
+.live-indicator svg {
+  border-radius: 999px;
+}
+
+/* Small status markers remain compact but less pill-like */
+.admin-badge,
+.wins-change,
+.result-badge,
+.season-badge {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+/* Remove raised-card effects everywhere */
+.metric-card,
+.content-card,
+.user-menu,
+.application-sidebar,
+.application-sidebar-open {
+  box-shadow: none;
+}
+
+/* Flatten dashboard hero */
+.team-hero {
+  border: 1px solid var(--color-green-900);
+}
+
+.team-stat-grid {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.team-stat {
+  background: transparent;
+}
+
+/* Summary cards use a simple border rather than elevation */
+.summary-card,
+.dashboard-panel {
+  border: 1px solid var(--color-border);
+}
+
+/* Standings rows remain completely flat */
+.standing-row {
+  border-radius: 0;
+}
+
+.standing-row-current {
+  box-shadow:
+    inset 4px 0 0 var(--color-green-600);
+}
+
+/* Sidebar navigation uses rectangular selection states */
+.sidebar-link {
+  border-radius: 3px;
+}
+
+.sidebar-link:hover {
+  transform: none;
+}
+
+.sidebar-link-active {
+  box-shadow:
+    inset 3px 0 0 var(--color-green-400);
+}
+
+/* Flat drawer with only the scrim showing depth */
+.application-sidebar-open {
+  box-shadow: none;
+}
+
+/* Schedule Swap */
+.swap-controls,
+.swap-summary-card,
+.swap-empty-state {
+  border: 1px solid var(--color-border);
+}
+
+.record-comparison {
+  border: 1px solid var(--color-green-100);
+}
+
+.weekly-results-table th:first-child,
+.weekly-results-table th:last-child,
+.weekly-results-table td:first-child,
+.weekly-results-table td:last-child {
+  border-radius: 0;
+}
+
+/* Authentication */
+.auth-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.form-field input,
+.form-field select {
+  border-radius: 3px;
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  box-shadow:
+    inset 3px 0 0 var(--color-green-600);
+}
+
+/* Remove lifting and scaling interactions */
+.auth-submit,
+.analytics-action,
+.logout-button,
+.sidebar-logout,
+.swap-empty-state button {
+  transform: none;
+}
+
+.auth-submit:hover:not(:disabled),
+.analytics-action:hover,
+.logout-button:hover:not(:disabled),
+.sidebar-logout:hover:not(:disabled),
+.swap-empty-state button:hover:not(:disabled) {
+  transform: none;
+}
+
+/* Use color changes rather than elevation for interaction */
+.auth-submit:hover:not(:disabled),
+.swap-empty-state button:hover:not(:disabled) {
+  background: var(--color-green-800);
+}
+
+.analytics-action:hover {
+  background: var(--color-green-100);
+}
+
+/* Keep progress tracks rectangular if reintroduced elsewhere */
+.progress-track,
+.season-progress-track,
+.progress-value,
+.season-progress-track span {
+  border-radius: 1px;
+}
+
+/* Mobile remains flat and edge-efficient */
+@media (max-width: 820px) {
+  .application-sidebar,
+  .application-sidebar-open {
+    border-radius: 0;
+  }
+
+  .mobile-app-bar {
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .team-hero,
+  .summary-card,
+  .dashboard-panel,
+  .swap-controls,
+  .swap-summary-card,
+  .swap-empty-state,
+  .auth-card {
+    border-radius: 3px;
+  }
+}

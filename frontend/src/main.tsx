@@ -1,3 +1,10 @@
+import "@fontsource/barlow/400.css";
+import "@fontsource/barlow/500.css";
+import "@fontsource/barlow/600.css";
+import "@fontsource/barlow/700.css";
+import "@fontsource/barlow-condensed/600.css";
+import "@fontsource/barlow-condensed/700.css";
+import "@fontsource/barlow-condensed/800.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -9,6 +16,7 @@ import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
 import { AppRouter } from "./router";
 import "./index.css";
+import "./styles/flat-ui.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {

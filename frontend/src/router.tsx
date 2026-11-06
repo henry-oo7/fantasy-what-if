@@ -6,6 +6,7 @@ import {
 
 import App from "./App";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
+import { AppShell } from "./components/layout/AppShell";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import {
@@ -26,22 +27,22 @@ export function AppRouter() {
       />
 
       <Route
-        path="/"
         element={
           <ProtectedRoute>
-            <App />
+            <AppShell />
           </ProtectedRoute>
         }
-      />
+      >
+        <Route
+          index
+          element={<App />}
+        />
 
-      <Route
-        path="/schedule-swap"
-        element={
-          <ProtectedRoute>
-            <ScheduleSwapPage />
-          </ProtectedRoute>
-        }
-      />
+        <Route
+          path="schedule-swap"
+          element={<ScheduleSwapPage />}
+        />
+      </Route>
 
       <Route
         path="*"
