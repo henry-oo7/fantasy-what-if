@@ -54,3 +54,6 @@ coverage/
 # Local IDE configuration
 
 # Operating-system files
+
+# Production secrets
+.env.prod

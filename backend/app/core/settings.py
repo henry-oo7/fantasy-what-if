@@ -49,6 +49,29 @@ class Settings(BaseSettings):
         le=24 * 30,
     )
 
+    sync_scheduler_enabled: bool = False
+    sync_schedule_timezone: str = "America/Chicago"
+    sync_schedule_weekday: int = Field(
+        default=2,
+        ge=0,
+        le=6,
+    )
+    sync_schedule_hour: int = Field(
+        default=6,
+        ge=0,
+        le=23,
+    )
+    sync_schedule_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+    )
+    sync_scheduler_poll_seconds: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+    )
+
     espn_league_id: int = Field(gt=0)
     espn_season: int = Field(ge=2018)
     espn_s2: SecretStr
