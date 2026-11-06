@@ -1,0 +1,56 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+coverage.xml
+.coverage
+htmlcov/
+
+# JavaScript and frontend
+node_modules/
+dist/
+.vite/
+
+# IDE and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local data
+*.sqlite3
+*.db
+logs/
+tmp/
+
+# Runtime logs
+*.log
+sync.log
+
+# Local database and exports
+*.sqlite
+exports/
+
+# Test and coverage output
+
+# Python environments and caches
+venv/
+
+# Node and frontend output
+coverage/
+
+# Environment files and credentials
+
+# Local IDE configuration
+
+# Operating-system files

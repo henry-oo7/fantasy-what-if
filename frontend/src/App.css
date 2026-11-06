@@ -1,0 +1,291 @@
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 48px;
+}
+
+.app-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+  max-width: 1440px;
+  margin: 0 auto 36px;
+}
+
+.eyebrow,
+.section-label {
+  margin: 0 0 10px;
+  color: #60a5fa;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.app-header h1 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: clamp(2.25rem, 5vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.header-copy {
+  max-width: 680px;
+  margin: 18px 0 0;
+  color: #94a3b8;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.season-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.dashboard {
+  display: grid;
+  gap: 24px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.metric-card,
+.content-card {
+  background:
+    linear-gradient(145deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.96));
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.22);
+}
+
+.metric-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 132px;
+  padding: 22px;
+  border-radius: 20px;
+}
+
+.metric-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  border-radius: 15px;
+}
+
+.metric-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.metric-icon-blue {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.metric-icon-purple {
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.14);
+}
+
+.metric-icon-green {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.metric-icon-gold {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.metric-card p,
+.metric-card span {
+  display: block;
+  margin: 0;
+}
+
+.metric-card p {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.metric-card strong {
+  display: block;
+  margin: 5px 0;
+  color: #f8fafc;
+  font-size: 1.75rem;
+  line-height: 1.1;
+}
+
+.metric-card .leader-name {
+  overflow: hidden;
+  max-width: 180px;
+  font-size: 1rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-card span {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.content-card {
+  border-radius: 24px;
+}
+
+.welcome-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 48px;
+  align-items: center;
+  padding: 36px;
+}
+
+.welcome-card h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1.75rem;
+  letter-spacing: -0.03em;
+}
+
+.welcome-card p:not(.section-label) {
+  max-width: 680px;
+  margin: 12px 0 0;
+  color: #94a3b8;
+  line-height: 1.7;
+}
+
+.progress-panel {
+  padding: 22px;
+  background: rgba(15, 23, 42, 0.68);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 18px;
+}
+
+.progress-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  color: #94a3b8;
+  font-size: 0.875rem;
+}
+
+.progress-heading strong {
+  color: #f8fafc;
+}
+
+.progress-track {
+  overflow: hidden;
+  height: 10px;
+  background: #1e293b;
+  border-radius: 999px;
+}
+
+.progress-value {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: inherit;
+}
+
+.app-state {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.app-state h1 {
+  margin-bottom: 8px;
+  color: #f8fafc;
+}
+
+.app-state p {
+  max-width: 560px;
+  color: #94a3b8;
+}
+
+.app-state button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 12px 18px;
+  color: #ffffff;
+  background: #2563eb;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.spinner {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 1100px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    padding: 28px 18px;
+  }
+
+  .app-header {
+    flex-direction: column;
+  }
+
+  .welcome-card {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding: 26px;
+  }
+}
+
+@media (max-width: 560px) {
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card {
+    min-height: 116px;
+  }
+}

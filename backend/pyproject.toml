@@ -1,0 +1,39 @@
+[project]
+name = "fantasy-what-if-backend"
+version = "0.1.0"
+description = "Backend API and analytics engine for ESPN fantasy football what-if analysis."
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "alembic>=1.17,<2",
+    "espn-api==1.0.1",
+    "fastapi>=0.162.0",
+    "psycopg[binary]>=3.3,<4",
+    "pydantic-settings>=2.11,<3",
+    "sqlalchemy>=2.0,<3",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4,<9",
+    "ruff>=0.14,<1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+exclude = [
+    "alembic/versions",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
