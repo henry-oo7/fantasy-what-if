@@ -57,3 +57,4 @@ coverage/
 
 # Production secrets
 .env.prod
+.env.prod.test
