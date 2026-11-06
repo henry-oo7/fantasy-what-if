@@ -275,3 +275,116 @@ def test_schedule_swap_endpoint_requires_both_team_ids() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_league_average_endpoint_returns_combined_records() -> None:
+    snapshot = create_test_snapshot()
+
+    app.dependency_overrides[get_current_league_snapshot] = lambda: snapshot
+
+    try:
+        response = client.get("/api/analytics/league-average")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == status.HTTP_200_OK
+
+    standings = response.json()
+
+    assert len(standings) == 4
+
+    alpha = standings[0]
+
+    assert alpha["rank"] == 1
+    assert alpha["team_id"] == 1
+    assert alpha["team_name"] == "Team Alpha"
+    assert alpha["weeks_played"] == 1
+    assert alpha["points_for"] == 120.0
+    assert alpha["average_points_per_week"] == 120.0
+
+    assert alpha["actual_record"] == {
+        "wins": 1,
+        "losses": 0,
+        "ties": 0,
+        "win_percentage": 1.0,
+    }
+
+    assert alpha["average_record"] == {
+        "wins": 1,
+        "losses": 0,
+        "ties": 0,
+        "win_percentage": 1.0,
+    }
+
+    assert alpha["combined_record"] == {
+        "wins": 2,
+        "losses": 0,
+        "ties": 0,
+        "win_percentage": 1.0,
+    }
+
+    assert alpha["weekly_results"] == [
+        {
+            "week": 1,
+            "team_score": 120.0,
+            "league_average": 105.0,
+            "actual_opponent_id": 2,
+            "actual_opponent_name": "Team Bravo",
+            "actual_opponent_score": 110.0,
+            "actual_result": "win",
+            "average_result": "win",
+        }
+    ]
+
+
+def test_league_average_endpoint_excludes_current_week() -> None:
+    snapshot = LeagueSnapshot(
+        league_id=529250970,
+        name="Jimmy and Friends",
+        season=2026,
+        current_week=1,
+        regular_season_weeks=12,
+        teams=(
+            create_team(
+                team_id=1,
+                name="Team Alpha",
+            ),
+            create_team(
+                team_id=2,
+                name="Team Bravo",
+            ),
+        ),
+        matchups=(
+            MatchupSnapshot(
+                week=1,
+                home_team_id=1,
+                away_team_id=2,
+                home_score=120.0,
+                away_score=110.0,
+            ),
+        ),
+    )
+
+    app.dependency_overrides[get_current_league_snapshot] = lambda: snapshot
+
+    try:
+        response = client.get("/api/analytics/league-average")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == status.HTTP_200_OK
+
+    standings = response.json()
+
+    assert len(standings) == 2
+    assert all(standing["weeks_played"] == 0 for standing in standings)
+    assert all(
+        standing["combined_record"]
+        == {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0,
+            "win_percentage": 0.0,
+        }
+        for standing in standings
+    )
