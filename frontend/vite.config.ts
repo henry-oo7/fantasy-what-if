@@ -1,5 +1,7 @@
-import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import type { Plugin } from "vite";
+import { defineConfig } from "vitest/config";
+
 
 const proxyBase = "/proxy/5173/";
 
@@ -7,25 +9,36 @@ function codeServerProxy(): Plugin {
   return {
     name: "code-server-proxy",
     configureServer(server) {
-      server.middlewares.use((request, _response, next) => {
-        if (request.url && !request.url.startsWith(proxyBase)) {
-          request.url = `${proxyBase}${request.url.replace(/^\/+/, "")}`;
-        }
+      server.middlewares.use(
+        (request, _response, next) => {
+          if (
+            request.url &&
+            !request.url.startsWith(proxyBase)
+          ) {
+            request.url =
+              `${proxyBase}${request.url.replace(/^\/+/, "")}`;
+          }
 
-        next();
-      });
+          next();
+        },
+      );
     },
   };
 }
 
 export default defineConfig({
   base: proxyBase,
-  plugins: [codeServerProxy(), react()],
+  plugins: [
+    codeServerProxy(),
+    react(),
+  ],
   server: {
     host: "0.0.0.0",
     port: 5173,
     strictPort: true,
-    allowedHosts: ["code.henry007.com"],
+    allowedHosts: [
+      "code.henry007.com",
+    ],
     hmr: {
       protocol: "wss",
       host: "code.henry007.com",
@@ -35,7 +48,11 @@ export default defineConfig({
       [`${proxyBase}api`]: {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        rewrite: (path) => path.replace(`${proxyBase}api`, "/api"),
+        rewrite: (path) =>
+          path.replace(
+            `${proxyBase}api`,
+            "/api",
+          ),
       },
       [`${proxyBase}health`]: {
         target: "http://127.0.0.1:8000",
@@ -43,5 +60,14 @@ export default defineConfig({
         rewrite: () => "/health",
       },
     },
+  },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: [
+      "./src/test/setup.ts",
+    ],
+    clearMocks: true,
+    restoreMocks: true,
   },
 });

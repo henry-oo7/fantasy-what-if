@@ -11,6 +11,7 @@ import {
   allPlayQueryOptions,
   currentLeagueQueryOptions,
 } from "./api/league";
+import { AuthenticatedUserMenu } from "./components/AuthenticatedUserMenu";
 import "./App.css";
 
 function App() {
@@ -68,9 +69,13 @@ function App() {
           </p>
         </div>
 
-        <div className="season-badge">
+        <div className="header-actions">
+          <AuthenticatedUserMenu />
+
+          <div className="season-badge">
           <Trophy size={20} aria-hidden="true" />
           <span>{league.season} Season</span>
+          </div>
         </div>
       </header>
 

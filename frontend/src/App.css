@@ -289,3 +289,158 @@
     min-height: 116px;
   }
 }
+.header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.user-menu {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+}
+
+.user-menu-identity {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.user-avatar {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.14);
+  border-radius: 12px;
+}
+
+.user-avatar svg {
+  width: 19px;
+  height: 19px;
+}
+
+.user-details {
+  display: grid;
+  min-width: 120px;
+}
+
+.user-details strong {
+  overflow: hidden;
+  color: #f8fafc;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-details span {
+  overflow: hidden;
+  max-width: 180px;
+  color: #64748b;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-badge {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 5px 8px;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 999px;
+  font-size: 0.67rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.admin-badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+.logout-button {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 11px;
+  color: #cbd5e1;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 11px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.logout-button:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(51, 65, 85, 0.6);
+}
+
+.logout-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.logout-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.user-menu-error {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 10;
+  width: 260px;
+  margin: 0;
+  padding: 10px 12px;
+  color: #fecaca;
+  background: #450a0a;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 10px;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 760px) {
+  .header-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .user-menu {
+    justify-content: space-between;
+  }
+
+  .season-badge {
+    align-self: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .user-menu {
+    flex-wrap: wrap;
+  }
+
+  .user-menu-identity {
+    width: 100%;
+  }
+
+  .logout-button {
+    justify-content: center;
+    width: 100%;
+  }
+}

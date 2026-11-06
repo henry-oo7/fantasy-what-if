@@ -4,29 +4,41 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
+import { BrowserRouter } from "react-router-dom";
 
-import App from "./App.tsx";
+import { AuthProvider } from "./auth/AuthProvider";
+import { AppRouter } from "./router";
 import "./index.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchOnWindowFocus: false,
+      staleTime: 60_000,
       retry: 1,
+      refetchOnWindowFocus: false,
     },
   },
 });
 
-const rootElement = document.getElementById("root");
+const rootElement =
+  document.getElementById("root");
 
-if (!rootElement) {
-  throw new Error("Root element was not found.");
+if (rootElement === null) {
+  throw new Error(
+    "Application root element was not found.",
+  );
 }
 
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <BrowserRouter
+        basename={import.meta.env.BASE_URL}
+      >
+        <AuthProvider>
+          <AppRouter />
+        </AuthProvider>
+      </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,
 );
