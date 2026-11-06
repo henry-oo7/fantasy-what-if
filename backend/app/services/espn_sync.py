@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.settings import Settings
 from app.espn.client import create_espn_league
 from app.repositories.league_repository import LeagueRepository
+from app.services.sync_lock import acquire_sync_lock
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,12 @@ def synchronize_espn(
     settings: Settings,
     full_sync: bool,
 ) -> SyncResult:
+    acquire_sync_lock(
+        session,
+        espn_league_id=settings.espn_league_id,
+        season=settings.espn_season,
+    )
+
     espn_league = create_espn_league(settings)
     repository = LeagueRepository(session)
 

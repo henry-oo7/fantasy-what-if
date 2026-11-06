@@ -150,7 +150,10 @@ def test_optimal_lineups_endpoint_returns_team_summaries() -> None:
     try:
         response = client.get("/api/analytics/optimal-lineups")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_completed_team_week_rosters,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
 
@@ -176,7 +179,10 @@ def test_team_optimal_lineup_endpoint_returns_requested_team() -> None:
     try:
         response = client.get("/api/analytics/optimal-lineups/1")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_completed_team_week_rosters,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
 
@@ -206,7 +212,10 @@ def test_team_optimal_lineup_endpoint_returns_not_found() -> None:
     try:
         response = client.get("/api/analytics/optimal-lineups/999")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_completed_team_week_rosters,
+            None,
+        )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json() == {"detail": "Team 999 was not found."}

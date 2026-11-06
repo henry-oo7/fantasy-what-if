@@ -76,7 +76,10 @@ def test_all_play_endpoint_returns_ranked_standings() -> None:
     try:
         response = client.get("/api/analytics/all-play")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == [
@@ -156,7 +159,10 @@ def test_all_play_endpoint_excludes_current_week() -> None:
     try:
         response = client.get("/api/analytics/all-play")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
 
@@ -184,7 +190,10 @@ def test_schedule_swap_endpoint_returns_hypothetical_records() -> None:
             },
         )
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
 
@@ -238,7 +247,10 @@ def test_schedule_swap_endpoint_rejects_same_team() -> None:
             },
         )
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert response.json() == {"detail": "Schedule swaps require two different teams."}
@@ -258,7 +270,10 @@ def test_schedule_swap_endpoint_rejects_unknown_team() -> None:
             },
         )
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert response.json() == {"detail": "Unknown team ID values: 999"}
@@ -272,7 +287,10 @@ def test_schedule_swap_endpoint_requires_both_team_ids() -> None:
     try:
         response = client.get("/api/analytics/schedule-swap")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
@@ -285,7 +303,10 @@ def test_league_average_endpoint_returns_combined_records() -> None:
     try:
         response = client.get("/api/analytics/league-average")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
 
@@ -370,7 +391,10 @@ def test_league_average_endpoint_excludes_current_week() -> None:
     try:
         response = client.get("/api/analytics/league-average")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
 

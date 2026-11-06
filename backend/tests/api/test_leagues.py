@@ -62,7 +62,10 @@ def test_current_league_endpoint_returns_snapshot() -> None:
     try:
         response = client.get("/api/leagues/current")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
@@ -119,7 +122,10 @@ def test_current_league_endpoint_preserves_empty_collections() -> None:
     try:
         response = client.get("/api/leagues/current")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["teams"] == []
@@ -138,7 +144,10 @@ def test_current_league_endpoint_returns_upstream_error() -> None:
     try:
         response = client.get("/api/leagues/current")
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
+            None,
+        )
 
     assert response.status_code == status.HTTP_502_BAD_GATEWAY
     assert response.json() == {"detail": "Unable to retrieve the current ESPN league."}

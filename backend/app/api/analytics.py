@@ -18,6 +18,7 @@ from app.analytics.schedule_swap import (
     ScheduleSwapResult,
     calculate_schedule_swap,
 )
+from app.api.auth_dependencies import get_current_user
 from app.api.dependencies import (
     get_completed_team_week_rosters,
     get_current_league_snapshot,
@@ -28,6 +29,9 @@ from app.domain.lineup import TeamWeekRoster
 router = APIRouter(
     prefix="/api/analytics",
     tags=["analytics"],
+    dependencies=[
+        Depends(get_current_user),
+    ],
 )
 
 
