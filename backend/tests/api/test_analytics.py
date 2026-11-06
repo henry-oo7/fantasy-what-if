@@ -168,3 +168,110 @@ def test_all_play_endpoint_excludes_current_week() -> None:
     assert all(standing["ties"] == 0 for standing in standings)
     assert all(standing["points_for"] == 0.0 for standing in standings)
     assert all(standing["win_percentage"] == 0.0 for standing in standings)
+
+
+def test_schedule_swap_endpoint_returns_hypothetical_records() -> None:
+    snapshot = create_test_snapshot()
+
+    app.dependency_overrides[get_current_league_snapshot] = lambda: snapshot
+
+    try:
+        response = client.get(
+            "/api/analytics/schedule-swap",
+            params={
+                "first_team_id": 1,
+                "second_team_id": 2,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == status.HTTP_200_OK
+
+    result = response.json()
+
+    assert result["completed_weeks"] == [1]
+
+    assert result["first_team"]["team_id"] == 1
+    assert result["first_team"]["team_name"] == "Team Alpha"
+    assert result["first_team"]["borrowed_schedule_team_id"] == 2
+    assert result["first_team"]["original_record"] == {
+        "wins": 1,
+        "losses": 0,
+        "ties": 0,
+        "win_percentage": 1.0,
+    }
+    assert result["first_team"]["swapped_record"] == {
+        "wins": 1,
+        "losses": 0,
+        "ties": 0,
+        "win_percentage": 1.0,
+    }
+
+    assert result["second_team"]["team_id"] == 2
+    assert result["second_team"]["team_name"] == "Team Bravo"
+    assert result["second_team"]["original_record"] == {
+        "wins": 0,
+        "losses": 1,
+        "ties": 0,
+        "win_percentage": 0.0,
+    }
+    assert result["second_team"]["swapped_record"] == {
+        "wins": 0,
+        "losses": 1,
+        "ties": 0,
+        "win_percentage": 0.0,
+    }
+
+
+def test_schedule_swap_endpoint_rejects_same_team() -> None:
+    snapshot = create_test_snapshot()
+
+    app.dependency_overrides[get_current_league_snapshot] = lambda: snapshot
+
+    try:
+        response = client.get(
+            "/api/analytics/schedule-swap",
+            params={
+                "first_team_id": 1,
+                "second_team_id": 1,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert response.json() == {"detail": "Schedule swaps require two different teams."}
+
+
+def test_schedule_swap_endpoint_rejects_unknown_team() -> None:
+    snapshot = create_test_snapshot()
+
+    app.dependency_overrides[get_current_league_snapshot] = lambda: snapshot
+
+    try:
+        response = client.get(
+            "/api/analytics/schedule-swap",
+            params={
+                "first_team_id": 1,
+                "second_team_id": 999,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert response.json() == {"detail": "Unknown team ID values: 999"}
+
+
+def test_schedule_swap_endpoint_requires_both_team_ids() -> None:
+    snapshot = create_test_snapshot()
+
+    app.dependency_overrides[get_current_league_snapshot] = lambda: snapshot
+
+    try:
+        response = client.get("/api/analytics/schedule-swap")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
