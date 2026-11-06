@@ -15,8 +15,6 @@ import {
   currentLeagueQueryOptions,
 } from "../api/league";
 import { ApiError } from "../api/client";
-import { AppNavigation } from "../components/AppNavigation";
-import { AuthenticatedUserMenu } from "../components/AuthenticatedUserMenu";
 import type {
   MatchupResult,
   TeamScheduleSwapResult,
@@ -289,29 +287,22 @@ export function ScheduleSwapPage() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div>
-          <p className="eyebrow">
-            Alternate schedule analysis
-          </p>
+    <div className="analytics-page">
+      <header className="analytics-page-header">
+        <p className="page-kicker">
+          Alternate schedule analysis
+        </p>
 
-          <h1>Schedule Swap</h1>
+        <h1>Schedule Swap</h1>
 
-          <p className="header-copy">
-            Keep each team&apos;s weekly scores,
-            exchange opponents, and see how much
-            schedule luck changed the standings.
-          </p>
-        </div>
-
-        <div className="header-actions">
-          <AppNavigation />
-          <AuthenticatedUserMenu />
-        </div>
+        <p>
+          Keep each team&apos;s weekly scores,
+          exchange opponents, and see how much
+          schedule luck changed the standings.
+        </p>
       </header>
 
-      <main className="dashboard">
+      <main className="analytics-page-content">
         <section
           className="content-card swap-controls"
           aria-labelledby="swap-controls-heading"
