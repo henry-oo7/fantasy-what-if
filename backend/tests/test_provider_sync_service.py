@@ -255,6 +255,7 @@ def test_incremental_provider_sync_orchestrates_canonical_writes(
     assert result.player_weeks == (8,)
     assert result.teams_upserted == 12
     assert result.matchups_upserted == 6
+    assert result.fantasy_byes_upserted == 0
     assert result.player_week_scores_upserted == 12
     assert result.analytics_rebuilt is False
 

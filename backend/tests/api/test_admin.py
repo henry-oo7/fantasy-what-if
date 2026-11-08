@@ -10,6 +10,7 @@ from app.api.auth_dependencies import (
     get_current_user,
     require_session_csrf,
 )
+from app.db import model_registry  # noqa: F401
 from app.db.auth_models import User, UserRole
 from app.main import app
 from app.services.espn_sync import SyncResult

@@ -35,6 +35,7 @@ class ProviderSyncResult:
     player_weeks: tuple[int, ...]
     teams_upserted: int
     matchups_upserted: int
+    fantasy_byes_upserted: int
     player_week_scores_upserted: int
     analytics_rebuilt: bool
 
@@ -181,6 +182,7 @@ def synchronize_provider(
         player_weeks=player_weeks,
         teams_upserted=len(stored_teams),
         matchups_upserted=len(stored_matchups),
+        fantasy_byes_upserted=sum(matchup.is_bye for matchup in provider_matchups),
         player_week_scores_upserted=(len(stored_player_scores)),
         analytics_rebuilt=False,
     )
