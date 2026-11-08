@@ -41,6 +41,9 @@ from app.schemas.admin import (
     SyncRunResponse,
     SyncStatusResponse,
 )
+from app.services.provider_adapter_resolver import (
+    resolve_active_provider_context,
+)
 from app.services.sync_lock import (
     SyncAlreadyRunningError,
 )
@@ -55,23 +58,19 @@ router = APIRouter(
 
 
 @router.get("/sync-status")
-def read_sync_status(
-    settings: Annotated[
-        Settings,
-        Depends(get_settings),
-    ],
-) -> SyncStatusResponse:
+def read_sync_status() -> SyncStatusResponse:
     with SessionFactory() as session:
+        _, season, _ = resolve_active_provider_context(session=session)
+
         stored = get_sync_status(
             session,
-            espn_league_id=settings.espn_league_id,
-            season_year=settings.espn_season,
+            season_id=season.id,
         )
 
     if stored is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Synchronized league data was not found.",
+            detail=("Synchronized provider data was not found."),
         )
 
     return _build_sync_status_response(stored)
@@ -131,8 +130,10 @@ def _build_sync_status_response(
     latest_run = stored.latest_run
 
     return SyncStatusResponse(
-        league_id=stored.league_id,
-        season=stored.season,
+        provider=stored.provider.value,
+        season_id=stored.season_id,
+        provider_league_id=(stored.provider_league_id),
+        provider_season_id=(stored.provider_season_id),
         last_synced_at=stored.last_synced_at,
         latest_run=(
             SyncRunResponse(

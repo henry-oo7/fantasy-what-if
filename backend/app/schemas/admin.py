@@ -18,8 +18,10 @@ class SyncRunResponse(BaseModel):
 
 
 class SyncStatusResponse(BaseModel):
-    league_id: int
-    season: int
+    provider: str
+    season_id: int
+    provider_league_id: str
+    provider_season_id: str
     last_synced_at: datetime | None
     latest_run: SyncRunResponse | None
 

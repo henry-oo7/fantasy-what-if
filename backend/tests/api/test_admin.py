@@ -101,8 +101,10 @@ def test_admin_can_read_sync_status() -> None:
 
     payload = response.json()
 
-    assert payload["league_id"] == 529250970
-    assert payload["season"] == 2026
+    assert payload["provider"] == "espn"
+    assert payload["season_id"] == 1
+    assert payload["provider_league_id"] == "529250970"
+    assert payload["provider_season_id"] == "2026"
     assert payload["latest_run"] is not None
     assert payload["latest_run"]["status"] == "succeeded"
 
