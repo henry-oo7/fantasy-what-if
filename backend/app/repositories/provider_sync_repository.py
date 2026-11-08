@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -20,6 +21,7 @@ from app.db.platform_enums import FantasyProvider
 from app.db.platform_models import (
     ProviderConnection,
 )
+from app.providers.domain import ProviderTeam
 
 
 class ProviderSyncContextNotFoundError(LookupError):
@@ -153,6 +155,89 @@ class ProviderSyncRepository:
 
         return context
 
+    def upsert_team(
+        self,
+        *,
+        context: ProviderSyncContext,
+        provider_team: ProviderTeam,
+    ) -> Team:
+        """Upsert one canonical provider team idempotently."""
+
+        legacy_espn_team_id = legacy_espn_integer_id(
+            provider=context.provider,
+            provider_id=provider_team.provider_team_id,
+            field_name="provider_team_id",
+        )
+
+        values = {
+            "season_id": context.season_id,
+            "espn_team_id": legacy_espn_team_id,
+            "provider_team_id": (provider_team.provider_team_id),
+            "name": provider_team.name,
+            "abbreviation": (provider_team.abbreviation),
+            "owner_display_name": (provider_team.owner_display_name),
+            "logo_url": provider_team.logo_url,
+            "is_active": provider_team.is_active,
+            "wins": provider_team.wins,
+            "losses": provider_team.losses,
+            "ties": provider_team.ties,
+            "points_for": provider_team.points_for,
+            "points_against": (provider_team.points_against),
+        }
+
+        statement = (
+            insert(Team)
+            .values(**values)
+            .on_conflict_do_update(
+                constraint=("uq_teams_season_provider_team"),
+                set_={
+                    "espn_team_id": (legacy_espn_team_id),
+                    "name": provider_team.name,
+                    "abbreviation": (provider_team.abbreviation),
+                    "owner_display_name": (provider_team.owner_display_name),
+                    "logo_url": (provider_team.logo_url),
+                    "is_active": (provider_team.is_active),
+                    "wins": provider_team.wins,
+                    "losses": provider_team.losses,
+                    "ties": provider_team.ties,
+                    "points_for": (provider_team.points_for),
+                    "points_against": (provider_team.points_against),
+                    "updated_at": datetime.now(UTC),
+                },
+            )
+            .returning(Team.id)
+        )
+
+        team_id = self.session.execute(statement).scalar_one()
+
+        return self.session.get_one(
+            Team,
+            team_id,
+        )
+
+    def upsert_teams(
+        self,
+        *,
+        context: ProviderSyncContext,
+        provider_teams: tuple[ProviderTeam, ...],
+    ) -> tuple[Team, ...]:
+        """Upsert a canonical season team collection."""
+
+        provider_team_ids = [team.provider_team_id for team in provider_teams]
+
+        if len(provider_team_ids) != len(set(provider_team_ids)):
+            raise ProviderSyncContextError(
+                "Provider team collection contains duplicate provider IDs."
+            )
+
+        return tuple(
+            self.upsert_team(
+                context=context,
+                provider_team=provider_team,
+            )
+            for provider_team in provider_teams
+        )
+
     def get_team_map(
         self,
         *,
@@ -270,3 +355,31 @@ class ProviderSyncRepository:
         sync_run.completed_at = datetime.now(UTC)
         sync_run.safe_error_message = normalized_message[:1000]
         sync_run.analytics_rebuilt = False
+
+
+def legacy_espn_integer_id(
+    *,
+    provider: FantasyProvider,
+    provider_id: str,
+    field_name: str,
+) -> int:
+    """Return the transitional ESPN integer identifier."""
+
+    if provider is not FantasyProvider.ESPN:
+        raise ProviderSyncContextError(
+            f"{field_name} cannot populate the required legacy ESPN column for a non-ESPN provider."
+        )
+
+    try:
+        parsed = int(provider_id)
+    except ValueError as exc:
+        raise ProviderSyncContextError(
+            f"{field_name} must be numeric during the ESPN compatibility period."
+        ) from exc
+
+    if parsed < 1:
+        raise ProviderSyncContextError(
+            f"{field_name} must be positive during the ESPN compatibility period."
+        )
+
+    return parsed
