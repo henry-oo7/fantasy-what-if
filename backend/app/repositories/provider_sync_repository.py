@@ -14,6 +14,7 @@ from app.db.models import (
     League,
     Matchup,
     PlayerWeekScore,
+    ScheduleRule,
     Season,
     SyncRun,
     SyncStatus,
@@ -24,7 +25,9 @@ from app.db.platform_models import (
     ProviderConnection,
 )
 from app.providers.domain import (
+    ProviderLeague,
     ProviderMatchup,
+    ProviderScheduleRules,
     ProviderTeam,
     ProviderWeeklyRoster,
 )
@@ -160,6 +163,100 @@ class ProviderSyncRepository:
         )
 
         return context
+
+    def update_season_configuration(
+        self,
+        *,
+        context: ProviderSyncContext,
+        provider_league: ProviderLeague,
+    ) -> None:
+        """Update canonical league and season configuration."""
+
+        if provider_league.provider_league_id != context.provider_league_id:
+            raise ProviderSyncContextError(
+                "Provider league identity does not match the synchronization context."
+            )
+
+        if provider_league.provider_season_id != context.provider_season_id:
+            raise ProviderSyncContextError(
+                "Provider season identity does not match the synchronization context."
+            )
+
+        if provider_league.season_year != context.season.year:
+            raise ProviderSyncContextError(
+                "Provider season year does not match the synchronization context."
+            )
+
+        context.league.name = provider_league.name
+        context.league.logo_url = provider_league.logo_url
+
+        context.season.current_week = provider_league.current_week
+        context.season.regular_season_weeks = provider_league.regular_season_weeks
+        context.season.playoff_week_start = provider_league.playoff_week_start
+        context.season.playoff_week_end = provider_league.playoff_week_end
+        context.season.team_count = len(provider_league.teams)
+        context.season.scoring_type = provider_league.scoring_type
+
+        capabilities = provider_league.capabilities
+
+        context.season.supports_head_to_head = capabilities.supports_head_to_head
+        context.season.supports_weekly_matchups = capabilities.supports_weekly_matchups
+        context.season.supports_lineup_history = capabilities.supports_lineup_history
+        context.season.supports_optimal_lineups = capabilities.supports_optimal_lineups
+        context.season.supports_schedule_swap = capabilities.supports_schedule_swap
+        context.season.supports_all_play = capabilities.supports_all_play
+        context.season.supports_league_average = capabilities.supports_league_average
+        context.season.supports_team_logos = capabilities.supports_team_logos
+
+        self.upsert_schedule_rule(
+            context=context,
+            schedule_rules=(provider_league.schedule_rules),
+        )
+
+    def upsert_schedule_rule(
+        self,
+        *,
+        context: ProviderSyncContext,
+        schedule_rules: ProviderScheduleRules,
+    ) -> ScheduleRule:
+        """Upsert one season-owned canonical schedule rule."""
+
+        statement = (
+            insert(ScheduleRule)
+            .values(
+                season_id=context.season_id,
+                regular_season_weeks=(schedule_rules.regular_season_weeks),
+                playoff_week_start=(schedule_rules.playoff_week_start),
+                playoff_week_end=(schedule_rules.playoff_week_end),
+                has_divisions=(schedule_rules.has_divisions),
+                has_median_game=(schedule_rules.has_median_game),
+                has_doubleheaders=(schedule_rules.has_doubleheaders),
+                allows_ties=(schedule_rules.allows_ties),
+                metadata=dict(schedule_rules.metadata),
+            )
+            .on_conflict_do_update(
+                constraint=("uq_schedule_rules_season"),
+                set_={
+                    "regular_season_weeks": (schedule_rules.regular_season_weeks),
+                    "playoff_week_start": (schedule_rules.playoff_week_start),
+                    "playoff_week_end": (schedule_rules.playoff_week_end),
+                    "has_divisions": (schedule_rules.has_divisions),
+                    "has_median_game": (schedule_rules.has_median_game),
+                    "has_doubleheaders": (schedule_rules.has_doubleheaders),
+                    "allows_ties": (schedule_rules.allows_ties),
+                    "metadata": dict(schedule_rules.metadata),
+                    "updated_at": datetime.now(UTC),
+                },
+            )
+            .returning(ScheduleRule.id)
+        )
+
+        rule_id = self.session.execute(statement).scalar_one()
+
+        return self.session.get_one(
+            ScheduleRule,
+            rule_id,
+        )
 
     def upsert_team(
         self,
