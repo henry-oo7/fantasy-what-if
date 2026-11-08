@@ -140,9 +140,78 @@ def test_admin_can_trigger_incremental_sync() -> None:
 
     payload = response.json()
 
+    assert payload["provider"] == "espn"
+    assert payload["season_id"] == 1
+    assert payload["provider_league_id"] == "529250970"
+    assert payload["provider_season_id"] == "2026"
     assert payload["full_sync"] is False
     assert payload["player_weeks"] == [7, 8]
     assert payload["teams_upserted"] == 12
+
+
+def test_admin_sync_response_accepts_nonnumeric_provider_ids() -> None:
+    def sleeper_runner(
+        *,
+        full_sync: bool,
+    ) -> ProviderSyncResult:
+        return ProviderSyncResult(
+            provider=FantasyProvider.SLEEPER,
+            season_id=17,
+            provider_league_id="league-alpha",
+            provider_season_id="season-2026",
+            current_week=9,
+            full_sync=full_sync,
+            matchup_weeks=tuple(range(1, 9)),
+            player_weeks=(7, 8),
+            teams_upserted=12,
+            matchups_upserted=48,
+            fantasy_byes_upserted=0,
+            player_week_scores_upserted=384,
+            analytics_rebuilt=False,
+        )
+
+    app.dependency_overrides[get_current_user] = override_admin
+    app.dependency_overrides[require_session_csrf] = override_csrf
+    app.dependency_overrides[get_synchronization_runner] = lambda: sleeper_runner
+
+    try:
+        response = client.post(
+            "/api/admin/sync",
+            headers={
+                "Origin": "http://localhost:5173",
+            },
+            json={
+                "full_sync": False,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+        app.dependency_overrides.pop(
+            require_session_csrf,
+            None,
+        )
+        app.dependency_overrides.pop(
+            get_synchronization_runner,
+            None,
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+
+    payload = response.json()
+
+    assert payload["provider"] == "sleeper"
+    assert payload["season_id"] == 17
+    assert payload["provider_league_id"] == "league-alpha"
+    assert payload["provider_season_id"] == "season-2026"
+    assert payload["current_week"] == 9
+    assert payload["full_sync"] is False
+    assert payload["player_weeks"] == [7, 8]
+    assert payload["teams_upserted"] == 12
+    assert payload["matchups_upserted"] == 48
+    assert payload["player_week_scores_upserted"] == 384
 
 
 def test_member_cannot_trigger_sync() -> None:

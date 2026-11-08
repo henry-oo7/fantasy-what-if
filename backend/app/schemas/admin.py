@@ -29,8 +29,10 @@ class SyncRequest(BaseModel):
 
 
 class SyncResultResponse(BaseModel):
-    league_id: int
-    season: int
+    provider: str
+    season_id: int
+    provider_league_id: str
+    provider_season_id: str
     current_week: int
     full_sync: bool
     player_weeks: tuple[int, ...]

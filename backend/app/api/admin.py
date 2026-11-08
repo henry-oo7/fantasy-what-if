@@ -110,18 +110,11 @@ def run_admin_synchronization(
             detail=("Unable to synchronize fantasy provider data."),
         ) from exc
 
-    try:
-        legacy_league_id = int(result.provider_league_id)
-        legacy_season = int(result.provider_season_id)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=("The current admin sync response supports numeric provider identifiers only."),
-        ) from exc
-
     return SyncResultResponse(
-        league_id=legacy_league_id,
-        season=legacy_season,
+        provider=result.provider.value,
+        season_id=result.season_id,
+        provider_league_id=(result.provider_league_id),
+        provider_season_id=(result.provider_season_id),
         current_week=result.current_week,
         full_sync=result.full_sync,
         player_weeks=result.player_weeks,
