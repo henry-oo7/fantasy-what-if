@@ -495,10 +495,9 @@ class ProviderSyncRepository:
             seen_team_weeks.add(team_week)
 
             for player in provider_roster.players:
-                legacy_espn_integer_id(
+                legacy_espn_player_integer_id(
                     provider=context.provider,
-                    provider_id=(player.provider_player_id),
-                    field_name="provider_player_id",
+                    provider_id=player.provider_player_id,
                 )
 
             resolved_rosters.append(
@@ -523,10 +522,9 @@ class ProviderSyncRepository:
             database_team,
         ) in resolved_rosters:
             for player in provider_roster.players:
-                legacy_player_id = legacy_espn_integer_id(
+                legacy_player_id = legacy_espn_player_integer_id(
                     provider=context.provider,
                     provider_id=(player.provider_player_id),
-                    field_name=("provider_player_id"),
                 )
 
                 raw_metadata = dict(player.metadata)
@@ -677,6 +675,31 @@ class ProviderSyncRepository:
         sync_run.completed_at = datetime.now(UTC)
         sync_run.safe_error_message = normalized_message[:1000]
         sync_run.analytics_rebuilt = False
+
+
+def legacy_espn_player_integer_id(
+    *,
+    provider: FantasyProvider,
+    provider_id: str,
+) -> int:
+    """Return a signed ESPN player compatibility identifier.
+
+    ESPN assigns negative integer identifiers to NFL defenses,
+    including values such as -16001 for the Falcons D/ST.
+    """
+
+    if provider is not FantasyProvider.ESPN:
+        raise ProviderSyncContextError(
+            "provider_player_id cannot populate the required "
+            "legacy ESPN column for a non-ESPN provider."
+        )
+
+    try:
+        return int(provider_id)
+    except ValueError as exc:
+        raise ProviderSyncContextError(
+            "provider_player_id must be an integer during the ESPN compatibility period."
+        ) from exc
 
 
 def legacy_espn_integer_id(

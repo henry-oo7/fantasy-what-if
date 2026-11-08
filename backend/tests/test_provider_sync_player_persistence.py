@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db import model_registry  # noqa: F401
 from app.db.models import PlayerWeekScore
+from app.db.platform_enums import FantasyProvider
 from app.db.session import engine
 from app.providers.domain import (
     ProviderPlayerWeek,
@@ -14,6 +15,7 @@ from app.providers.domain import (
 from app.repositories.provider_sync_repository import (
     ProviderSyncContextError,
     ProviderSyncRepository,
+    legacy_espn_player_integer_id,
 )
 
 
@@ -80,6 +82,58 @@ def player_week_count(
         statement = statement.where(PlayerWeekScore.week == week)
 
     return int(session.scalar(statement) or 0)
+
+
+def test_negative_espn_defense_id_is_valid() -> None:
+    assert (
+        legacy_espn_player_integer_id(
+            provider=FantasyProvider.ESPN,
+            provider_id="-16001",
+        )
+        == -16001
+    )
+
+
+def test_positive_espn_player_id_is_valid() -> None:
+    assert (
+        legacy_espn_player_integer_id(
+            provider=FantasyProvider.ESPN,
+            provider_id="4426515",
+        )
+        == 4426515
+    )
+
+
+def test_zero_espn_player_id_is_valid() -> None:
+    assert (
+        legacy_espn_player_integer_id(
+            provider=FantasyProvider.ESPN,
+            provider_id="0",
+        )
+        == 0
+    )
+
+
+def test_nonnumeric_espn_player_id_is_rejected() -> None:
+    with pytest.raises(
+        ProviderSyncContextError,
+        match="must be an integer",
+    ):
+        legacy_espn_player_integer_id(
+            provider=FantasyProvider.ESPN,
+            provider_id="not-numeric",
+        )
+
+
+def test_non_espn_player_compatibility_is_rejected() -> None:
+    with pytest.raises(
+        ProviderSyncContextError,
+        match="non-ESPN",
+    ):
+        legacy_espn_player_integer_id(
+            provider=FantasyProvider.SLEEPER,
+            provider_id="12345",
+        )
 
 
 def test_player_week_replacement_is_idempotent(
@@ -265,7 +319,7 @@ def test_nonnumeric_player_id_is_rejected_before_deletion(
 
     with pytest.raises(
         ProviderSyncContextError,
-        match="numeric",
+        match="must be an integer",
     ):
         repository.replace_player_week_scores(
             context=context,
