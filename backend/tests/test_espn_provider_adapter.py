@@ -23,7 +23,7 @@ class FakeTeam:
     points_for: float = 1012.34
     points_against: float = 998.76
     team_abbrev: str | None = "EVN"
-    owner: str | None = "League Manager"
+    owner: object | None = "League Manager"
     logo_url: str | None = None
 
 
@@ -98,6 +98,73 @@ def test_team_conversion_uses_string_identifier() -> None:
     assert team.points_for == Decimal("1012.34")
     assert team.points_against == Decimal("998.76")
     assert team.metadata["provider"] == "espn"
+
+
+def test_team_owner_dictionary_uses_display_name() -> None:
+    team = create_provider_team(
+        FakeTeam(
+            team_id=2,
+            team_name="STAIRWAY TO EVANS",
+            owner={
+                "displayName": "espn97319207",
+                "firstName": "Jimmy",
+                "lastName": "HA",
+                "notificationSettings": [
+                    {
+                        "enabled": True,
+                        "type": "WAIVERS",
+                    }
+                ],
+            },
+        )
+    )
+
+    assert team.owner_display_name == "espn97319207"
+
+
+def test_team_owner_dictionary_uses_name_fallback() -> None:
+    team = create_provider_team(
+        FakeTeam(
+            team_id=2,
+            team_name="STAIRWAY TO EVANS",
+            owner={
+                "firstName": "Jimmy",
+                "lastName": "HA",
+            },
+        )
+    )
+
+    assert team.owner_display_name == "Jimmy HA"
+
+
+def test_team_owner_list_is_normalized() -> None:
+    team = create_provider_team(
+        FakeTeam(
+            team_id=2,
+            team_name="STAIRWAY TO EVANS",
+            owner=[
+                {"displayName": "Owner One"},
+                {"displayName": "Owner Two"},
+            ],
+        )
+    )
+
+    assert team.owner_display_name == "Owner One, Owner Two"
+
+
+def test_team_owner_value_is_bounded() -> None:
+    team = create_provider_team(
+        FakeTeam(
+            team_id=2,
+            team_name="STAIRWAY TO EVANS",
+            owner={
+                "displayName": "x" * 400,
+            },
+        )
+    )
+
+    assert team.owner_display_name is not None
+    assert len(team.owner_display_name) == 255
 
 
 def test_completed_matchup_conversion() -> None:

@@ -90,6 +90,50 @@ def first_optional_attribute(
     return None
 
 
+def owner_display_name(
+    value: object | None,
+) -> str | None:
+    """Extract a bounded display name from ESPN owner data."""
+
+    if value is None:
+        return None
+
+    if isinstance(value, dict):
+        display_name = optional_text(value.get("displayName"))
+
+        if display_name is not None:
+            return display_name[:255]
+
+        name_parts = tuple(
+            normalized
+            for field_name in (
+                "firstName",
+                "lastName",
+            )
+            if (normalized := optional_text(value.get(field_name))) is not None
+        )
+
+        if name_parts:
+            return " ".join(name_parts)[:255]
+
+        return None
+
+    if isinstance(value, (list, tuple)):
+        names = tuple(name for owner in value if (name := owner_display_name(owner)) is not None)
+
+        if not names:
+            return None
+
+        return ", ".join(names)[:255]
+
+    normalized = optional_text(value)
+
+    if normalized is None:
+        return None
+
+    return normalized[:255]
+
+
 def create_provider_team(
     team: EspnTeam,
 ) -> ProviderTeam:
@@ -106,12 +150,7 @@ def create_provider_team(
         ),
     )
 
-    if isinstance(owner_value, (list, tuple)):
-        owner_display_name = (
-            ", ".join(str(owner).strip() for owner in owner_value if str(owner).strip()) or None
-        )
-    else:
-        owner_display_name = optional_text(owner_value)
+    normalized_owner_display_name = owner_display_name(owner_value)
 
     abbreviation = optional_text(
         first_optional_attribute(
@@ -137,7 +176,7 @@ def create_provider_team(
         provider_team_id=provider_team_id,
         name=str(team.team_name).strip(),
         abbreviation=abbreviation,
-        owner_display_name=owner_display_name,
+        owner_display_name=(normalized_owner_display_name),
         logo_url=logo_url,
         wins=int(team.wins),
         losses=int(team.losses),
