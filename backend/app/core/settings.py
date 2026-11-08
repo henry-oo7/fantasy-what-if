@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     espn_s2: SecretStr
     espn_swid: SecretStr
 
+    provider_credential_key: SecretStr | None = None
+
     database_url: str
     database_echo: bool = False
 
@@ -104,6 +106,35 @@ class Settings(BaseSettings):
             raise ValueError("Secret values cannot be empty.")
 
         return SecretStr(secret)
+
+    @field_validator("provider_credential_key")
+    @classmethod
+    def validate_provider_credential_key(
+        cls,
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        """Validate an optional Fernet provider credential key."""
+
+        if value is None:
+            return None
+
+        normalized = value.get_secret_value().strip()
+
+        if not normalized:
+            return None
+
+        try:
+            from cryptography.fernet import Fernet
+
+            Fernet(normalized.encode("ascii"))
+        except (
+            TypeError,
+            ValueError,
+            UnicodeEncodeError,
+        ) as exc:
+            raise ValueError("PROVIDER_CREDENTIAL_KEY must be a valid Fernet key.") from exc
+
+        return SecretStr(normalized)
 
     @field_validator("espn_swid")
     @classmethod
