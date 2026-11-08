@@ -75,8 +75,8 @@ class Settings(BaseSettings):
 
     espn_league_id: int = Field(gt=0)
     espn_season: int = Field(ge=2018)
-    espn_s2: SecretStr
-    espn_swid: SecretStr
+    espn_s2: SecretStr | None = None
+    espn_swid: SecretStr | None = None
 
     provider_credential_key: SecretStr | None = None
 
@@ -90,20 +90,35 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator(
-        "app_secret_key",
-        "espn_s2",
-        "espn_swid",
-    )
+    @field_validator("app_secret_key")
     @classmethod
-    def normalize_secrets(
+    def normalize_app_secret(
         cls,
         value: SecretStr,
     ) -> SecretStr:
         secret = value.get_secret_value().strip()
 
         if not secret:
-            raise ValueError("Secret values cannot be empty.")
+            raise ValueError("APP_SECRET_KEY cannot be empty.")
+
+        return SecretStr(secret)
+
+    @field_validator(
+        "espn_s2",
+        "espn_swid",
+    )
+    @classmethod
+    def normalize_optional_espn_secret(
+        cls,
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        if value is None:
+            return None
+
+        secret = value.get_secret_value().strip()
+
+        if not secret:
+            return None
 
         return SecretStr(secret)
 
@@ -140,8 +155,11 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_swid(
         cls,
-        value: SecretStr,
-    ) -> SecretStr:
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        if value is None:
+            return None
+
         swid = value.get_secret_value()
 
         if not swid.startswith("{"):

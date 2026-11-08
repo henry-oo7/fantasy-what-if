@@ -179,12 +179,20 @@ def resolve_connection_credentials(
         )
 
     if connection.provider is FantasyProvider.ESPN:
+        espn_s2 = settings.espn_s2
+        espn_swid = settings.espn_swid
+
+        if espn_s2 is None or espn_swid is None:
+            raise ProviderAdapterResolutionError(
+                "The ESPN environment fallback requires both ESPN_S2 and ESPN_SWID."
+            )
+
         return (
             credentials_from_values(
                 league_id=(season.league.provider_league_id),
                 season=season.provider_season_id,
-                espn_s2=(settings.espn_s2.get_secret_value()),
-                swid=(settings.espn_swid.get_secret_value()),
+                espn_s2=(espn_s2.get_secret_value()),
+                swid=(espn_swid.get_secret_value()),
             ),
             "environment_fallback",
         )

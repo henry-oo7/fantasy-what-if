@@ -96,6 +96,24 @@ def test_environment_fallback_builds_espn_credentials() -> None:
     }
 
 
+def test_environment_fallback_requires_both_secrets() -> None:
+    incomplete_settings = SimpleNamespace(
+        provider_credential_key=None,
+        espn_s2=None,
+        espn_swid=None,
+    )
+
+    with pytest.raises(
+        ProviderAdapterResolutionError,
+        match="requires both",
+    ):
+        resolve_connection_credentials(
+            connection=connection(),
+            season=season(),
+            settings=incomplete_settings,
+        )
+
+
 def test_stored_credentials_take_precedence() -> None:
     key = Fernet.generate_key().decode("ascii")
     vault = ProviderCredentialVault(
