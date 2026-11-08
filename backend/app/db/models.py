@@ -48,9 +48,9 @@ class League(TimestampMixin, Base):
     __tablename__ = "leagues"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    espn_league_id: Mapped[int] = mapped_column(
+    espn_league_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        nullable=False,
+        nullable=True,
         unique=True,
         index=True,
     )
@@ -334,7 +334,10 @@ class Team(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    espn_team_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    espn_team_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
     provider_team_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -490,7 +493,10 @@ class PlayerWeekScore(TimestampMixin, Base):
     )
     week: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
-    espn_player_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    espn_player_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
     provider_player_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
