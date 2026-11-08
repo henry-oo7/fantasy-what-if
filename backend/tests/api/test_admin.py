@@ -65,7 +65,7 @@ def override_admin() -> User:
 
 
 def override_member() -> User:
-    return create_user(role=UserRole.MEMBER)
+    return create_user(role=UserRole.SPECTATOR)
 
 
 def override_csrf() -> None:

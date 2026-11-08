@@ -76,7 +76,7 @@ class AuthenticationRepository:
         display_name: str,
         password: str,
         email: str | None = None,
-        role: UserRole = UserRole.MEMBER,
+        role: UserRole = UserRole.SPECTATOR,
         is_active: bool = True,
     ) -> User:
         normalized_username = normalize_username(username)

@@ -153,7 +153,7 @@ def test_login_me_and_logout_flow(
     )
 
     assert payload["user"]["username"] == username
-    assert payload["user"]["role"] == "member"
+    assert payload["user"]["role"] == "spectator"
     assert "fantasy_session" in client.cookies
     assert "fantasy_session_csrf" in client.cookies
 

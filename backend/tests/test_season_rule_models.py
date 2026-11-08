@@ -35,7 +35,7 @@ def test_dynamic_rule_tables_are_registered() -> None:
     }
 
     assert required_tables.issubset(Base.metadata.tables)
-    assert len(Base.metadata.tables) == 17
+    assert len(Base.metadata.tables) == 15
 
 
 def test_lineup_slot_definition_fields() -> None:
