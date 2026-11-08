@@ -26,23 +26,6 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface RegistrationRequest {
-  invitation_token: string;
-  username: string;
-  display_name: string;
-  email: string | null;
-  password: string;
-}
-
-export interface InvitationValidation {
-  valid: boolean;
-  team_id: number;
-  team_name: string;
-  season: number;
-  intended_display_name: string | null;
-  expires_at: string;
-}
-
 export interface LogoutResponse {
   logged_out: boolean;
 }

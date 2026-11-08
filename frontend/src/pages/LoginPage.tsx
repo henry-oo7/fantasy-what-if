@@ -109,8 +109,8 @@ export function LoginPage() {
         </p>
 
         <ul className="auth-feature-list">
-          <li>Invite-only league access</li>
-          <li>Weekly ESPN data synchronization</li>
+          <li>Administrator and spectator access</li>
+          <li>Provider-backed weekly synchronization</li>
           <li>Secure server-side sessions</li>
         </ul>
       </section>
@@ -124,7 +124,7 @@ export function LoginPage() {
         </div>
 
         <p className="section-label">
-          League members
+          Private league access
         </p>
 
         <h2 id="login-heading">
@@ -132,8 +132,8 @@ export function LoginPage() {
         </h2>
 
         <p className="auth-card-copy">
-          Use the account created from your
-          private league invitation.
+          Sign in with the administrator or spectator
+          account configured for this installation.
         </p>
 
         <form
@@ -200,8 +200,8 @@ export function LoginPage() {
         </form>
 
         <p className="auth-help">
-          Registration requires a private
-          invitation from the league administrator.
+          Account access is managed by the
+          installation administrator.
         </p>
       </section>
     </main>

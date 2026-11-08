@@ -8,7 +8,6 @@ import {
   Menu,
   ShieldCheck,
   Target,
-  UserPlus,
   X,
 } from "lucide-react";
 import {
@@ -266,21 +265,6 @@ export function AppShell() {
             <span className="navigation-section-label">
               Administration
             </span>
-
-            <NavLink
-                to="/admin/invitations"
-                onClick={() => {
-                  setDrawerOpen(false);
-                }}
-                className={({ isActive }) =>
-                  isActive
-                    ? "sidebar-link sidebar-link-active"
-                    : "sidebar-link"
-                }
-              >
-                <UserPlus aria-hidden="true" />
-                <span>Invitations</span>
-              </NavLink>
 
           </nav>
         ) : null}

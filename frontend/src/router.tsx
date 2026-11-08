@@ -8,11 +8,9 @@ import App from "./App";
 import { AllPlayPage } from "./pages/AllPlayPage";
 import { LeagueAveragePage } from "./pages/LeagueAveragePage";
 import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
-import { AdminInvitationsPage } from "./pages/AdminInvitationsPage";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
 import { LoginPage } from "./pages/LoginPage";
-import { RegisterPage } from "./pages/RegisterPage";
 import {
   ScheduleSwapPage,
 } from "./pages/ScheduleSwapPage";
@@ -23,11 +21,6 @@ export function AppRouter() {
       <Route
         path="/login"
         element={<LoginPage />}
-      />
-
-      <Route
-        path="/register"
-        element={<RegisterPage />}
       />
 
       <Route
@@ -70,11 +63,6 @@ export function AppRouter() {
               replace
             />
           }
-        />
-
-        <Route
-          path="admin/invitations"
-          element={<AdminInvitationsPage />}
         />
       </Route>
 
