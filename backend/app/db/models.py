@@ -91,6 +91,7 @@ class League(TimestampMixin, Base):
 
     installation: Mapped[Installation | None] = relationship(
         back_populates="leagues",
+        foreign_keys=[installation_id],
     )
     seasons: Mapped[list[Season]] = relationship(
         back_populates="league",
@@ -147,6 +148,12 @@ class Season(TimestampMixin, Base):
             "league_id",
             "year",
             name="uq_seasons_league_year",
+        ),
+        sa.Index(
+            "uq_seasons_one_active_per_league",
+            "league_id",
+            unique=True,
+            postgresql_where=sa.text("status = 'active'::season_status"),
         ),
     )
 
@@ -550,6 +557,34 @@ class SyncRun(Base):
         nullable=True,
         index=True,
     )
+    provider_connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "provider_connections.id",
+            name=("fk_sync_runs_provider_connection_id_provider_connections"),
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
+    provider: Mapped[FantasyProvider | None] = mapped_column(
+        Enum(
+            FantasyProvider,
+            name="fantasy_provider",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
+        index=True,
+    )
+    provider_request_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+    analytics_rebuilt: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -602,6 +637,9 @@ class SyncRun(Base):
     )
 
     season: Mapped[Season | None] = relationship(
+        back_populates="sync_runs",
+    )
+    provider_connection: Mapped[ProviderConnection | None] = relationship(
         back_populates="sync_runs",
     )
 

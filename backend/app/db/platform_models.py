@@ -28,7 +28,7 @@ from app.db.platform_enums import (
 )
 
 if TYPE_CHECKING:
-    from app.db.models import League, Season
+    from app.db.models import League, Season, SyncRun
 
 
 class Installation(TimestampMixin, Base):
@@ -77,6 +77,26 @@ class Installation(TimestampMixin, Base):
         nullable=True,
     )
 
+    active_league_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "leagues.id",
+            name=("fk_installations_active_league_id_leagues"),
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
+
+    active_season_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "seasons.id",
+            name=("fk_installations_active_season_id_seasons"),
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
+
     provider_connections: Mapped[list[ProviderConnection]] = relationship(
         back_populates="installation",
         cascade="all, delete-orphan",
@@ -85,6 +105,17 @@ class Installation(TimestampMixin, Base):
     leagues: Mapped[list[League]] = relationship(
         back_populates="installation",
         cascade="all, delete-orphan",
+        foreign_keys="League.installation_id",
+    )
+
+    active_league: Mapped[League | None] = relationship(
+        foreign_keys=[active_league_id],
+        post_update=True,
+    )
+
+    active_season: Mapped[Season | None] = relationship(
+        foreign_keys=[active_season_id],
+        post_update=True,
     )
 
 
@@ -155,5 +186,9 @@ class ProviderConnection(TimestampMixin, Base):
     )
 
     seasons: Mapped[list[Season]] = relationship(
+        back_populates="provider_connection",
+    )
+
+    sync_runs: Mapped[list[SyncRun]] = relationship(
         back_populates="provider_connection",
     )
