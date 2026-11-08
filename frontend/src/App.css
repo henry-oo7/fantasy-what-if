@@ -107,8 +107,7 @@
 
 .team-stat-grid {
   display: grid;
-  grid-template-columns:
-    repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   background: rgba(255, 255, 255, 0.09);
   border-radius: var(--radius-medium);
 }
@@ -133,19 +132,9 @@
   font-size: 1.05rem;
 }
 
-.team-hero-admin {
-  grid-template-columns: 1fr;
-}
-
-.team-hero-admin p:last-child {
-  margin: 12px 0 0;
-  color: #b8d9c5;
-}
-
 .dashboard-summary-grid {
   display: grid;
-  grid-template-columns:
-    repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -241,8 +230,7 @@
 
 .standing-row {
   display: grid;
-  grid-template-columns:
-    32px minmax(0, 1fr) auto auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: center;
   min-height: 57px;
@@ -252,12 +240,6 @@
 
 .standing-row:last-child {
   border-bottom: 0;
-}
-
-.standing-row-current {
-  background: var(--color-green-50);
-  box-shadow:
-    inset 3px 0 0 var(--color-green-600);
 }
 
 .standing-rank {
@@ -436,8 +418,7 @@
   .team-stat {
     grid-template-columns: 1fr auto;
     border-right: 0;
-    border-bottom:
-      1px solid rgba(255, 255, 255, 0.12);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   }
 
   .team-stat:last-child {
@@ -457,8 +438,7 @@
   }
 
   .standing-row {
-    grid-template-columns:
-      26px minmax(0, 1fr) auto;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
     padding: 8px 14px;
   }
 
@@ -492,10 +472,7 @@
 }
 
 .standing-team strong {
-  font-family:
-    "Barlow Condensed",
-    "Arial Narrow",
-    sans-serif;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.01em;

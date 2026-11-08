@@ -7,9 +7,6 @@ export interface AuthenticatedUser {
   email: string | null;
   role: UserRole;
   is_active: boolean;
-  team_id: number | null;
-  team_name: string | null;
-  season: number | null;
 }
 
 export interface AuthenticationResponse {

@@ -10,11 +10,7 @@ import {
   Target,
   X,
 } from "lucide-react";
-import {
-  NavLink,
-  Outlet,
-  useNavigate,
-} from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { currentLeagueQueryOptions } from "../../api/league";
 import { useAuth } from "../../auth/AuthProvider";
@@ -59,15 +55,10 @@ const navigationItems: NavigationItem[] = [
 export function AppShell() {
   const auth = useAuth();
   const navigate = useNavigate();
-  const leagueQuery = useQuery(
-    currentLeagueQueryOptions(),
-  );
-  const [drawerOpen, setDrawerOpen] =
-    useState(false);
-  const [loggingOut, setLoggingOut] =
-    useState(false);
-  const [logoutError, setLogoutError] =
-    useState<string | null>(null);
+  const leagueQuery = useQuery(currentLeagueQueryOptions());
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -80,16 +71,10 @@ export function AppShell() {
       }
     }
 
-    document.addEventListener(
-      "keydown",
-      handleEscape,
-    );
+    document.addEventListener("keydown", handleEscape);
 
     return () => {
-      document.removeEventListener(
-        "keydown",
-        handleEscape,
-      );
+      document.removeEventListener("keydown", handleEscape);
     };
   }, [drawerOpen]);
 
@@ -108,19 +93,14 @@ export function AppShell() {
         replace: true,
       });
     } catch {
-      setLogoutError(
-        "Unable to sign out. Please try again.",
-      );
+      setLogoutError("Unable to sign out. Please try again.");
     } finally {
       setLoggingOut(false);
     }
   }
 
   const userInitial =
-    auth.user.display_name
-      .trim()
-      .charAt(0)
-      .toUpperCase() || "U";
+    auth.user.display_name.trim().charAt(0).toUpperCase() || "U";
 
   return (
     <div className="application-shell">
@@ -146,10 +126,7 @@ export function AppShell() {
           <span>Fantasy What-If</span>
         </div>
 
-        <div
-          className="mobile-user-avatar"
-          aria-label={auth.user.display_name}
-        >
+        <div className="mobile-user-avatar" aria-label={auth.user.display_name}>
           {userInitial}
         </div>
       </header>
@@ -201,26 +178,13 @@ export function AppShell() {
         </div>
 
         <div className="sidebar-league">
-          <strong>
-            {leagueQuery.data?.name ??
-              "Jimmy and Friends"}
-          </strong>
+          <strong>{leagueQuery.data?.name ?? "Jimmy and Friends"}</strong>
 
-          <small>
-            {leagueQuery.data?.season ??
-              auth.user.season ??
-              "Current"}{" "}
-            season
-          </small>
+          <small>{leagueQuery.data?.season ?? "Current"} season</small>
         </div>
 
-        <nav
-          className="sidebar-navigation"
-          aria-label="Primary navigation"
-        >
-          <span className="navigation-section-label">
-            League
-          </span>
+        <nav className="sidebar-navigation" aria-label="Primary navigation">
+          <span className="navigation-section-label">League</span>
 
           {navigationItems.map((item) => {
             const Icon = item.icon;
@@ -234,9 +198,7 @@ export function AppShell() {
                   setDrawerOpen(false);
                 }}
                 className={({ isActive }) =>
-                  isActive
-                    ? "sidebar-link sidebar-link-active"
-                    : "sidebar-link"
+                  isActive ? "sidebar-link sidebar-link-active" : "sidebar-link"
                 }
               >
                 <Icon aria-hidden="true" />
@@ -246,9 +208,7 @@ export function AppShell() {
           })}
 
           <div className="sidebar-coming-soon">
-            <span className="navigation-section-label">
-              Coming next
-            </span>
+            <span className="navigation-section-label">Coming next</span>
 
             <div className="disabled-navigation-item">
               <BarChart3 aria-hidden="true" />
@@ -257,43 +217,22 @@ export function AppShell() {
           </div>
         </nav>
 
-        {auth.user.role === "admin" ? (
-          <nav
-            className="sidebar-admin-navigation"
-            aria-label="Administration"
-          >
-            <span className="navigation-section-label">
-              Administration
-            </span>
-
-          </nav>
-        ) : null}
-
         <div className="sidebar-account">
           <div className="sidebar-user">
-            <div
-              className="sidebar-user-avatar"
-              aria-hidden="true"
-            >
+            <div className="sidebar-user-avatar" aria-hidden="true">
               {userInitial}
             </div>
 
             <div className="sidebar-user-details">
-              <strong>
-                {auth.user.display_name}
-              </strong>
+              <strong>{auth.user.display_name}</strong>
 
               <span>
-                {auth.user.team_name ??
-                  `@${auth.user.username}`}
+                {auth.user.role === "admin" ? "Administrator" : "Spectator"}
               </span>
             </div>
 
             {auth.user.role === "admin" ? (
-              <span
-                className="sidebar-admin-icon"
-                title="Administrator"
-              >
+              <span className="sidebar-admin-icon" title="Administrator">
                 <ShieldCheck aria-hidden="true" />
               </span>
             ) : null}
@@ -309,16 +248,11 @@ export function AppShell() {
           >
             <LogOut aria-hidden="true" />
 
-            {loggingOut
-              ? "Signing out..."
-              : "Sign out"}
+            {loggingOut ? "Signing out..." : "Sign out"}
           </button>
 
           {logoutError ? (
-            <p
-              className="sidebar-error"
-              role="alert"
-            >
+            <p className="sidebar-error" role="alert">
               {logoutError}
             </p>
           ) : null}

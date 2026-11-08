@@ -8,9 +8,7 @@ import {
   Trophy,
 } from "lucide-react";
 
-import {
-  currentLeagueQueryOptions,
-} from "./api/league";
+import { currentLeagueQueryOptions } from "./api/league";
 import { ApiError } from "./api/client";
 import { useAuth } from "./auth/AuthProvider";
 import "./App.css";
@@ -29,9 +27,7 @@ function errorMessage(error: unknown): string {
 
 export default function App() {
   const auth = useAuth();
-  const leagueQuery = useQuery(
-    currentLeagueQueryOptions(),
-  );
+  const leagueQuery = useQuery(currentLeagueQueryOptions());
 
   const sortedStandings = useMemo(
     () =>
@@ -46,29 +42,17 @@ export default function App() {
 
   if (leagueQuery.isPending) {
     return (
-      <section
-        className="app-state"
-        aria-live="polite"
-      >
-        <RefreshCw
-          className="spinner"
-          aria-hidden="true"
-        />
+      <section className="app-state" aria-live="polite">
+        <RefreshCw className="spinner" aria-hidden="true" />
         <h1>Loading your league</h1>
-        <p>
-          Preparing current standings and team
-          information.
-        </p>
+        <p>Preparing current standings and team information.</p>
       </section>
     );
   }
 
   if (leagueQuery.isError) {
     return (
-      <section
-        className="app-state"
-        aria-live="assertive"
-      >
+      <section className="app-state" aria-live="assertive">
         <h1>Unable to load the dashboard</h1>
         <p>{errorMessage(leagueQuery.error)}</p>
 
@@ -86,28 +70,8 @@ export default function App() {
 
   const league = leagueQuery.data;
 
-  const currentTeam =
-    auth.user?.team_id === null ||
-    auth.user?.team_id === undefined
-      ? null
-      : league.teams.find(
-          (team) =>
-            team.team_id === auth.user?.team_id,
-        ) ?? null;
-
-  const currentTeamRank =
-    currentTeam === null
-      ? null
-      : sortedStandings.findIndex(
-          (team) =>
-            team.team_id === currentTeam.team_id,
-        ) + 1;
-
   const completedWeeks = Math.max(
-    Math.min(
-      league.current_week - 1,
-      league.regular_season_weeks,
-    ),
+    Math.min(league.current_week - 1, league.regular_season_weeks),
     0,
   );
 
@@ -117,18 +81,12 @@ export default function App() {
     <div className="dashboard-page">
       <header className="dashboard-header">
         <div>
-          <p className="page-kicker">
-            Week {league.current_week}
-          </p>
+          <p className="page-kicker">Week {league.current_week}</p>
 
-          <h1>
-            Welcome back,{" "}
-            {auth.user?.display_name.split(" ")[0]}
-          </h1>
+          <h1>Welcome back, {auth.user?.display_name.split(" ")[0]}</h1>
 
           <p>
-            Here is the latest from{" "}
-            <strong>{league.name}</strong>.
+            Here is the latest from <strong>{league.name}</strong>.
           </p>
         </div>
 
@@ -142,81 +100,63 @@ export default function App() {
         </div>
       </header>
 
-      {currentTeam ? (
-        <section
-          className="team-hero"
-          aria-labelledby="team-heading"
-        >
-          <div className="team-hero-main">
-            <p className="team-label">
-              Your fantasy team
-            </p>
-
-            <h2 id="team-heading">
-              {currentTeam.name}
-            </h2>
-
-            <div className="team-record">
-              <strong>
-                {currentTeam.wins}-
-                {currentTeam.losses}
-                {currentTeam.ties > 0
-                  ? `-${currentTeam.ties}`
-                  : ""}
-              </strong>
-
-              <span>Current record</span>
-            </div>
-          </div>
-
-          <div className="team-stat-grid">
-            <div className="team-stat">
-              <span>League rank</span>
-              <strong>
-                {currentTeamRank
-                  ? `#${currentTeamRank}`
-                  : "N/A"}
-              </strong>
-            </div>
-
-            <div className="team-stat">
-              <span>Points for</span>
-              <strong>
-                {currentTeam.points_for.toFixed(2)}
-              </strong>
-            </div>
-
-            <div className="team-stat">
-              <span>Points against</span>
-              <strong>
-                {currentTeam.points_against.toFixed(
-                  2,
-                )}
-              </strong>
-            </div>
-          </div>
-        </section>
-      ) : (
-        <section className="team-hero team-hero-admin">
-          <div>
-            <p className="team-label">
-              Administrator account
-            </p>
-
-            <h2>League overview access</h2>
-
-            <p>
-              This account is not assigned to a
-              fantasy team.
-            </p>
-          </div>
-        </section>
-      )}
-
       <section
-        className="dashboard-summary-grid"
-        aria-label="League summary"
+        className="team-hero"
+        aria-labelledby="league-leader-heading"
       >
+        <div className="team-hero-main">
+          <p className="team-label">
+            Current league leader
+          </p>
+
+          <h2 id="league-leader-heading">
+            {leagueLeader?.name ?? "Unavailable"}
+          </h2>
+
+          <div className="team-record">
+            <strong>
+              {leagueLeader
+                ? `${leagueLeader.wins}-${leagueLeader.losses}${
+                    leagueLeader.ties > 0
+                      ? `-${leagueLeader.ties}`
+                      : ""
+                  }`
+                : "N/A"}
+            </strong>
+
+            <span>Current record</span>
+          </div>
+        </div>
+
+        <div className="team-stat-grid">
+          <div className="team-stat">
+            <span>League rank</span>
+            <strong>
+              {leagueLeader ? "#1" : "N/A"}
+            </strong>
+          </div>
+
+          <div className="team-stat">
+            <span>Points for</span>
+            <strong>
+              {leagueLeader
+                ? leagueLeader.points_for.toFixed(2)
+                : "N/A"}
+            </strong>
+          </div>
+
+          <div className="team-stat">
+            <span>Points against</span>
+            <strong>
+              {leagueLeader
+                ? leagueLeader.points_against.toFixed(2)
+                : "N/A"}
+            </strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard-summary-grid" aria-label="League summary">
         <article className="summary-card">
           <span className="summary-icon">
             <CalendarDays aria-hidden="true" />
@@ -225,8 +165,7 @@ export default function App() {
           <div>
             <p>Completed weeks</p>
             <strong>
-              {completedWeeks} of{" "}
-              {league.regular_season_weeks}
+              {completedWeeks} of {league.regular_season_weeks}
             </strong>
           </div>
         </article>
@@ -249,9 +188,7 @@ export default function App() {
 
           <div>
             <p>Current leader</p>
-            <strong>
-              {leagueLeader?.name ?? "Unavailable"}
-            </strong>
+            <strong>{leagueLeader?.name ?? "Unavailable"}</strong>
           </div>
         </article>
       </section>
@@ -262,61 +199,43 @@ export default function App() {
       >
         <div className="panel-heading">
           <div>
-            <p className="panel-kicker">
-              Current results
-            </p>
-            <h2 id="standings-heading">
-              League standings
-            </h2>
+            <p className="panel-kicker">Current results</p>
+            <h2 id="standings-heading">League standings</h2>
           </div>
 
-          <span>
-            Through week {completedWeeks}
-          </span>
+          <span>Through week {completedWeeks}</span>
         </div>
 
         <div className="standings-list">
-          {sortedStandings.map(
-            (team, index) => {
-              const isCurrentTeam =
-                team.team_id ===
-                auth.user?.team_id;
+          {sortedStandings.map((team, index) => (
+          <div
+            key={team.team_id}
+            className="standing-row"
+          >
+            <span className="standing-rank">
+              {index + 1}
+            </span>
 
-              return (
-                <div
-                  key={team.team_id}
-                  className={
-                    isCurrentTeam
-                      ? "standing-row standing-row-current"
-                      : "standing-row"
-                  }
-                >
-                  <span className="standing-rank">
-                    {index + 1}
-                  </span>
+            <div className="standing-team">
+              <strong>{team.name}</strong>
 
-                  <div className="standing-team">
-                    <strong>{team.name}</strong>
+              <small>
+                {team.points_against.toFixed(1)} PA
+              </small>
+            </div>
 
-                    {isCurrentTeam ? (
-                      <small>Your team</small>
-                    ) : null}
-                  </div>
+            <span className="standing-points">
+              {team.points_for.toFixed(1)} PF
+            </span>
 
-                  <span className="standing-points">
-                    {team.points_for.toFixed(1)} PF
-                  </span>
-
-                  <strong className="standing-record">
-                    {team.wins}-{team.losses}
-                    {team.ties > 0
-                      ? `-${team.ties}`
-                      : ""}
-                  </strong>
-                </div>
-              );
-            },
-          )}
+            <strong className="standing-record">
+              {team.wins}-{team.losses}
+              {team.ties > 0
+                ? `-${team.ties}`
+                : ""}
+            </strong>
+          </div>
+        ))}
         </div>
       </section>
     </div>
