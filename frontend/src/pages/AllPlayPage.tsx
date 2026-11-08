@@ -13,7 +13,6 @@ import {
   allPlayQueryOptions,
   currentLeagueQueryOptions,
 } from "../api/league";
-import { useAuth } from "../auth/AuthProvider";
 import "./AllPlayPage.css";
 
 function errorMessage(error: unknown): string {
@@ -28,30 +27,8 @@ function errorMessage(error: unknown): string {
   return "Unable to load all-play standings.";
 }
 
-function ordinal(rank: number): string {
-  const remainder100 = rank % 100;
-
-  if (
-    remainder100 >= 11 &&
-    remainder100 <= 13
-  ) {
-    return `${rank}th`;
-  }
-
-  switch (rank % 10) {
-    case 1:
-      return `${rank}st`;
-    case 2:
-      return `${rank}nd`;
-    case 3:
-      return `${rank}rd`;
-    default:
-      return `${rank}th`;
-  }
-}
 
 export function AllPlayPage() {
-  const auth = useAuth();
 
   const leagueQuery = useQuery(
     currentLeagueQueryOptions(),
@@ -135,16 +112,6 @@ export function AllPlayPage() {
 
   const league = leagueQuery.data;
   const standings = allPlayQuery.data;
-  const currentTeamId = auth.user?.team_id;
-
-  const currentTeamStanding =
-    currentTeamId === null ||
-    currentTeamId === undefined
-      ? null
-      : standings.find(
-          (standing) =>
-            standing.team_id === currentTeamId,
-        ) ?? null;
 
   const leader = standings[0];
 
@@ -194,18 +161,12 @@ export function AllPlayPage() {
         </article>
 
         <article className="all-play-summary-item">
-          <span>Your all-play rank</span>
-          <strong>
-            {currentTeamStanding
-              ? ordinal(currentTeamStanding.rank)
-              : "Not assigned"}
-          </strong>
-          <small>
-            {currentTeamStanding
-              ? currentTeamStanding.team_name
-              : "Administrator overview"}
-          </small>
-        </article>
+        <span>League size</span>
+        <strong>{standings.length} teams</strong>
+        <small>
+          Every team is compared against the full field
+        </small>
+      </article>
       </section>
 
       <section
@@ -245,18 +206,11 @@ export function AllPlayPage() {
             const difference =
               actualRank - standing.rank;
 
-            const isCurrentTeam =
-              standing.team_id === currentTeamId;
-
             return (
               <article
-                key={standing.team_id}
-                className={
-                  isCurrentTeam
-                    ? "all-play-row all-play-row-current"
-                    : "all-play-row"
-                }
-              >
+              key={standing.team_id}
+              className="all-play-row"
+            >
                 <div className="all-play-rank">
                   {standing.rank === 1 ? (
                     <Trophy aria-hidden="true" />
@@ -271,12 +225,8 @@ export function AllPlayPage() {
                   </strong>
 
                   <small>
-                    {isCurrentTeam
-                      ? "Your team"
-                      : `${standing.points_for.toFixed(
-                          1,
-                        )} points`}
-                  </small>
+                  {standing.points_for.toFixed(1)} points
+                </small>
                 </div>
 
                 <div className="all-play-record">

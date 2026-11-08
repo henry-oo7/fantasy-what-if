@@ -13,7 +13,6 @@ import { ApiError } from "../api/client";
 import {
   currentLeagueQueryOptions,
 } from "../api/league";
-import { useAuth } from "../auth/AuthProvider";
 import "./OptimalLineupsPage.css";
 
 function errorMessage(error: unknown): string {
@@ -43,7 +42,6 @@ function efficiencyClass(
 }
 
 export function OptimalLineupsPage() {
-  const auth = useAuth();
 
   const leagueQuery = useQuery(
     currentLeagueQueryOptions(),
@@ -129,16 +127,6 @@ export function OptimalLineupsPage() {
 
   const league = leagueQuery.data;
   const summaries = lineupsQuery.data;
-  const currentTeamId = auth.user?.team_id;
-
-  const currentTeam =
-    currentTeamId === null ||
-    currentTeamId === undefined
-      ? null
-      : summaries.find(
-          (summary) =>
-            summary.team_id === currentTeamId,
-        ) ?? null;
 
   const leader = summaries[0];
 
@@ -196,24 +184,14 @@ export function OptimalLineupsPage() {
         </article>
 
         <article>
-          <span>Your efficiency</span>
+        <span>Teams analyzed</span>
 
-          <strong>
-            {currentTeam
-              ? `${currentTeam.efficiency_percentage.toFixed(
-                  2,
-                )}%`
-              : "Not assigned"}
-          </strong>
+        <strong>{summaries.length}</strong>
 
-          <small>
-            {currentTeam
-              ? `${currentTeam.missed_points.toFixed(
-                  2,
-                )} points missed`
-              : "Administrator overview"}
-          </small>
-        </article>
+        <small>
+          Every available weekly roster is included
+        </small>
+      </article>
 
         <article>
           <span>Most missed points</span>
@@ -265,31 +243,26 @@ export function OptimalLineupsPage() {
           {summaries.map(
             (summary, index) => {
               const rank = index + 1;
-              const isCurrentTeam =
-                summary.team_id === currentTeamId;
 
               return (
                 <article
-                  key={summary.team_id}
-                  className={
-                    isCurrentTeam
-                      ? "optimal-lineups-row optimal-lineups-row-current"
-                      : "optimal-lineups-row"
-                  }
-                >
+                key={summary.team_id}
+                className="optimal-lineups-row"
+              >
                   <div className="optimal-rank">
                     <strong>{rank}</strong>
                   </div>
 
                   <div className="optimal-team">
-                    <strong>
-                      {summary.team_name}
-                    </strong>
+                  <strong>
+                    {summary.team_name}
+                  </strong>
 
-                    {isCurrentTeam ? (
-                      <small>Your team</small>
-                    ) : null}
-                  </div>
+                  <small>
+                    {summary.efficiency_percentage.toFixed(2)}%
+                    efficient
+                  </small>
+                </div>
 
                   <div className="optimal-stat">
                     <span className="mobile-field-label">

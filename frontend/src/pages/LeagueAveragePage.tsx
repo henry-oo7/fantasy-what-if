@@ -15,7 +15,6 @@ import { ApiError } from "../api/client";
 import {
   currentLeagueQueryOptions,
 } from "../api/league";
-import { useAuth } from "../auth/AuthProvider";
 import type {
   AnalyticsRecord,
 } from "../types/analytics";
@@ -46,7 +45,6 @@ function equivalentWins(
 }
 
 export function LeagueAveragePage() {
-  const auth = useAuth();
 
   const leagueQuery = useQuery(
     currentLeagueQueryOptions(),
@@ -139,16 +137,6 @@ export function LeagueAveragePage() {
 
   const league = leagueQuery.data;
   const standings = standingsQuery.data;
-  const currentTeamId = auth.user?.team_id;
-
-  const currentTeam =
-    currentTeamId === null ||
-    currentTeamId === undefined
-      ? null
-      : standings.find(
-          (standing) =>
-            standing.team_id === currentTeamId,
-        ) ?? null;
 
   return (
     <div className="league-average-page">
@@ -201,20 +189,14 @@ export function LeagueAveragePage() {
         </article>
 
         <article>
-          <span>Your combined rank</span>
-          <strong>
-            {currentTeam
-              ? `#${currentTeam.rank}`
-              : "Not assigned"}
-          </strong>
-          <small>
-            {currentTeam
-              ? recordLabel(
-                  currentTeam.combined_record,
-                )
-              : "Administrator overview"}
-          </small>
-        </article>
+        <span>Completed weeks</span>
+        <strong>
+          {Math.max(league.current_week - 1, 0)}
+        </strong>
+        <small>
+          Weekly results included in the comparison
+        </small>
+      </article>
 
         <article>
           <span>Largest extra-win total</span>
@@ -266,8 +248,6 @@ export function LeagueAveragePage() {
 
         <div className="league-average-standings">
           {standings.map((standing) => {
-            const isCurrentTeam =
-              standing.team_id === currentTeamId;
 
             const actualWins = equivalentWins(
               standing.actual_record,
@@ -282,13 +262,9 @@ export function LeagueAveragePage() {
 
             return (
               <article
-                key={standing.team_id}
-                className={
-                  isCurrentTeam
-                    ? "league-average-row league-average-row-current"
-                    : "league-average-row"
-                }
-              >
+              key={standing.team_id}
+              className="league-average-row"
+            >
                 <div className="league-average-rank">
                   {standing.rank === 1 ? (
                     <Trophy aria-hidden="true" />
@@ -303,12 +279,8 @@ export function LeagueAveragePage() {
                   </strong>
 
                   <small>
-                    {isCurrentTeam
-                      ? "Your team"
-                      : `${standing.points_for.toFixed(
-                          1,
-                        )} total points`}
-                  </small>
+                  {standing.points_for.toFixed(1)} total points
+                </small>
                 </div>
 
                 <div className="league-average-record">
