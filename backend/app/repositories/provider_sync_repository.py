@@ -681,18 +681,15 @@ def legacy_espn_player_integer_id(
     *,
     provider: FantasyProvider,
     provider_id: str,
-) -> int:
-    """Return a signed ESPN player compatibility identifier.
+) -> int | None:
+    """Return an ESPN player ID or None for another provider.
 
     ESPN assigns negative integer identifiers to NFL defenses,
     including values such as -16001 for the Falcons D/ST.
     """
 
     if provider is not FantasyProvider.ESPN:
-        raise ProviderSyncContextError(
-            "provider_player_id cannot populate the required "
-            "legacy ESPN column for a non-ESPN provider."
-        )
+        return None
 
     try:
         return int(provider_id)
@@ -707,13 +704,11 @@ def legacy_espn_integer_id(
     provider: FantasyProvider,
     provider_id: str,
     field_name: str,
-) -> int:
-    """Return the transitional ESPN integer identifier."""
+) -> int | None:
+    """Return an ESPN integer ID or None for another provider."""
 
     if provider is not FantasyProvider.ESPN:
-        raise ProviderSyncContextError(
-            f"{field_name} cannot populate the required legacy ESPN column for a non-ESPN provider."
-        )
+        return None
 
     try:
         parsed = int(provider_id)

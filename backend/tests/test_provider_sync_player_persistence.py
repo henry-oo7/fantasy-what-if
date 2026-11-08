@@ -125,15 +125,33 @@ def test_nonnumeric_espn_player_id_is_rejected() -> None:
         )
 
 
-def test_non_espn_player_compatibility_is_rejected() -> None:
-    with pytest.raises(
-        ProviderSyncContextError,
-        match="non-ESPN",
-    ):
+@pytest.mark.parametrize(
+    (
+        "provider",
+        "provider_id",
+    ),
+    [
+        (
+            FantasyProvider.SLEEPER,
+            "player-alpha",
+        ),
+        (
+            FantasyProvider.YAHOO,
+            "431.p.12345",
+        ),
+    ],
+)
+def test_non_espn_player_compatibility_is_none(
+    provider: FantasyProvider,
+    provider_id: str,
+) -> None:
+    assert (
         legacy_espn_player_integer_id(
-            provider=FantasyProvider.SLEEPER,
-            provider_id="12345",
+            provider=provider,
+            provider_id=provider_id,
         )
+        is None
+    )
 
 
 def test_player_week_replacement_is_idempotent(

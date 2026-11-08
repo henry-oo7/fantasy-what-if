@@ -90,16 +90,34 @@ def test_invalid_legacy_espn_identifier_is_rejected(
         )
 
 
-def test_non_espn_compatibility_identifier_is_rejected() -> None:
-    with pytest.raises(
-        ProviderSyncContextError,
-        match="non-ESPN",
-    ):
+@pytest.mark.parametrize(
+    (
+        "provider",
+        "provider_id",
+    ),
+    [
+        (
+            FantasyProvider.SLEEPER,
+            "team-alpha",
+        ),
+        (
+            FantasyProvider.YAHOO,
+            "7.l.12345.t.4",
+        ),
+    ],
+)
+def test_non_espn_compatibility_identifier_is_none(
+    provider: FantasyProvider,
+    provider_id: str,
+) -> None:
+    assert (
         legacy_espn_integer_id(
-            provider=FantasyProvider.SLEEPER,
-            provider_id="123",
+            provider=provider,
+            provider_id=provider_id,
             field_name="provider_team_id",
         )
+        is None
+    )
 
 
 def test_canonical_team_upsert_is_idempotent(
