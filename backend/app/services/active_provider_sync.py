@@ -1,4 +1,4 @@
-"""Compatibility boundary for canonical provider synchronization."""
+"""Synchronize the active season through its configured provider."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
 from app.services.provider_adapter_resolver import (
-    ProviderAdapterResolutionError,
     resolve_active_provider_adapter,
 )
 from app.services.provider_sync import (
@@ -15,17 +14,13 @@ from app.services.provider_sync import (
 )
 
 
-class ActiveSynchronizationContextError(ProviderAdapterResolutionError):
-    """Compatibility alias for active-context failures."""
-
-
-def synchronize_active_provider(
+def synchronize_active_season(
     *,
     session: Session,
     settings: Settings,
     full_sync: bool,
 ) -> ProviderSyncResult:
-    """Synchronize the active season and preserve the legacy result API."""
+    """Synchronize the active season through its resolved adapter."""
 
     context, provider = resolve_active_provider_adapter(
         session=session,

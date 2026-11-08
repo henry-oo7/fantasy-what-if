@@ -2,14 +2,14 @@ import argparse
 
 from app.core.settings import get_settings
 from app.db.session import SessionFactory
-from app.services.provider_sync_compat import (
-    synchronize_active_provider,
+from app.services.active_provider_sync import (
+    synchronize_active_season,
 )
 
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=("Synchronize ESPN fantasy league data into PostgreSQL.")
+        description=("Synchronize the active fantasy provider into PostgreSQL.")
     )
 
     parser.add_argument(
@@ -36,7 +36,7 @@ def main() -> None:
     print("Provider credentials intentionally hidden.")
 
     with SessionFactory() as session:
-        result = synchronize_active_provider(
+        result = synchronize_active_season(
             session=session,
             settings=settings,
             full_sync=arguments.full,

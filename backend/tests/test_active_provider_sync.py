@@ -5,25 +5,17 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.db.platform_enums import FantasyProvider
+from app.services.active_provider_sync import (
+    synchronize_active_season,
+)
 from app.services.provider_adapter_resolver import (
     ActiveProviderContext,
     ProviderAdapterResolutionError,
 )
 from app.services.provider_sync import ProviderSyncResult
-from app.services.provider_sync_compat import (
-    ActiveSynchronizationContextError,
-    synchronize_active_provider,
-)
 
 
-def test_context_error_remains_compatible() -> None:
-    assert issubclass(
-        ActiveSynchronizationContextError,
-        ProviderAdapterResolutionError,
-    )
-
-
-def test_wrapper_preserves_legacy_sync_result(
+def test_active_sync_returns_provider_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     canonical_result = ProviderSyncResult(
@@ -65,15 +57,15 @@ def test_wrapper_preserves_legacy_sync_result(
     canonical_sync = Mock(return_value=canonical_result)
 
     monkeypatch.setattr(
-        ("app.services.provider_sync_compat.resolve_active_provider_adapter"),
+        ("app.services.active_provider_sync.resolve_active_provider_adapter"),
         resolver,
     )
     monkeypatch.setattr(
-        ("app.services.provider_sync_compat.synchronize_provider"),
+        ("app.services.active_provider_sync.synchronize_provider"),
         canonical_sync,
     )
 
-    result = synchronize_active_provider(
+    result = synchronize_active_season(
         session=session,
         settings=settings,
         full_sync=False,
@@ -108,7 +100,7 @@ def test_wrapper_preserves_legacy_sync_result(
     )
 
 
-def test_wrapper_propagates_resolution_failure(
+def test_active_sync_propagates_resolution_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = Mock(spec=Session)
@@ -120,7 +112,7 @@ def test_wrapper_propagates_resolution_failure(
         raise ProviderAdapterResolutionError("The active fantasy provider is not implemented.")
 
     monkeypatch.setattr(
-        ("app.services.provider_sync_compat.resolve_active_provider_adapter"),
+        ("app.services.active_provider_sync.resolve_active_provider_adapter"),
         reject_resolution,
     )
 
@@ -128,7 +120,7 @@ def test_wrapper_propagates_resolution_failure(
         ProviderAdapterResolutionError,
         match="not implemented",
     ):
-        synchronize_active_provider(
+        synchronize_active_season(
             session=session,
             settings=settings,
             full_sync=False,
