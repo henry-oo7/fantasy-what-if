@@ -104,7 +104,6 @@ def make_context_objects() -> tuple[
     league = League(
         id=1,
         installation_id=1,
-        espn_league_id=529250970,
         provider=FantasyProvider.ESPN,
         provider_league_id="529250970",
         name="Jimmy and Friends",

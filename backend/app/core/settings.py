@@ -67,8 +67,6 @@ class Settings(BaseSettings):
         le=300,
     )
 
-    espn_league_id: int = Field(gt=0)
-    espn_season: int = Field(ge=2018)
     espn_s2: SecretStr | None = None
     espn_swid: SecretStr | None = None
 

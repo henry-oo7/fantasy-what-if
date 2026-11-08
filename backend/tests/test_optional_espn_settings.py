@@ -26,8 +26,6 @@ def test_settings_load_without_espn_secrets(
         app_secret_key=SecretStr("x" * 48),
         frontend_origin=("http://localhost:5173"),
         trusted_origins=("http://localhost:5173"),
-        espn_league_id=529250970,
-        espn_season=2026,
         database_url=("postgresql+psycopg://user:password@localhost/fantasy"),
     )
 
@@ -60,8 +58,6 @@ def test_blank_espn_secrets_become_none(
         app_secret_key=SecretStr("x" * 48),
         frontend_origin=("http://localhost:5173"),
         trusted_origins=("http://localhost:5173"),
-        espn_league_id=529250970,
-        espn_season=2026,
         espn_s2=espn_s2,
         espn_swid=espn_swid,
         database_url=("postgresql+psycopg://user:password@localhost/fantasy"),
@@ -77,8 +73,6 @@ def test_optional_swid_is_still_normalized() -> None:
         app_secret_key=SecretStr("x" * 48),
         frontend_origin=("http://localhost:5173"),
         trusted_origins=("http://localhost:5173"),
-        espn_league_id=529250970,
-        espn_season=2026,
         espn_s2=SecretStr("cookie"),
         espn_swid=SecretStr("swid"),
         database_url=("postgresql+psycopg://user:password@localhost/fantasy"),

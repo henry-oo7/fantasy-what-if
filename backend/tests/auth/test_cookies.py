@@ -24,8 +24,6 @@ def create_settings(
         session_cookie_name=("__Host-fantasy_session" if production else "fantasy_session"),
         session_cookie_secure=production,
         session_cookie_samesite="lax",
-        espn_league_id=529250970,
-        espn_season=2026,
         espn_s2=SecretStr("test-espn-s2"),
         espn_swid=SecretStr("{test-swid}"),
         database_url=("postgresql+psycopg://user:password@database:5432/fantasy"),
