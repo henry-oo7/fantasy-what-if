@@ -4,110 +4,24 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy.orm import Session
 
-from app.db import model_registry  # noqa: F401
-from app.db.platform_enums import (
-    InstallationStatus,
-)
-from app.db.platform_models import Installation
+from app.db.platform_enums import FantasyProvider
 from app.services.espn_sync import SyncResult
+from app.services.provider_adapter_resolver import (
+    ActiveProviderContext,
+    ProviderAdapterResolutionError,
+)
 from app.services.provider_sync import ProviderSyncResult
 from app.services.provider_sync_compat import (
     ActiveSynchronizationContextError,
-    resolve_active_season_id,
     synchronize_active_provider,
 )
 
 
-class FakeScalarResult:
-    def __init__(
-        self,
-        values: list[Installation],
-    ) -> None:
-        self.values = values
-
-    def all(self) -> list[Installation]:
-        return self.values
-
-
-class FakeSession:
-    def __init__(
-        self,
-        installations: list[Installation],
-    ) -> None:
-        self.installations = installations
-
-    def scalars(
-        self,
-        statement,
-    ) -> FakeScalarResult:
-        del statement
-        return FakeScalarResult(self.installations)
-
-
-def make_installation(
-    *,
-    installation_id: int = 1,
-    active_season_id: int | None = 1,
-    status: InstallationStatus = (InstallationStatus.ACTIVE),
-) -> Installation:
-    return Installation(
-        id=installation_id,
-        application_name="Fantasy What If",
-        status=status,
-        active_league_id=1,
-        active_season_id=active_season_id,
-    )
-
-
-def test_resolve_active_season_id() -> None:
-    session = FakeSession([make_installation()])
-
-    assert resolve_active_season_id(session) == 1
-
-
-def test_missing_active_installation_is_rejected() -> None:
-    session = FakeSession([])
-
-    with pytest.raises(
+def test_context_error_remains_compatible() -> None:
+    assert issubclass(
         ActiveSynchronizationContextError,
-        match="No active installation",
-    ):
-        resolve_active_season_id(session)
-
-
-def test_multiple_active_installations_are_rejected() -> None:
-    session = FakeSession(
-        [
-            make_installation(
-                installation_id=1,
-            ),
-            make_installation(
-                installation_id=2,
-            ),
-        ]
+        ProviderAdapterResolutionError,
     )
-
-    with pytest.raises(
-        ActiveSynchronizationContextError,
-        match="Multiple active installations",
-    ):
-        resolve_active_season_id(session)
-
-
-def test_missing_active_season_is_rejected() -> None:
-    session = FakeSession(
-        [
-            make_installation(
-                active_season_id=None,
-            )
-        ]
-    )
-
-    with pytest.raises(
-        ActiveSynchronizationContextError,
-        match="active season",
-    ):
-        resolve_active_season_id(session)
 
 
 def test_wrapper_preserves_legacy_sync_result(
@@ -124,30 +38,43 @@ def test_wrapper_preserves_legacy_sync_result(
         teams_upserted=12,
         matchups_upserted=72,
         fantasy_byes_upserted=0,
-        player_week_scores_upserted=394,
+        player_week_scores_upserted=401,
         analytics_rebuilt=False,
     )
 
+    context = ActiveProviderContext(
+        installation_id=1,
+        season_id=1,
+        provider_connection_id=1,
+        provider=FantasyProvider.ESPN,
+        credentials_source="environment_fallback",
+    )
+
+    fake_provider = SimpleNamespace(
+        provider=FantasyProvider.ESPN,
+    )
+    session = Mock(spec=Session)
+    settings = SimpleNamespace()
+
+    resolver = Mock(
+        return_value=(
+            context,
+            fake_provider,
+        )
+    )
     canonical_sync = Mock(return_value=canonical_result)
 
     monkeypatch.setattr(
-        ("app.services.provider_sync_compat.resolve_active_season_id"),
-        lambda session: 1,
+        ("app.services.provider_sync_compat.resolve_active_provider_adapter"),
+        resolver,
     )
     monkeypatch.setattr(
         ("app.services.provider_sync_compat.synchronize_provider"),
         canonical_sync,
     )
 
-    settings = SimpleNamespace(
-        espn_league_id=529250970,
-        espn_season=2026,
-        espn_s2=SimpleNamespace(get_secret_value=lambda: "cookie"),
-        espn_swid=SimpleNamespace(get_secret_value=lambda: "{swid}"),
-    )
-
     result = synchronize_active_provider(
-        session=Mock(spec=Session),
+        session=session,
         settings=settings,
         full_sync=False,
     )
@@ -161,10 +88,43 @@ def test_wrapper_preserves_legacy_sync_result(
     assert result.teams_upserted == 12
     assert result.matchups_upserted == 72
     assert result.fantasy_byes_upserted == 0
-    assert result.player_week_scores_upserted == 394
+    assert result.player_week_scores_upserted == 401
 
-    canonical_sync.assert_called_once()
-    call = canonical_sync.call_args.kwargs
+    resolver.assert_called_once_with(
+        session=session,
+        settings=settings,
+    )
 
-    assert call["season_id"] == 1
-    assert call["full_sync"] is False
+    canonical_sync.assert_called_once_with(
+        session=session,
+        season_id=1,
+        provider=fake_provider,
+        full_sync=False,
+    )
+
+
+def test_wrapper_propagates_resolution_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = Mock(spec=Session)
+    settings = SimpleNamespace()
+
+    def reject_resolution(**kwargs):
+        del kwargs
+
+        raise ProviderAdapterResolutionError("The active fantasy provider is not implemented.")
+
+    monkeypatch.setattr(
+        ("app.services.provider_sync_compat.resolve_active_provider_adapter"),
+        reject_resolution,
+    )
+
+    with pytest.raises(
+        ProviderAdapterResolutionError,
+        match="not implemented",
+    ):
+        synchronize_active_provider(
+            session=session,
+            settings=settings,
+            full_sync=False,
+        )
