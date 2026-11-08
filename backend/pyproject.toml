@@ -5,6 +5,7 @@ description = "Backend API and analytics engine for ESPN fantasy football what-i
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "alembic>=1.17,<2",
+    "cryptography>=50.0.2",
     "email-validator>=2.2,<3",
     "espn-api==1.0.1",
     "fastapi>=0.162.0",
