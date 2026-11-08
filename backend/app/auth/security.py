@@ -96,10 +96,6 @@ def generate_csrf_token() -> str:
     return token_urlsafe(CSRF_TOKEN_BYTES)
 
 
-def generate_invitation_token() -> str:
-    return token_urlsafe(INVITATION_TOKEN_BYTES)
-
-
 def hash_token(token: str) -> str:
     normalized = token.strip()
 

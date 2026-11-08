@@ -2,13 +2,11 @@ import pytest
 
 from app.auth.security import (
     CSRF_TOKEN_BYTES,
-    INVITATION_TOKEN_BYTES,
     SESSION_TOKEN_BYTES,
     InvalidPasswordError,
     InvalidUsernameError,
     csrf_tokens_match,
     generate_csrf_token,
-    generate_invitation_token,
     generate_session_token,
     hash_password,
     hash_token,
@@ -123,13 +121,6 @@ def test_csrf_tokens_are_random_and_hashable() -> None:
         None,
         token_hash,
     )
-
-
-def test_invitation_tokens_are_random_and_hashable() -> None:
-    token = generate_invitation_token()
-
-    assert len(token) >= INVITATION_TOKEN_BYTES
-    assert tokens_match(token, hash_token(token))
 
 
 def test_empty_tokens_are_rejected() -> None:
