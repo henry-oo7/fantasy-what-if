@@ -5,9 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    League,
     PlayerWeekScore,
-    Season,
     Team,
 )
 from app.domain.lineup import (
@@ -19,32 +17,28 @@ from app.domain.lineup import (
 def load_team_week_rosters(
     session: Session,
     *,
-    espn_league_id: int,
-    year: int,
+    season_id: int,
     through_week: int | None = None,
 ) -> tuple[TeamWeekRoster, ...]:
+    """Load stored rosters using canonical internal identities."""
+
     statement = (
-        select(PlayerWeekScore, Team)
+        select(
+            PlayerWeekScore,
+            Team,
+        )
         .join(
             Team,
             PlayerWeekScore.team_id == Team.id,
         )
-        .join(
-            Season,
-            PlayerWeekScore.season_id == Season.id,
-        )
-        .join(
-            League,
-            Season.league_id == League.id,
-        )
         .where(
-            League.espn_league_id == espn_league_id,
-            Season.year == year,
+            PlayerWeekScore.season_id == season_id,
+            Team.season_id == season_id,
         )
         .order_by(
             PlayerWeekScore.week,
-            Team.espn_team_id,
-            PlayerWeekScore.espn_player_id,
+            Team.id,
+            PlayerWeekScore.id,
         )
     )
 
@@ -63,13 +57,13 @@ def load_team_week_rosters(
 
         grouped_players[
             (
-                team.espn_team_id,
+                team.id,
                 team.name,
                 player_score.week,
             )
         ].append(
             PlayerWeekSnapshot(
-                player_id=player_score.espn_player_id,
+                player_id=player_score.id,
                 player_name=player_score.player_name,
                 pro_team=player_score.pro_team,
                 default_position=(player_score.default_position),
@@ -86,7 +80,12 @@ def load_team_week_rosters(
                 is_starter=player_score.is_starter,
                 is_bench=player_score.is_bench,
                 is_injured_reserve=(player_score.is_injured_reserve),
-                is_nfl_bye=bool(metadata.get("on_bye_week", False)),
+                is_nfl_bye=bool(
+                    metadata.get(
+                        "on_bye_week",
+                        False,
+                    )
+                ),
             )
         )
 

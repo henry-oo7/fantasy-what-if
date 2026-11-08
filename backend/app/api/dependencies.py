@@ -1,23 +1,38 @@
 from fastapi import HTTPException, status
 
-from app.core.settings import get_settings
 from app.db.session import SessionFactory
 from app.domain.league import LeagueSnapshot
 from app.domain.lineup import TeamWeekRoster
-from app.repositories.league_repository import load_league_snapshot
-from app.repositories.player_week_repository import load_team_week_rosters
+from app.repositories.league_repository import (
+    load_league_snapshot,
+)
+from app.repositories.player_week_repository import (
+    load_team_week_rosters,
+)
+from app.services.active_season_context import (
+    ActiveSeasonResolutionError,
+    resolve_active_season_context,
+)
+
+_STORED_DATA_UNAVAILABLE = "League data has not been synchronized yet."
 
 
 def get_current_league_snapshot() -> LeagueSnapshot:
-    settings = get_settings()
-
     try:
         with SessionFactory() as session:
+            context = resolve_active_season_context(
+                session=session,
+            )
+
             snapshot = load_league_snapshot(
                 session,
-                espn_league_id=settings.espn_league_id,
-                year=settings.espn_season,
+                season_id=context.season_id,
             )
+    except ActiveSeasonResolutionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -27,44 +42,44 @@ def get_current_league_snapshot() -> LeagueSnapshot:
     if snapshot is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "League data has not been synchronized yet. Run the ESPN synchronization command."
-            ),
+            detail=_STORED_DATA_UNAVAILABLE,
         )
 
     return snapshot
 
 
 def get_completed_team_week_rosters() -> tuple[TeamWeekRoster, ...]:
-    settings = get_settings()
-
     try:
         with SessionFactory() as session:
+            context = resolve_active_season_context(
+                session=session,
+            )
+
             snapshot = load_league_snapshot(
                 session,
-                espn_league_id=settings.espn_league_id,
-                year=settings.espn_season,
+                season_id=context.season_id,
             )
 
             if snapshot is None:
                 raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=(
-                        "League data has not been synchronized yet. "
-                        "Run the ESPN synchronization command."
-                    ),
+                    status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+                    detail=_STORED_DATA_UNAVAILABLE,
                 )
 
             return load_team_week_rosters(
                 session,
-                espn_league_id=settings.espn_league_id,
-                year=settings.espn_season,
+                season_id=context.season_id,
                 through_week=snapshot.current_week - 1,
             )
     except HTTPException:
         raise
+    except ActiveSeasonResolutionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to retrieve stored player-week data.",
+            detail=("Unable to retrieve stored player-week data."),
         ) from exc

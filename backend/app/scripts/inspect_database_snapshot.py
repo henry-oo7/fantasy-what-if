@@ -1,16 +1,21 @@
-from app.core.settings import get_settings
 from app.db.session import SessionFactory
-from app.repositories.league_repository import load_league_snapshot
+from app.repositories.league_repository import (
+    load_league_snapshot,
+)
+from app.services.active_season_context import (
+    resolve_active_season_context,
+)
 
 
 def main() -> None:
-    settings = get_settings()
-
     with SessionFactory() as session:
+        context = resolve_active_season_context(
+            session=session,
+        )
+
         snapshot = load_league_snapshot(
             session,
-            espn_league_id=settings.espn_league_id,
-            year=settings.espn_season,
+            season_id=context.season_id,
         )
 
     if snapshot is None:

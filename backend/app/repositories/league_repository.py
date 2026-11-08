@@ -284,30 +284,33 @@ class LeagueRepository:
 def load_league_snapshot(
     session: Session,
     *,
-    espn_league_id: int,
-    year: int,
+    season_id: int,
 ) -> LeagueSnapshot | None:
-    season = session.scalar(
-        select(Season)
-        .join(League, Season.league_id == League.id)
-        .where(
-            League.espn_league_id == espn_league_id,
-            Season.year == year,
-        )
+    """Load one season using canonical internal identities."""
+
+    season = session.get(
+        Season,
+        season_id,
     )
 
     if season is None:
         return None
 
-    league = session.get_one(League, season.league_id)
+    league = session.get(
+        League,
+        season.league_id,
+    )
+
+    if league is None:
+        raise RuntimeError(f"Season {season.id} references a missing league.")
 
     database_teams = session.scalars(
-        select(Team).where(Team.season_id == season.id).order_by(Team.espn_team_id)
+        select(Team).where(Team.season_id == season.id).order_by(Team.id)
     ).all()
 
     teams = tuple(
         TeamSnapshot(
-            team_id=team.espn_team_id,
+            team_id=team.id,
             name=team.name,
             wins=team.wins,
             losses=team.losses,
@@ -351,19 +354,19 @@ def load_league_snapshot(
         matchups.append(
             MatchupSnapshot(
                 week=matchup.week,
-                home_team_id=home_team.espn_team_id,
-                away_team_id=away_team.espn_team_id,
+                home_team_id=home_team.id,
+                away_team_id=away_team.id,
                 home_score=float(matchup.home_score),
                 away_score=float(matchup.away_score),
             )
         )
 
     return LeagueSnapshot(
-        league_id=league.espn_league_id,
+        league_id=league.id,
         name=league.name,
         season=season.year,
         current_week=season.current_week,
-        regular_season_weeks=season.regular_season_weeks,
+        regular_season_weeks=(season.regular_season_weeks),
         teams=teams,
         matchups=tuple(matchups),
     )
