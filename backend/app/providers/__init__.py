@@ -1,0 +1,65 @@
+"""Canonical fantasy provider contracts."""
+
+from app.providers.base import ProviderAdapter
+from app.providers.domain import (
+    ProviderCapabilities,
+    ProviderCredentials,
+    ProviderLeague,
+    ProviderLeagueReference,
+    ProviderLineupSlot,
+    ProviderMatchup,
+    ProviderPlayerWeek,
+    ProviderScheduleRules,
+    ProviderScoringRule,
+    ProviderTeam,
+    ProviderValidationResult,
+    ProviderWeeklyRoster,
+)
+from app.providers.errors import (
+    ProviderAuthenticationError,
+    ProviderAuthorizationError,
+    ProviderCapabilityError,
+    ProviderConfigurationError,
+    ProviderError,
+    ProviderErrorContext,
+    ProviderNotFoundError,
+    ProviderNotSupportedError,
+    ProviderRateLimitError,
+    ProviderResponseError,
+    ProviderUnavailableError,
+)
+from app.providers.registry import (
+    ProviderFactory,
+    ProviderRegistry,
+    provider_registry,
+)
+
+__all__ = [
+    "ProviderAdapter",
+    "ProviderAuthenticationError",
+    "ProviderAuthorizationError",
+    "ProviderCapabilities",
+    "ProviderCapabilityError",
+    "ProviderConfigurationError",
+    "ProviderCredentials",
+    "ProviderError",
+    "ProviderErrorContext",
+    "ProviderFactory",
+    "ProviderLeague",
+    "ProviderLeagueReference",
+    "ProviderLineupSlot",
+    "ProviderMatchup",
+    "ProviderNotFoundError",
+    "ProviderNotSupportedError",
+    "ProviderPlayerWeek",
+    "ProviderRateLimitError",
+    "ProviderRegistry",
+    "ProviderResponseError",
+    "ProviderScheduleRules",
+    "ProviderScoringRule",
+    "ProviderTeam",
+    "ProviderUnavailableError",
+    "ProviderValidationResult",
+    "ProviderWeeklyRoster",
+    "provider_registry",
+]
