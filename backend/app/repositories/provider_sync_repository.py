@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     League,
     Matchup,
+    PlayerWeekScore,
     Season,
     SyncRun,
     SyncStatus,
@@ -25,6 +26,7 @@ from app.db.platform_models import (
 from app.providers.domain import (
     ProviderMatchup,
     ProviderTeam,
+    ProviderWeeklyRoster,
 )
 
 
@@ -339,6 +341,127 @@ class ProviderSyncRepository:
         self.session.flush()
 
         return tuple(stored_matchups)
+
+    def replace_player_week_scores(
+        self,
+        *,
+        context: ProviderSyncContext,
+        provider_rosters: tuple[
+            ProviderWeeklyRoster,
+            ...,
+        ],
+        requested_weeks: tuple[int, ...],
+    ) -> tuple[PlayerWeekScore, ...]:
+        """Replace canonical player rows for requested weeks."""
+
+        normalized_weeks = tuple(sorted(set(requested_weeks)))
+
+        if any(not isinstance(week, int) or week < 1 for week in normalized_weeks):
+            raise ValueError("requested_weeks must contain positive integers.")
+
+        requested_week_set = set(normalized_weeks)
+        team_map = self.get_team_map(
+            season_id=context.season_id,
+        )
+
+        resolved_rosters: list[
+            tuple[
+                ProviderWeeklyRoster,
+                Team,
+            ]
+        ] = []
+        seen_team_weeks: set[tuple[int, str]] = set()
+
+        # Validate all roster and player references before deleting
+        # any existing player-week rows.
+        for provider_roster in provider_rosters:
+            if provider_roster.week not in requested_week_set:
+                raise ProviderSyncContextError("Provider roster returned an unrequested week.")
+
+            database_team = team_map.get(provider_roster.provider_team_id)
+
+            if database_team is None:
+                raise ProviderSyncContextError(
+                    f"Provider roster references unknown team {provider_roster.provider_team_id!r}."
+                )
+
+            team_week = (
+                provider_roster.week,
+                provider_roster.provider_team_id,
+            )
+
+            if team_week in seen_team_weeks:
+                raise ProviderSyncContextError(
+                    "Provider returned duplicate roster data for one team and week."
+                )
+
+            seen_team_weeks.add(team_week)
+
+            for player in provider_roster.players:
+                legacy_espn_integer_id(
+                    provider=context.provider,
+                    provider_id=(player.provider_player_id),
+                    field_name="provider_player_id",
+                )
+
+            resolved_rosters.append(
+                (
+                    provider_roster,
+                    database_team,
+                )
+            )
+
+        if normalized_weeks:
+            self.session.execute(
+                delete(PlayerWeekScore).where(
+                    PlayerWeekScore.season_id == context.season_id,
+                    PlayerWeekScore.week.in_(normalized_weeks),
+                )
+            )
+
+        stored_scores: list[PlayerWeekScore] = []
+
+        for (
+            provider_roster,
+            database_team,
+        ) in resolved_rosters:
+            for player in provider_roster.players:
+                legacy_player_id = legacy_espn_integer_id(
+                    provider=context.provider,
+                    provider_id=(player.provider_player_id),
+                    field_name=("provider_player_id"),
+                )
+
+                raw_metadata = dict(player.metadata)
+                raw_metadata["canonical_position"] = player.canonical_position
+
+                player_score = PlayerWeekScore(
+                    season_id=context.season_id,
+                    team_id=database_team.id,
+                    week=provider_roster.week,
+                    espn_player_id=legacy_player_id,
+                    provider_player_id=(player.provider_player_id),
+                    provider_position=(player.provider_position),
+                    player_name=player.player_name,
+                    pro_team=player.pro_team,
+                    default_position=(player.canonical_position),
+                    actual_lineup_slot=(player.actual_lineup_slot),
+                    eligible_lineup_slots=list(player.eligible_lineup_slots),
+                    points=player.points,
+                    projected_points=(player.projected_points),
+                    was_on_roster=(player.is_on_roster),
+                    is_starter=player.is_starter,
+                    is_bench=player.is_bench,
+                    is_injured_reserve=(player.is_injured_reserve),
+                    raw_metadata=raw_metadata,
+                )
+
+                self.session.add(player_score)
+                stored_scores.append(player_score)
+
+        self.session.flush()
+
+        return tuple(stored_scores)
 
     def get_team_map(
         self,
