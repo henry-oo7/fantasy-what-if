@@ -69,11 +69,7 @@ def install_signal_handlers() -> None:
 def run_incremental_sync(
     settings: Settings,
 ) -> SyncResult | None:
-    LOGGER.info(
-        "Starting incremental ESPN synchronization for league %s, season %s.",
-        settings.espn_league_id,
-        settings.espn_season,
-    )
+    LOGGER.info("Starting incremental fantasy provider synchronization.")
 
     try:
         with SessionFactory() as session:
@@ -88,7 +84,7 @@ def run_incremental_sync(
         )
         return None
     except Exception:
-        LOGGER.exception("Scheduled ESPN synchronization failed.")
+        LOGGER.exception("Scheduled fantasy provider synchronization failed.")
         return None
 
     LOGGER.info(

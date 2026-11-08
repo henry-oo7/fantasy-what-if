@@ -31,11 +31,9 @@ def main() -> None:
 
     mode = "full" if arguments.full else "incremental"
 
-    print("=== ESPN DATABASE SYNC ===")
-    print(f"League ID: {settings.espn_league_id}")
-    print(f"Season: {settings.espn_season}")
+    print("=== FANTASY PROVIDER DATABASE SYNC ===")
     print(f"Mode: {mode}")
-    print("Credentials intentionally hidden.")
+    print("Provider credentials intentionally hidden.")
 
     with SessionFactory() as session:
         result = synchronize_active_provider(
