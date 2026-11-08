@@ -6,7 +6,7 @@ from threading import Event
 
 from app.core.settings import Settings, get_settings
 from app.db.session import SessionFactory
-from app.services.espn_sync import SyncResult
+from app.services.provider_sync import ProviderSyncResult
 from app.services.provider_sync_compat import (
     synchronize_active_provider,
 )
@@ -68,7 +68,7 @@ def install_signal_handlers() -> None:
 
 def run_incremental_sync(
     settings: Settings,
-) -> SyncResult | None:
+) -> ProviderSyncResult | None:
     LOGGER.info("Starting incremental fantasy provider synchronization.")
 
     try:
@@ -227,8 +227,10 @@ def main() -> None:
             raise SystemExit(1)
 
         print("=== IMMEDIATE SYNC COMPLETE ===")
-        print(f"League ID: {result.league_id}")
-        print(f"Season: {result.season}")
+        print(f"Provider: {result.provider.value}")
+        print(f"Provider league ID: {result.provider_league_id}")
+        print(f"Provider season ID: {result.provider_season_id}")
+        print(f"Internal season ID: {result.season_id}")
         print(f"Current week: {result.current_week}")
         print(f"Player weeks: {list(result.player_weeks)}")
         return

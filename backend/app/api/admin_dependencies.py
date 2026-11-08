@@ -2,7 +2,7 @@ from typing import Protocol
 
 from app.core.settings import get_settings
 from app.db.session import SessionFactory
-from app.services.espn_sync import SyncResult
+from app.services.provider_sync import ProviderSyncResult
 from app.services.provider_sync_compat import (
     synchronize_active_provider,
 )
@@ -13,13 +13,13 @@ class SynchronizationRunner(Protocol):
         self,
         *,
         full_sync: bool,
-    ) -> SyncResult: ...
+    ) -> ProviderSyncResult: ...
 
 
 def run_synchronization(
     *,
     full_sync: bool,
-) -> SyncResult:
+) -> ProviderSyncResult:
     settings = get_settings()
 
     with SessionFactory() as session:

@@ -44,8 +44,10 @@ def main() -> None:
 
     print()
     print("=== SYNC RESULT ===")
-    print(f"League ID: {result.league_id}")
-    print(f"Season: {result.season}")
+    print(f"Provider: {result.provider.value}")
+    print(f"Provider league ID: {result.provider_league_id}")
+    print(f"Provider season ID: {result.provider_season_id}")
+    print(f"Internal season ID: {result.season_id}")
     print(f"Current week: {result.current_week}")
     print(f"Full sync: {result.full_sync}")
     print(f"Player weeks: {list(result.player_weeks)}")

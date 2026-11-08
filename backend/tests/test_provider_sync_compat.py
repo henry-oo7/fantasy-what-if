@@ -5,7 +5,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.db.platform_enums import FantasyProvider
-from app.services.espn_sync import SyncResult
 from app.services.provider_adapter_resolver import (
     ActiveProviderContext,
     ProviderAdapterResolutionError,
@@ -28,6 +27,7 @@ def test_wrapper_preserves_legacy_sync_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     canonical_result = ProviderSyncResult(
+        provider=FantasyProvider.ESPN,
         season_id=1,
         provider_league_id="529250970",
         provider_season_id="2026",
@@ -79,9 +79,14 @@ def test_wrapper_preserves_legacy_sync_result(
         full_sync=False,
     )
 
-    assert isinstance(result, SyncResult)
-    assert result.league_id == 529250970
-    assert result.season == 2026
+    assert isinstance(
+        result,
+        ProviderSyncResult,
+    )
+    assert result.provider is FantasyProvider.ESPN
+    assert result.season_id == 1
+    assert result.provider_league_id == "529250970"
+    assert result.provider_season_id == "2026"
     assert result.current_week == 9
     assert result.full_sync is False
     assert result.player_weeks == (7, 8)

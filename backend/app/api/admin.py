@@ -107,12 +107,21 @@ def run_admin_synchronization(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=("Unable to synchronize ESPN league data."),
+            detail=("Unable to synchronize fantasy provider data."),
+        ) from exc
+
+    try:
+        legacy_league_id = int(result.provider_league_id)
+        legacy_season = int(result.provider_season_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=("The current admin sync response supports numeric provider identifiers only."),
         ) from exc
 
     return SyncResultResponse(
-        league_id=result.league_id,
-        season=result.season,
+        league_id=legacy_league_id,
+        season=legacy_season,
         current_week=result.current_week,
         full_sync=result.full_sync,
         player_weeks=result.player_weeks,

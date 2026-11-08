@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.db.platform_enums import FantasyProvider
 from app.providers.base import ProviderAdapter
 from app.repositories.provider_sync_repository import (
     ProviderSyncRepository,
@@ -26,6 +27,7 @@ from app.services.sync_lock import (
 class ProviderSyncResult:
     """Summary of one canonical provider synchronization."""
 
+    provider: FantasyProvider
     season_id: int
     provider_league_id: str
     provider_season_id: str
@@ -173,6 +175,7 @@ def synchronize_provider(
         raise
 
     return ProviderSyncResult(
+        provider=context.provider,
         season_id=context.season_id,
         provider_league_id=(context.provider_league_id),
         provider_season_id=(context.provider_season_id),

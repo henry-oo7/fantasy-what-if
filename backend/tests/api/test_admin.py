@@ -12,8 +12,9 @@ from app.api.auth_dependencies import (
 )
 from app.db import model_registry  # noqa: F401
 from app.db.auth_models import User, UserRole
+from app.db.platform_enums import FantasyProvider
 from app.main import app
-from app.services.espn_sync import SyncResult
+from app.services.provider_sync import ProviderSyncResult
 from app.services.sync_lock import (
     SyncAlreadyRunningError,
 )
@@ -41,10 +42,14 @@ def create_user(
 def fake_sync_result(
     *,
     full_sync: bool,
-) -> SyncResult:
-    return SyncResult(
-        league_id=529250970,
-        season=2026,
+) -> ProviderSyncResult:
+    return ProviderSyncResult(
+        provider=FantasyProvider.ESPN,
+        season_id=1,
+        provider_league_id="529250970",
+        provider_season_id="2026",
+        matchup_weeks=tuple(range(1, 13)),
+        analytics_rebuilt=False,
         current_week=9,
         full_sync=full_sync,
         player_weeks=(7, 8),
@@ -171,7 +176,7 @@ def test_sync_conflict_returns_409() -> None:
     def locked_runner(
         *,
         full_sync: bool,
-    ) -> SyncResult:
+    ) -> ProviderSyncResult:
         del full_sync
 
         raise SyncAlreadyRunningError(
