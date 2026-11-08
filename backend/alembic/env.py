@@ -4,10 +4,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.settings import get_settings
-from app.db import (
-    auth_models,  # noqa: F401
-    models,  # noqa: F401
-)
+from app.db import model_registry  # noqa: F401
 from app.db.base import Base
 
 config = context.config

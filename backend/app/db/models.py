@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -19,29 +19,28 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.mixins import TimestampMixin
+from app.db.platform_enums import (
+    FantasyProvider,
+    FantasySport,
+    SeasonStatus,
+)
+
+if TYPE_CHECKING:
+    from app.db.platform_models import (
+        Installation,
+        ProviderConnection,
+    )
 
 
 class SyncStatus(StrEnum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
-
-
-class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
 
 
 class League(TimestampMixin, Base):
@@ -56,6 +55,42 @@ class League(TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 
+    installation_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "installations.id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
+    provider: Mapped[FantasyProvider | None] = mapped_column(
+        Enum(
+            FantasyProvider,
+            name="fantasy_provider",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
+    )
+    provider_league_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    sport: Mapped[FantasySport | None] = mapped_column(
+        Enum(
+            FantasySport,
+            name="fantasy_sport",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
+    )
+    logo_url: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
+
+    installation: Mapped[Installation | None] = relationship(
+        back_populates="leagues",
+    )
     seasons: Mapped[list[Season]] = relationship(
         back_populates="league",
         cascade="all, delete-orphan",
@@ -89,7 +124,114 @@ class Season(TimestampMixin, Base):
         nullable=True,
     )
 
+    provider_connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "provider_connections.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+        index=True,
+    )
+    provider_season_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    status: Mapped[SeasonStatus | None] = mapped_column(
+        Enum(
+            SeasonStatus,
+            name="season_status",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
+        index=True,
+    )
+    team_count: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    playoff_week_start: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    playoff_week_end: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    scoring_type: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    supports_head_to_head: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    supports_weekly_matchups: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    supports_lineup_history: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    supports_optimal_lineups: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    supports_schedule_swap: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    supports_all_play: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    supports_league_average: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    supports_team_logos: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    configuration_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     league: Mapped[League] = relationship(back_populates="seasons")
+    provider_connection: Mapped[ProviderConnection | None] = relationship(
+        back_populates="seasons",
+    )
     teams: Mapped[list[Team]] = relationship(
         back_populates="season",
         cascade="all, delete-orphan",

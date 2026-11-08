@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.models import TimestampMixin
+from app.db.mixins import TimestampMixin
 
 
 class UserRole(StrEnum):
