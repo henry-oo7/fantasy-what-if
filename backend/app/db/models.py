@@ -321,6 +321,11 @@ class Team(TimestampMixin, Base):
             "espn_team_id",
             name="uq_teams_season_espn_team",
         ),
+        UniqueConstraint(
+            "season_id",
+            "provider_team_id",
+            name="uq_teams_season_provider_team",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -462,6 +467,13 @@ class PlayerWeekScore(TimestampMixin, Base):
             "team_id",
             "espn_player_id",
             name="uq_player_week_scores_season_week_team_player",
+        ),
+        UniqueConstraint(
+            "season_id",
+            "week",
+            "team_id",
+            "provider_player_id",
+            name=("uq_player_week_scores_season_week_team_provider_player"),
         ),
     )
 
