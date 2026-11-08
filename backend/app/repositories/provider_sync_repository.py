@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.db.models import (
     League,
+    Matchup,
     Season,
     SyncRun,
     SyncStatus,
@@ -21,7 +22,10 @@ from app.db.platform_enums import FantasyProvider
 from app.db.platform_models import (
     ProviderConnection,
 )
-from app.providers.domain import ProviderTeam
+from app.providers.domain import (
+    ProviderMatchup,
+    ProviderTeam,
+)
 
 
 class ProviderSyncContextNotFoundError(LookupError):
@@ -237,6 +241,104 @@ class ProviderSyncRepository:
             )
             for provider_team in provider_teams
         )
+
+    def replace_matchups(
+        self,
+        *,
+        context: ProviderSyncContext,
+        provider_matchups: tuple[
+            ProviderMatchup,
+            ...,
+        ],
+        requested_weeks: tuple[int, ...],
+    ) -> tuple[Matchup, ...]:
+        """Replace canonical matchups for requested weeks."""
+
+        normalized_weeks = tuple(sorted(set(requested_weeks)))
+
+        if any(not isinstance(week, int) or week < 1 for week in normalized_weeks):
+            raise ValueError("requested_weeks must contain positive integers.")
+
+        team_map = self.get_team_map(
+            season_id=context.season_id,
+        )
+        requested_week_set = set(normalized_weeks)
+
+        resolved_matchups: list[
+            tuple[
+                ProviderMatchup,
+                Team,
+                Team | None,
+            ]
+        ] = []
+
+        # Resolve and validate every provider ID before deleting
+        # any existing database records.
+        for provider_matchup in provider_matchups:
+            if provider_matchup.week not in requested_week_set:
+                raise ProviderSyncContextError("Provider matchup returned an unrequested week.")
+
+            home_team = team_map.get(provider_matchup.home_provider_team_id)
+
+            if home_team is None:
+                raise ProviderSyncContextError(
+                    "Provider matchup references unknown "
+                    "home team "
+                    f"{provider_matchup.home_provider_team_id!r}."
+                )
+
+            away_team: Team | None = None
+
+            if provider_matchup.away_provider_team_id is not None:
+                away_team = team_map.get(provider_matchup.away_provider_team_id)
+
+                if away_team is None:
+                    raise ProviderSyncContextError(
+                        "Provider matchup references unknown "
+                        "away team "
+                        f"{provider_matchup.away_provider_team_id!r}."
+                    )
+
+            resolved_matchups.append(
+                (
+                    provider_matchup,
+                    home_team,
+                    away_team,
+                )
+            )
+
+        if normalized_weeks:
+            self.session.execute(
+                delete(Matchup).where(
+                    Matchup.season_id == context.season_id,
+                    Matchup.week.in_(normalized_weeks),
+                )
+            )
+
+        stored_matchups: list[Matchup] = []
+
+        for (
+            provider_matchup,
+            home_team,
+            away_team,
+        ) in resolved_matchups:
+            matchup = Matchup(
+                season_id=context.season_id,
+                week=provider_matchup.week,
+                home_team_id=home_team.id,
+                away_team_id=(away_team.id if away_team is not None else None),
+                home_score=(provider_matchup.home_score),
+                away_score=(provider_matchup.away_score),
+                is_complete=(provider_matchup.is_complete),
+                is_bye=provider_matchup.is_bye,
+            )
+
+            self.session.add(matchup)
+            stored_matchups.append(matchup)
+
+        self.session.flush()
+
+        return tuple(stored_matchups)
 
     def get_team_map(
         self,
