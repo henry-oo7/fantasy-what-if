@@ -67,11 +67,14 @@ def test_eligible_slots_are_normalized_and_deduplicated() -> None:
         [
             "WR",
             " WR ",
+            "Rookie",
+            "Rookie",
             "RB/WR/TE",
             "BE",
         ]
     ) == (
         "WR",
+        "Rookie",
         "RB/WR/TE",
         "BE",
     )

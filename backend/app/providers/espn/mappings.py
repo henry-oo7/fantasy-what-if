@@ -97,7 +97,10 @@ def normalize_eligible_slots(
     seen_slots: set[str] = set()
 
     for slot in slots:
-        normalized = normalize_espn_code(slot)
+        normalized = str(slot).strip()
+
+        if not normalized:
+            continue
 
         if normalized in seen_slots:
             continue

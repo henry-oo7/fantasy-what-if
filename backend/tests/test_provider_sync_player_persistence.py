@@ -226,6 +226,57 @@ def test_player_week_replacement_is_idempotent(
     assert first_player.raw_metadata["injury_status"] == "ACTIVE"
 
 
+def test_defense_preserves_provider_position(
+    database_session: Session,
+) -> None:
+    repository = ProviderSyncRepository(database_session)
+    context = repository.load_context(
+        season_id=1,
+    )
+    provider_team_id = sorted(repository.get_team_map(season_id=1))[0]
+
+    defense = ProviderPlayerWeek(
+        provider_player_id="-16001",
+        player_name="Falcons D/ST",
+        pro_team="ATL",
+        provider_position="D/ST",
+        canonical_position="DST",
+        actual_lineup_slot="D/ST",
+        eligible_lineup_slots=(
+            "D/ST",
+            "BE",
+            "IR",
+        ),
+        points=Decimal("8.00"),
+        projected_points=Decimal("6.50"),
+        is_starter=True,
+        is_bench=False,
+        is_injured_reserve=False,
+        is_on_roster=True,
+        metadata={
+            "provider": "espn",
+        },
+    )
+
+    stored = repository.replace_player_week_scores(
+        context=context,
+        provider_rosters=(
+            ProviderWeeklyRoster(
+                provider_team_id=provider_team_id,
+                week=1,
+                players=(defense,),
+            ),
+        ),
+        requested_weeks=(1,),
+    )
+
+    assert len(stored) == 1
+    assert stored[0].espn_player_id == -16001
+    assert stored[0].provider_position == "D/ST"
+    assert stored[0].default_position == "D/ST"
+    assert stored[0].raw_metadata["canonical_position"] == "DST"
+
+
 def test_unknown_team_is_rejected_before_deletion(
     database_session: Session,
 ) -> None:
