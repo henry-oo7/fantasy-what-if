@@ -282,7 +282,6 @@ def test_team_map_uses_string_provider_ids() -> None:
         Team(
             id=10,
             season_id=2,
-            espn_team_id=1,
             provider_team_id="1",
             name="Team 1",
             wins=0,
@@ -294,7 +293,6 @@ def test_team_map_uses_string_provider_ids() -> None:
         Team(
             id=11,
             season_id=2,
-            espn_team_id=2,
             provider_team_id="2",
             name="Team 2",
             wins=0,
@@ -323,7 +321,6 @@ def test_team_map_rejects_missing_provider_id() -> None:
         Team(
             id=10,
             season_id=2,
-            espn_team_id=1,
             provider_team_id=None,
             name="Team 1",
             wins=0,

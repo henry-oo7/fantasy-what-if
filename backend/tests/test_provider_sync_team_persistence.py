@@ -6,13 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.db import model_registry  # noqa: F401
 from app.db.models import Team
-from app.db.platform_enums import FantasyProvider
 from app.db.session import engine
 from app.providers.domain import ProviderTeam
 from app.repositories.provider_sync_repository import (
     ProviderSyncContextError,
     ProviderSyncRepository,
-    legacy_espn_integer_id,
 )
 
 
@@ -56,67 +54,6 @@ def make_provider_team(
         metadata={
             "source": "test",
         },
-    )
-
-
-def test_legacy_espn_identifier_conversion() -> None:
-    assert (
-        legacy_espn_integer_id(
-            provider=FantasyProvider.ESPN,
-            provider_id="529250970",
-            field_name="provider_league_id",
-        )
-        == 529250970
-    )
-
-
-@pytest.mark.parametrize(
-    "provider_id",
-    [
-        "",
-        "not-numeric",
-        "0",
-        "-1",
-    ],
-)
-def test_invalid_legacy_espn_identifier_is_rejected(
-    provider_id: str,
-) -> None:
-    with pytest.raises(ProviderSyncContextError):
-        legacy_espn_integer_id(
-            provider=FantasyProvider.ESPN,
-            provider_id=provider_id,
-            field_name="provider_team_id",
-        )
-
-
-@pytest.mark.parametrize(
-    (
-        "provider",
-        "provider_id",
-    ),
-    [
-        (
-            FantasyProvider.SLEEPER,
-            "team-alpha",
-        ),
-        (
-            FantasyProvider.YAHOO,
-            "7.l.12345.t.4",
-        ),
-    ],
-)
-def test_non_espn_compatibility_identifier_is_none(
-    provider: FantasyProvider,
-    provider_id: str,
-) -> None:
-    assert (
-        legacy_espn_integer_id(
-            provider=provider,
-            provider_id=provider_id,
-            field_name="provider_team_id",
-        )
-        is None
     )
 
 
@@ -185,7 +122,6 @@ def test_canonical_team_upsert_is_idempotent(
     database_session.refresh(refreshed)
 
     assert refreshed.provider_team_id == provider_team_id
-    assert refreshed.espn_team_id == int(provider_team_id)
     assert refreshed.name == "Canonical Updated Again"
     assert refreshed.abbreviation == "CT"
     assert refreshed.owner_display_name == "League Member"

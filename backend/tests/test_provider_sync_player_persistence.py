@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.db import model_registry  # noqa: F401
 from app.db.models import PlayerWeekScore
-from app.db.platform_enums import FantasyProvider
 from app.db.session import engine
 from app.providers.domain import (
     ProviderPlayerWeek,
@@ -15,7 +14,6 @@ from app.providers.domain import (
 from app.repositories.provider_sync_repository import (
     ProviderSyncContextError,
     ProviderSyncRepository,
-    legacy_espn_player_integer_id,
 )
 
 
@@ -82,76 +80,6 @@ def player_week_count(
         statement = statement.where(PlayerWeekScore.week == week)
 
     return int(session.scalar(statement) or 0)
-
-
-def test_negative_espn_defense_id_is_valid() -> None:
-    assert (
-        legacy_espn_player_integer_id(
-            provider=FantasyProvider.ESPN,
-            provider_id="-16001",
-        )
-        == -16001
-    )
-
-
-def test_positive_espn_player_id_is_valid() -> None:
-    assert (
-        legacy_espn_player_integer_id(
-            provider=FantasyProvider.ESPN,
-            provider_id="4426515",
-        )
-        == 4426515
-    )
-
-
-def test_zero_espn_player_id_is_valid() -> None:
-    assert (
-        legacy_espn_player_integer_id(
-            provider=FantasyProvider.ESPN,
-            provider_id="0",
-        )
-        == 0
-    )
-
-
-def test_nonnumeric_espn_player_id_is_rejected() -> None:
-    with pytest.raises(
-        ProviderSyncContextError,
-        match="must be an integer",
-    ):
-        legacy_espn_player_integer_id(
-            provider=FantasyProvider.ESPN,
-            provider_id="not-numeric",
-        )
-
-
-@pytest.mark.parametrize(
-    (
-        "provider",
-        "provider_id",
-    ),
-    [
-        (
-            FantasyProvider.SLEEPER,
-            "player-alpha",
-        ),
-        (
-            FantasyProvider.YAHOO,
-            "431.p.12345",
-        ),
-    ],
-)
-def test_non_espn_player_compatibility_is_none(
-    provider: FantasyProvider,
-    provider_id: str,
-) -> None:
-    assert (
-        legacy_espn_player_integer_id(
-            provider=provider,
-            provider_id=provider_id,
-        )
-        is None
-    )
 
 
 def test_player_week_replacement_is_idempotent(
@@ -224,7 +152,6 @@ def test_player_week_replacement_is_idempotent(
 
     first_player = stored[0]
 
-    assert first_player.espn_player_id == 999001
     assert first_player.provider_player_id == "999001"
     assert first_player.provider_position == "WR"
     assert first_player.default_position == "WR"
@@ -289,7 +216,6 @@ def test_defense_preserves_provider_position(
     )
 
     assert len(stored) == 1
-    assert stored[0].espn_player_id == -16001
     assert stored[0].provider_position == "D/ST"
     assert stored[0].default_position == "D/ST"
     assert stored[0].raw_metadata["canonical_position"] == "DST"
@@ -372,7 +298,7 @@ def test_unrequested_week_is_rejected_before_deletion(
     )
 
 
-def test_nonnumeric_player_id_is_rejected_before_deletion(
+def test_nonnumeric_provider_player_id_is_preserved(
     database_session: Session,
 ) -> None:
     repository = ProviderSyncRepository(database_session)
@@ -381,38 +307,26 @@ def test_nonnumeric_player_id_is_rejected_before_deletion(
     )
     provider_team_id = sorted(repository.get_team_map(season_id=1))[0]
 
-    before_count = player_week_count(
-        database_session,
-        week=1,
-    )
-
-    with pytest.raises(
-        ProviderSyncContextError,
-        match="must be an integer",
-    ):
-        repository.replace_player_week_scores(
-            context=context,
-            provider_rosters=(
-                ProviderWeeklyRoster(
-                    provider_team_id=(provider_team_id),
-                    week=1,
-                    players=(
-                        make_player(
-                            provider_player_id=("not-numeric"),
-                        ),
+    stored = repository.replace_player_week_scores(
+        context=context,
+        provider_rosters=(
+            ProviderWeeklyRoster(
+                provider_team_id=provider_team_id,
+                week=1,
+                players=(
+                    make_player(
+                        provider_player_id=("player-alpha"),
                     ),
                 ),
             ),
-            requested_weeks=(1,),
-        )
-
-    assert (
-        player_week_count(
-            database_session,
-            week=1,
-        )
-        == before_count
+        ),
+        requested_weeks=(1,),
     )
+
+    database_session.flush()
+
+    assert len(stored) == 1
+    assert stored[0].provider_player_id == "player-alpha"
 
 
 def test_duplicate_team_week_is_rejected_before_deletion(

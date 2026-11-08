@@ -72,12 +72,6 @@ def test_team_franchise_delete_rule() -> None:
     assert foreign_key.ondelete == "SET NULL"
 
 
-def test_legacy_team_identifier_remains_required() -> None:
-    table = Team.__table__
-
-    assert table.c.espn_team_id.nullable is True
-
-
 def test_canonical_player_week_fields() -> None:
     table = PlayerWeekScore.__table__
 
@@ -86,12 +80,6 @@ def test_canonical_player_week_fields() -> None:
 
     assert table.c.provider_position.nullable is True
     assert table.c.provider_position.type.length == 100
-
-
-def test_legacy_player_identifier_remains_required() -> None:
-    table = PlayerWeekScore.__table__
-
-    assert table.c.espn_player_id.nullable is True
 
 
 def test_slice_a2_metadata_inventory() -> None:

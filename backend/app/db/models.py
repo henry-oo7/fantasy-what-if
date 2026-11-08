@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 import sqlalchemy as sa
 from sqlalchemy import (
     JSON,
-    BigInteger,
     Boolean,
     DateTime,
     Enum,
@@ -48,12 +47,6 @@ class League(TimestampMixin, Base):
     __tablename__ = "leagues"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    espn_league_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        nullable=True,
-        unique=True,
-        index=True,
-    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     installation_id: Mapped[int | None] = mapped_column(
@@ -318,11 +311,6 @@ class Team(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint(
             "season_id",
-            "espn_team_id",
-            name="uq_teams_season_espn_team",
-        ),
-        UniqueConstraint(
-            "season_id",
             "provider_team_id",
             name="uq_teams_season_provider_team",
         ),
@@ -333,10 +321,6 @@ class Team(TimestampMixin, Base):
         ForeignKey("seasons.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-    )
-    espn_team_id: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
     )
     provider_team_id: Mapped[str | None] = mapped_column(
         String(255),
@@ -468,13 +452,6 @@ class PlayerWeekScore(TimestampMixin, Base):
             "season_id",
             "week",
             "team_id",
-            "espn_player_id",
-            name="uq_player_week_scores_season_week_team_player",
-        ),
-        UniqueConstraint(
-            "season_id",
-            "week",
-            "team_id",
             "provider_player_id",
             name=("uq_player_week_scores_season_week_team_provider_player"),
         ),
@@ -493,10 +470,6 @@ class PlayerWeekScore(TimestampMixin, Base):
     )
     week: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
-    espn_player_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        nullable=True,
-    )
     provider_player_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,

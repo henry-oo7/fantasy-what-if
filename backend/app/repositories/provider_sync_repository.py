@@ -266,15 +266,8 @@ class ProviderSyncRepository:
     ) -> Team:
         """Upsert one canonical provider team idempotently."""
 
-        legacy_espn_team_id = legacy_espn_integer_id(
-            provider=context.provider,
-            provider_id=provider_team.provider_team_id,
-            field_name="provider_team_id",
-        )
-
         values = {
             "season_id": context.season_id,
-            "espn_team_id": legacy_espn_team_id,
             "provider_team_id": (provider_team.provider_team_id),
             "name": provider_team.name,
             "abbreviation": (provider_team.abbreviation),
@@ -294,7 +287,6 @@ class ProviderSyncRepository:
             .on_conflict_do_update(
                 constraint=("uq_teams_season_provider_team"),
                 set_={
-                    "espn_team_id": (legacy_espn_team_id),
                     "name": provider_team.name,
                     "abbreviation": (provider_team.abbreviation),
                     "owner_display_name": (provider_team.owner_display_name),
@@ -494,12 +486,6 @@ class ProviderSyncRepository:
 
             seen_team_weeks.add(team_week)
 
-            for player in provider_roster.players:
-                legacy_espn_player_integer_id(
-                    provider=context.provider,
-                    provider_id=player.provider_player_id,
-                )
-
             resolved_rosters.append(
                 (
                     provider_roster,
@@ -522,11 +508,6 @@ class ProviderSyncRepository:
             database_team,
         ) in resolved_rosters:
             for player in provider_roster.players:
-                legacy_player_id = legacy_espn_player_integer_id(
-                    provider=context.provider,
-                    provider_id=(player.provider_player_id),
-                )
-
                 raw_metadata = dict(player.metadata)
                 raw_metadata["canonical_position"] = player.canonical_position
 
@@ -534,7 +515,6 @@ class ProviderSyncRepository:
                     season_id=context.season_id,
                     team_id=database_team.id,
                     week=provider_roster.week,
-                    espn_player_id=legacy_player_id,
                     provider_player_id=(player.provider_player_id),
                     provider_position=(player.provider_position),
                     player_name=player.player_name,
@@ -675,51 +655,3 @@ class ProviderSyncRepository:
         sync_run.completed_at = datetime.now(UTC)
         sync_run.safe_error_message = normalized_message[:1000]
         sync_run.analytics_rebuilt = False
-
-
-def legacy_espn_player_integer_id(
-    *,
-    provider: FantasyProvider,
-    provider_id: str,
-) -> int | None:
-    """Return an ESPN player ID or None for another provider.
-
-    ESPN assigns negative integer identifiers to NFL defenses,
-    including values such as -16001 for the Falcons D/ST.
-    """
-
-    if provider is not FantasyProvider.ESPN:
-        return None
-
-    try:
-        return int(provider_id)
-    except ValueError as exc:
-        raise ProviderSyncContextError(
-            "provider_player_id must be an integer during the ESPN compatibility period."
-        ) from exc
-
-
-def legacy_espn_integer_id(
-    *,
-    provider: FantasyProvider,
-    provider_id: str,
-    field_name: str,
-) -> int | None:
-    """Return an ESPN integer ID or None for another provider."""
-
-    if provider is not FantasyProvider.ESPN:
-        return None
-
-    try:
-        parsed = int(provider_id)
-    except ValueError as exc:
-        raise ProviderSyncContextError(
-            f"{field_name} must be numeric during the ESPN compatibility period."
-        ) from exc
-
-    if parsed < 1:
-        raise ProviderSyncContextError(
-            f"{field_name} must be positive during the ESPN compatibility period."
-        )
-
-    return parsed

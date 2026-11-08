@@ -84,7 +84,6 @@ def test_transition_fields_remain_nullable() -> None:
     league = League.__table__
     season = Season.__table__
 
-    assert league.c.espn_league_id.nullable
     assert league.c.installation_id.nullable
     assert league.c.provider.nullable
     assert league.c.provider_league_id.nullable
