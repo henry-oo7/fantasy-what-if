@@ -6,7 +6,10 @@ from threading import Event
 
 from app.core.settings import Settings, get_settings
 from app.db.session import SessionFactory
-from app.services.espn_sync import SyncResult, synchronize_espn
+from app.services.espn_sync import SyncResult
+from app.services.provider_sync_compat import (
+    synchronize_active_provider,
+)
 from app.services.sync_lock import SyncAlreadyRunningError
 from app.services.sync_schedule import (
     calculate_next_sync_time,
@@ -74,7 +77,7 @@ def run_incremental_sync(
 
     try:
         with SessionFactory() as session:
-            result = synchronize_espn(
+            result = synchronize_active_provider(
                 session=session,
                 settings=settings,
                 full_sync=False,

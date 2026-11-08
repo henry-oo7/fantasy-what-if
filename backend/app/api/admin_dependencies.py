@@ -2,9 +2,9 @@ from typing import Protocol
 
 from app.core.settings import get_settings
 from app.db.session import SessionFactory
-from app.services.espn_sync import (
-    SyncResult,
-    synchronize_espn,
+from app.services.espn_sync import SyncResult
+from app.services.provider_sync_compat import (
+    synchronize_active_provider,
 )
 
 
@@ -23,7 +23,7 @@ def run_synchronization(
     settings = get_settings()
 
     with SessionFactory() as session:
-        return synchronize_espn(
+        return synchronize_active_provider(
             session=session,
             settings=settings,
             full_sync=full_sync,

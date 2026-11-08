@@ -2,7 +2,9 @@ import argparse
 
 from app.core.settings import get_settings
 from app.db.session import SessionFactory
-from app.services.espn_sync import synchronize_espn
+from app.services.provider_sync_compat import (
+    synchronize_active_provider,
+)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -36,7 +38,7 @@ def main() -> None:
     print("Credentials intentionally hidden.")
 
     with SessionFactory() as session:
-        result = synchronize_espn(
+        result = synchronize_active_provider(
             session=session,
             settings=settings,
             full_sync=arguments.full,
