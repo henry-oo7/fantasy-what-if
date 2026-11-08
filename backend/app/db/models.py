@@ -95,6 +95,48 @@ class League(TimestampMixin, Base):
         back_populates="league",
         cascade="all, delete-orphan",
     )
+    franchises: Mapped[list[Franchise]] = relationship(
+        back_populates="league",
+        cascade="all, delete-orphan",
+    )
+
+
+class Franchise(TimestampMixin, Base):
+    __tablename__ = "franchises"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "leagues.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    display_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    logo_url: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
+
+    league: Mapped[League] = relationship(
+        back_populates="franchises",
+    )
+    season_teams: Mapped[list[Team]] = relationship(
+        back_populates="franchise",
+    )
 
 
 class Season(TimestampMixin, Base):
@@ -267,7 +309,37 @@ class Team(TimestampMixin, Base):
         index=True,
     )
     espn_team_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider_team_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    franchise_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "franchises.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    abbreviation: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    owner_display_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    logo_url: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
     wins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     losses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ties: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -283,6 +355,9 @@ class Team(TimestampMixin, Base):
     )
 
     season: Mapped[Season] = relationship(back_populates="teams")
+    franchise: Mapped[Franchise | None] = relationship(
+        back_populates="season_teams",
+    )
     home_matchups: Mapped[list[Matchup]] = relationship(
         back_populates="home_team",
         foreign_keys="Matchup.home_team_id",
@@ -383,6 +458,14 @@ class PlayerWeekScore(TimestampMixin, Base):
     week: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
     espn_player_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    provider_player_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    provider_position: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
     player_name: Mapped[str] = mapped_column(String(255), nullable=False)
     pro_team: Mapped[str | None] = mapped_column(String(20), nullable=True)
     default_position: Mapped[str] = mapped_column(
