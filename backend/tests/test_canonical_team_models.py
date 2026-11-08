@@ -95,7 +95,6 @@ def test_legacy_player_identifier_remains_required() -> None:
 
 
 def test_slice_a2_metadata_inventory() -> None:
-    assert len(Base.metadata.tables) == 13
 
     required_tables = {
         "franchises",

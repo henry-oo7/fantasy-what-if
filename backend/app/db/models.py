@@ -5,6 +5,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+import sqlalchemy as sa
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -289,6 +290,19 @@ class Season(TimestampMixin, Base):
     sync_runs: Mapped[list[SyncRun]] = relationship(
         back_populates="season",
         cascade="all, delete-orphan",
+    )
+    lineup_slot_definitions: Mapped[list[LineupSlotDefinition]] = relationship(
+        back_populates="season",
+        cascade="all, delete-orphan",
+    )
+    scoring_rules: Mapped[list[ScoringRule]] = relationship(
+        back_populates="season",
+        cascade="all, delete-orphan",
+    )
+    schedule_rule: Mapped[ScheduleRule | None] = relationship(
+        back_populates="season",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
 
@@ -589,4 +603,243 @@ class SyncRun(Base):
 
     season: Mapped[Season | None] = relationship(
         back_populates="sync_runs",
+    )
+
+
+class LineupSlotDefinition(TimestampMixin, Base):
+    __tablename__ = "lineup_slot_definitions"
+    __table_args__ = (
+        UniqueConstraint(
+            "season_id",
+            "provider_slot_code",
+            name=("uq_lineup_slot_definitions_season_provider_slot"),
+        ),
+        sa.CheckConstraint(
+            "slot_order >= 0",
+            name=("ck_lineup_slot_definitions_slot_order_nonnegative"),
+        ),
+        sa.CheckConstraint(
+            "starter_count >= 0",
+            name=("ck_lineup_slot_definitions_starter_count_nonnegative"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    season_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "seasons.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    provider_slot_code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    canonical_slot_code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    display_name: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+    slot_order: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    starter_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    is_starter: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    is_bench: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    is_injured_reserve: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    metadata_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=True,
+    )
+
+    season: Mapped[Season] = relationship(
+        back_populates="lineup_slot_definitions",
+    )
+    eligibility: Mapped[list[LineupSlotEligibility]] = relationship(
+        back_populates="lineup_slot_definition",
+        cascade="all, delete-orphan",
+    )
+
+
+class LineupSlotEligibility(Base):
+    __tablename__ = "lineup_slot_eligibility"
+    __table_args__ = (
+        UniqueConstraint(
+            "lineup_slot_definition_id",
+            "canonical_position",
+            name=("uq_lineup_slot_eligibility_slot_position"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    lineup_slot_definition_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "lineup_slot_definitions.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    canonical_position: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    lineup_slot_definition: Mapped[LineupSlotDefinition] = relationship(
+        back_populates="eligibility",
+    )
+
+
+class ScoringRule(TimestampMixin, Base):
+    __tablename__ = "scoring_rules"
+    __table_args__ = (
+        UniqueConstraint(
+            "season_id",
+            "provider_stat_code",
+            name=("uq_scoring_rules_season_provider_stat"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    season_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "seasons.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    provider_stat_code: Mapped[str] = mapped_column(
+        String(150),
+        nullable=False,
+    )
+    canonical_stat_code: Mapped[str | None] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+    display_name: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+    )
+    points_per_unit: Mapped[Decimal] = mapped_column(
+        Numeric(12, 6),
+        nullable=False,
+    )
+    metadata_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=True,
+    )
+
+    season: Mapped[Season] = relationship(
+        back_populates="scoring_rules",
+    )
+
+
+class ScheduleRule(TimestampMixin, Base):
+    __tablename__ = "schedule_rules"
+    __table_args__ = (
+        UniqueConstraint(
+            "season_id",
+            name="uq_schedule_rules_season",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    season_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "seasons.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    regular_season_weeks: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    playoff_week_start: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    playoff_week_end: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    has_divisions: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    has_median_game: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    has_doubleheaders: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    allows_ties: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
+    metadata_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=True,
+    )
+
+    season: Mapped[Season] = relationship(
+        back_populates="schedule_rule",
     )
