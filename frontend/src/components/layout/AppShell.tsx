@@ -7,6 +7,7 @@ import {
   LogOut,
   Menu,
   ShieldCheck,
+  Target,
   UserPlus,
   X,
 } from "lucide-react";
@@ -48,6 +49,11 @@ const navigationItems: NavigationItem[] = [
     label: "Schedule Swap",
     path: "/schedule-swap",
     icon: GitCompareArrows,
+  },
+  {
+    label: "Optimal Lineups",
+    path: "/optimal-lineups",
+    icon: Target,
   },
 ];
 

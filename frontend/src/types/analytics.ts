@@ -64,3 +64,52 @@ export interface LeagueAverageStanding {
   weeks_played: number;
   weekly_results: LeagueAverageWeek[];
 }
+
+
+export interface LineupPlayer {
+  lineup_slot: string;
+  player_id: number | null;
+  player_name: string | null;
+  default_position: string | null;
+  pro_team: string | null;
+  points: number;
+  actual_lineup_slot: string | null;
+  was_actual_starter: boolean;
+  is_unfilled: boolean;
+}
+
+export interface LineupSubstitution {
+  lineup_slot: string;
+  player_in_id: number | null;
+  player_in_name: string | null;
+  player_out_id: number | null;
+  player_out_name: string | null;
+  point_change: number;
+}
+
+export interface TeamWeekOptimalLineup {
+  team_id: number;
+  team_name: string;
+  week: number;
+  actual_points: number;
+  optimal_points: number;
+  missed_points: number;
+  efficiency_percentage: number;
+  actual_starter_count: number;
+  optimal_filled_slot_count: number;
+  unfilled_slots: string[];
+  actual_lineup: LineupPlayer[];
+  optimal_lineup: LineupPlayer[];
+  substitutions: LineupSubstitution[];
+}
+
+export interface TeamOptimalLineupSummary {
+  team_id: number;
+  team_name: string;
+  weeks_played: number;
+  actual_points: number;
+  optimal_points: number;
+  missed_points: number;
+  efficiency_percentage: number;
+  weekly_results: TeamWeekOptimalLineup[];
+}

@@ -143,3 +143,89 @@ describe("league average API", () => {
     });
   });
 });
+
+
+describe("optimal-lineup API", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("creates stable optimal-lineup query keys", async () => {
+    const { analyticsQueryKeys } =
+      await import("./analytics");
+
+    expect(
+      analyticsQueryKeys.optimalLineups(),
+    ).toEqual([
+      "analytics",
+      "optimal-lineups",
+    ]);
+
+    expect(
+      analyticsQueryKeys.optimalLineupTeam(4),
+    ).toEqual([
+      "analytics",
+      "optimal-lineups",
+      4,
+    ]);
+  });
+
+  it("requests the manager efficiency ranking", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse([]),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const {
+      optimalLineupsQueryOptions,
+    } = await import("./analytics");
+
+    const queryClient = new QueryClient();
+
+    await queryClient.fetchQuery(
+      optimalLineupsQueryOptions(),
+    );
+
+    const [requestedUrl, options] =
+      fetchMock.mock.calls[0];
+
+    expect(String(requestedUrl)).toContain(
+      "/analytics/optimal-lineups",
+    );
+
+    expect(options).toMatchObject({
+      method: "GET",
+      credentials: "include",
+    });
+  });
+
+  it("requests one team by ID", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        team_id: 4,
+        team_name: "Kamara Sutra",
+        weekly_results: [],
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const {
+      teamOptimalLineupQueryOptions,
+    } = await import("./analytics");
+
+    const queryClient = new QueryClient();
+
+    await queryClient.fetchQuery(
+      teamOptimalLineupQueryOptions(4),
+    );
+
+    const [requestedUrl] =
+      fetchMock.mock.calls[0];
+
+    expect(String(requestedUrl)).toContain(
+      "/analytics/optimal-lineups/4",
+    );
+  });
+});

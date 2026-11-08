@@ -7,6 +7,7 @@ import {
 import App from "./App";
 import { AllPlayPage } from "./pages/AllPlayPage";
 import { LeagueAveragePage } from "./pages/LeagueAveragePage";
+import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
 import { AdminInvitationsPage } from "./pages/AdminInvitationsPage";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
@@ -54,6 +55,21 @@ export function AppRouter() {
         <Route
           path="schedule-swap"
           element={<ScheduleSwapPage />}
+        />
+
+        <Route
+          path="optimal-lineups"
+          element={<OptimalLineupsPage />}
+        />
+
+        <Route
+          path="optimal-lineups/:teamId"
+          element={
+            <Navigate
+              to="/optimal-lineups"
+              replace
+            />
+          }
         />
 
         <Route
