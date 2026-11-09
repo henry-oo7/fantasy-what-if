@@ -21,6 +21,7 @@ import {
   setupStatusQueryOptions,
 } from "../api/setup";
 import { useAuth } from "../auth/AuthProvider";
+import { FinalizeSetupPanel } from "./FinalizeSetupPanel";
 import { ProviderSetupPanel } from "./ProviderSetupPanel";
 import "./setup.css";
 
@@ -73,10 +74,6 @@ export function SetupPage() {
 
   const activationComplete =
     setup?.active_league_configured ?? false;
-
-  const authenticatedAdministrator =
-    auth.status === "authenticated" &&
-    auth.user?.role === "admin";
 
   async function handleBootstrap(
     event: FormEvent<HTMLFormElement>,
@@ -357,36 +354,7 @@ export function SetupPage() {
       ) : !providerComplete ? (
         <ProviderSetupPanel />
       ) : (
-        <section className="setup-form-panel">
-          <div className="setup-panel-heading">
-            <p className="setup-kicker">
-              Initial synchronization
-            </p>
-
-            <h2>Provider connected</h2>
-
-            <p>
-              {authenticatedAdministrator
-                ? `Signed in as ${auth.user?.display_name}.`
-                : "Sign in with the administrator account to continue."}
-            </p>
-          </div>
-
-          <div className="setup-success-message">
-            <CheckCircle2 aria-hidden="true" />
-
-            <div>
-              <strong>
-                Provider setup complete
-              </strong>
-
-              <p>
-                The installation is ready for its
-                initial synchronization and activation.
-              </p>
-            </div>
-          </div>
-        </section>
+        <FinalizeSetupPanel />
       )}
     </main>
   );
