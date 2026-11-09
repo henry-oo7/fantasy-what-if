@@ -1,4 +1,6 @@
 import {
+  useEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -26,6 +28,68 @@ import type {
 } from "../types/setup";
 
 
+const MINIMUM_SYNC_DISPLAY_MS = 8_000;
+const COMPLETION_PAUSE_MS = 650;
+const PROGRESS_UPDATE_MS = 100;
+
+interface ProgressStage {
+  threshold: number;
+  label: string;
+  detail: string;
+}
+
+const PROGRESS_STAGES: ProgressStage[] = [
+  {
+    threshold: 0,
+    label: "Preparing synchronization",
+    detail:
+      "Opening the encrypted ESPN connection.",
+  },
+  {
+    threshold: 15,
+    label: "Validating ESPN access",
+    detail:
+      "Confirming the saved league credentials.",
+  },
+  {
+    threshold: 30,
+    label: "Loading league settings",
+    detail:
+      "Reading the season, teams, and scoring format.",
+  },
+  {
+    threshold: 45,
+    label: "Importing teams",
+    detail:
+      "Creating the canonical league roster.",
+  },
+  {
+    threshold: 60,
+    label: "Importing the schedule",
+    detail:
+      "Loading regular-season matchups and results.",
+  },
+  {
+    threshold: 75,
+    label: "Importing lineup history",
+    detail:
+      "Loading completed player-week records.",
+  },
+  {
+    threshold: 90,
+    label: "Finishing synchronization",
+    detail:
+      "Waiting for ESPN processing to complete.",
+  },
+  {
+    threshold: 100,
+    label: "Installation ready",
+    detail:
+      "The league has been synchronized and activated.",
+  },
+];
+
+
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     return error.detail;
@@ -39,10 +103,35 @@ function errorMessage(error: unknown): string {
 }
 
 
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
+}
+
+
+function stageForProgress(
+  progress: number,
+): ProgressStage {
+  return (
+    [...PROGRESS_STAGES]
+      .reverse()
+      .find(
+        (stage) =>
+          progress >= stage.threshold,
+      ) ?? PROGRESS_STAGES[0]
+  );
+}
+
+
 export function FinalizeSetupPanel() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  const progressTimer = useRef<number | null>(
+    null,
+  );
 
   const [result, setResult] =
     useState<SetupFinalizationResponse | null>(
@@ -52,10 +141,82 @@ export function FinalizeSetupPanel() {
     useState<string | null>(null);
   const [submitting, setSubmitting] =
     useState(false);
+  const [progress, setProgress] =
+    useState(0);
 
   const authenticatedAdministrator =
     auth.status === "authenticated" &&
     auth.user?.role === "admin";
+
+  const progressStage =
+    stageForProgress(progress);
+
+  useEffect(() => {
+    return () => {
+      if (progressTimer.current !== null) {
+        window.clearInterval(
+          progressTimer.current,
+        );
+      }
+    };
+  }, []);
+
+  function stopProgressTimer() {
+    if (progressTimer.current === null) {
+      return;
+    }
+
+    window.clearInterval(
+      progressTimer.current,
+    );
+
+    progressTimer.current = null;
+  }
+
+  function startProgressTimer(
+    startedAt: number,
+  ) {
+    stopProgressTimer();
+
+    setProgress(5);
+
+    progressTimer.current =
+      window.setInterval(() => {
+        const elapsed =
+          Date.now() - startedAt;
+
+        const elapsedRatio = Math.min(
+          elapsed /
+            MINIMUM_SYNC_DISPLAY_MS,
+          1,
+        );
+
+        /*
+         * Ease toward 90%. The progress bar never
+         * reaches completion until the backend confirms
+         * that setup actually succeeded.
+         */
+        const estimatedProgress =
+          5 +
+          85 *
+            (
+              1 -
+              Math.pow(
+                1 - elapsedRatio,
+                2.2,
+              )
+            );
+
+        setProgress(
+          Math.min(
+            90,
+            Math.round(
+              estimatedProgress,
+            ),
+          ),
+        );
+      }, PROGRESS_UPDATE_MS);
+  }
 
   async function handleFinalize() {
     setError(null);
@@ -70,15 +231,42 @@ export function FinalizeSetupPanel() {
       return;
     }
 
+    const startedAt = Date.now();
+
     setSubmitting(true);
+    startProgressTimer(startedAt);
 
     try {
       const response = await finalizeSetup(
         auth.csrfToken,
       );
 
+      const elapsed =
+        Date.now() - startedAt;
+
+      const remainingDisplayTime =
+        Math.max(
+          0,
+          MINIMUM_SYNC_DISPLAY_MS - elapsed,
+        );
+
+      if (remainingDisplayTime > 0) {
+        await delay(
+          remainingDisplayTime,
+        );
+      }
+
+      stopProgressTimer();
+      setProgress(100);
+
+      await delay(
+        COMPLETION_PAUSE_MS,
+      );
+
       setResult(response);
     } catch (currentError) {
+      stopProgressTimer();
+      setProgress(0);
       setError(errorMessage(currentError));
     } finally {
       setSubmitting(false);
@@ -174,9 +362,9 @@ export function FinalizeSetupPanel() {
 
         <p>
           Fantasy What-If will create the canonical
-          league and season, import the complete ESPN
-          schedule and completed lineup history, and
-          activate the analytics application.
+          league and season, import the ESPN schedule
+          and completed lineup history, and activate the
+          analytics application.
         </p>
       </div>
 
@@ -190,8 +378,8 @@ export function FinalizeSetupPanel() {
             </strong>
 
             <p>
-              The saved ESPN credentials will be
-              decrypted only inside the backend.
+              The saved ESPN credentials are decrypted
+              only inside the backend.
             </p>
           </div>
         </article>
@@ -242,37 +430,68 @@ export function FinalizeSetupPanel() {
             </p>
           ) : null}
 
-          <button
-            type="button"
-            className="setup-primary-action"
-            disabled={submitting}
-            onClick={() => {
-              void handleFinalize();
-            }}
-          >
-            {submitting ? (
-              <>
-                <RefreshCw
-                  className="spinner"
-                  aria-hidden="true"
-                />
-                Synchronizing ESPN league...
-              </>
-            ) : (
-              "Synchronize and activate"
-            )}
-          </button>
-
           {submitting ? (
-            <p
-              className="setup-sync-notice"
+            <section
+              className="setup-progress-panel"
               aria-live="polite"
+              aria-labelledby="setup-progress-label"
             >
-              The first synchronization can take
-              several minutes for leagues with complete
-              lineup history. Keep this page open.
-            </p>
-          ) : null}
+              <div className="setup-progress-heading">
+                <div>
+                  <p className="setup-kicker">
+                    Estimated progress
+                  </p>
+
+                  <h3 id="setup-progress-label">
+                    {progressStage.label}
+                  </h3>
+
+                  <p>
+                    {progressStage.detail}
+                  </p>
+                </div>
+
+                <strong>
+                  {progress}%
+                </strong>
+              </div>
+
+              <div
+                className="setup-progress-track"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress}
+                aria-valuetext={
+                  progressStage.label
+                }
+              >
+                <span
+                  className="setup-progress-value"
+                  style={{
+                    width: `${progress}%`,
+                  }}
+                />
+              </div>
+
+              <p className="setup-sync-notice">
+                Keep this page open. Progress may pause
+                near completion while ESPN finishes
+                processing the league history.
+              </p>
+            </section>
+          ) : (
+            <button
+              type="button"
+              className="setup-primary-action"
+              onClick={() => {
+                void handleFinalize();
+              }}
+            >
+              <RefreshCw aria-hidden="true" />
+              Synchronize and activate
+            </button>
+          )}
         </>
       )}
     </section>
