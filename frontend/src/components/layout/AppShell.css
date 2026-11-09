@@ -405,3 +405,227 @@
   outline: 3px solid #719b80;
   outline-offset: 2px;
 }
+
+.season-menu {
+  position: relative;
+  margin: 4px 16px 24px;
+}
+
+.season-menu .sidebar-league {
+  margin: 0;
+}
+
+.season-menu-trigger {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  color: #ffffff;
+  border: 0;
+  border-left: 3px solid var(--color-green-500);
+  border-radius: 0 3px 3px 0;
+  background: rgba(255, 255, 255, 0.07);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.season-menu-trigger:hover,
+.season-menu-trigger[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.season-menu-trigger:focus-visible {
+  outline: 3px solid #719b80;
+  outline-offset: 2px;
+}
+
+.season-menu-current {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.season-menu-current strong,
+.season-menu-current small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.season-menu-chevron {
+  width: 1rem;
+  height: 1rem;
+  color: #9ebaaa;
+  transition: transform 180ms ease;
+}
+
+.season-menu-chevron-open {
+  transform: rotate(180deg);
+}
+
+.season-menu-popover {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  width: min(22rem, calc(100vw - 2rem));
+  overflow: hidden;
+  border: 1px solid #698071;
+  color: #172019;
+  background: #ffffff;
+}
+
+.season-menu-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border-bottom: 3px solid var(--color-green-700);
+}
+
+.season-menu-heading > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.season-menu-heading strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.05rem;
+  text-transform: uppercase;
+}
+
+.season-menu-heading span {
+  color: #617067;
+  font-size: 0.75rem;
+}
+
+.season-menu-heading svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  color: var(--color-green-700);
+}
+
+.season-menu-option {
+  display: flex;
+  width: 100%;
+  min-height: 4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border: 0;
+  border-bottom: 1px solid #d2d9d4;
+  color: #25342b;
+  background: #ffffff;
+  font: inherit;
+  text-align: left;
+}
+
+.season-menu-option > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.season-menu-option strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.season-menu-option small {
+  color: #68736c;
+}
+
+.season-menu-option-active {
+  cursor: pointer;
+  background: #edf4ef;
+}
+
+.season-menu-option-active:hover {
+  background: #e2eee6;
+}
+
+.season-menu-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.season-active-label,
+.season-history-label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+  color: #27663f;
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.season-active-label svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.season-history-label {
+  color: #68736c;
+}
+
+.season-menu-state {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 1rem;
+  color: #526057;
+  font-size: 0.8rem;
+}
+
+.season-menu-state svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.season-menu-error {
+  display: grid;
+  color: #7d1d19;
+  background: #f9e8e7;
+}
+
+.season-menu-error button {
+  justify-self: start;
+  min-height: 2.25rem;
+  padding-inline: 0.7rem;
+  border: 1px solid currentColor;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 750;
+}
+
+.season-menu-note {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  color: #68736c;
+  background: #f7f9f7;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 820px) {
+  .season-menu-popover {
+    position: static;
+    width: 100%;
+    margin-top: 0.45rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .season-menu-chevron {
+    transition: none;
+  }
+}

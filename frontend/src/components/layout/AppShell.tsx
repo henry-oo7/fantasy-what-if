@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   GitCompareArrows,
@@ -12,8 +11,8 @@ import {
 } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
-import { currentLeagueQueryOptions } from "../../api/league";
 import { useAuth } from "../../auth/AuthProvider";
+import { SeasonMenu } from "./SeasonMenu";
 import "./AppShell.css";
 
 function FootballIcon({
@@ -92,7 +91,6 @@ const navigationItems: NavigationItem[] = [
 export function AppShell() {
   const auth = useAuth();
   const navigate = useNavigate();
-  const leagueQuery = useQuery(currentLeagueQueryOptions());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -214,11 +212,11 @@ export function AppShell() {
           </button>
         </div>
 
-        <div className="sidebar-league">
-          <strong>{leagueQuery.data?.name ?? "Jimmy and Friends"}</strong>
-
-          <small>{leagueQuery.data?.season ?? "Current"} season</small>
-        </div>
+        <SeasonMenu
+          onNavigate={() => {
+            setDrawerOpen(false);
+          }}
+        />
 
         <nav className="sidebar-navigation" aria-label="Primary navigation">
           <span className="navigation-section-label">League</span>
