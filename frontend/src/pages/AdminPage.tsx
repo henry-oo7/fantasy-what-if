@@ -360,7 +360,7 @@ export function AdminPage() {
 
         {spectator.configured ? (
           <>
-            <dl className="admin-detail-grid">
+            <dl className="admin-detail-grid admin-spectator-details">
               <div>
                 <dt>Username</dt>
                 <dd>
@@ -368,12 +368,6 @@ export function AdminPage() {
                 </dd>
               </div>
 
-              <div>
-                <dt>Display name</dt>
-                <dd>
-                  {spectator.display_name}
-                </dd>
-              </div>
             </dl>
 
             <div className="admin-control-panel">
@@ -558,7 +552,7 @@ export function AdminPage() {
           </span>
         </div>
 
-        <dl className="admin-detail-grid">
+        <dl className="admin-detail-grid admin-sync-details">
           <div>
             <dt>Season</dt>
             <dd>
@@ -583,14 +577,6 @@ export function AdminPage() {
             </dd>
           </div>
 
-          <div>
-            <dt>Latest player rows</dt>
-            <dd>
-              {syncStatus.latest_run
-                ?.player_week_scores_upserted ??
-                0}
-            </dd>
-          </div>
         </dl>
 
         <div className="admin-control-panel">

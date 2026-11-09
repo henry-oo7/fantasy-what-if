@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
-  Settings,
   ShieldCheck,
   Target,
   X,
@@ -218,52 +217,60 @@ export function AppShell() {
           </div>
         </nav>
 
-        {auth.user.role === "admin" ? (
-          <nav
-            className="sidebar-admin-navigation"
-            aria-label="Administration navigation"
-          >
-            <span className="navigation-section-label">
-              Administration
-            </span>
-
+        <div className="sidebar-account">
+          {auth.user.role === "admin" ? (
             <NavLink
               to="/admin"
+              className={({ isActive }) =>
+                isActive
+                  ? "sidebar-user sidebar-user-link sidebar-user-link-active"
+                  : "sidebar-user sidebar-user-link"
+              }
+              aria-label="Open administration"
               onClick={() => {
                 setDrawerOpen(false);
               }}
-              className={({ isActive }) =>
-                isActive
-                  ? "sidebar-link sidebar-link-active"
-                  : "sidebar-link"
-              }
             >
-              <Settings aria-hidden="true" />
-              <span>Administration</span>
-            </NavLink>
-          </nav>
-        ) : null}
+              <div
+                className="sidebar-user-avatar"
+                aria-hidden="true"
+              >
+                {userInitial}
+              </div>
 
-        <div className="sidebar-account">
-          <div className="sidebar-user">
-            <div className="sidebar-user-avatar" aria-hidden="true">
-              {userInitial}
-            </div>
+              <div className="sidebar-user-details">
+                <strong>
+                  {auth.user.display_name}
+                </strong>
 
-            <div className="sidebar-user-details">
-              <strong>{auth.user.display_name}</strong>
+                <span>Administrator</span>
+              </div>
 
-              <span>
-                {auth.user.role === "admin" ? "Administrator" : "Spectator"}
-              </span>
-            </div>
-
-            {auth.user.role === "admin" ? (
-              <span className="sidebar-admin-icon" title="Administrator">
+              <span
+                className="sidebar-admin-icon"
+                title="Open administration"
+              >
                 <ShieldCheck aria-hidden="true" />
               </span>
-            ) : null}
-          </div>
+            </NavLink>
+          ) : (
+            <div className="sidebar-user">
+              <div
+                className="sidebar-user-avatar"
+                aria-hidden="true"
+              >
+                {userInitial}
+              </div>
+
+              <div className="sidebar-user-details">
+                <strong>
+                  {auth.user.display_name}
+                </strong>
+
+                <span>Spectator</span>
+              </div>
+            </div>
+          )}
 
           <button
             className="sidebar-logout"

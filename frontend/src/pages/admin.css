@@ -346,3 +346,51 @@
     width: 100%;
   }
 }
+
+.admin-spectator-details {
+  max-width: 24rem;
+  grid-template-columns: 1fr;
+}
+
+.admin-sync-details {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.admin-access-control {
+  padding-block: 0.8rem;
+}
+
+.admin-access-control > div {
+  max-width: 46rem;
+}
+
+.admin-access-control p {
+  max-width: 42rem;
+}
+
+.admin-access-control button {
+  flex: 0 0 auto;
+  min-width: 9rem;
+}
+
+@media (min-width: 48rem) {
+  .admin-spectator-details {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-sync-details {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 40rem) {
+  .admin-spectator-details,
+  .admin-sync-details {
+    max-width: none;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-access-control button {
+    width: 100%;
+  }
+}
