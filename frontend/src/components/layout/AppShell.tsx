@@ -16,6 +16,43 @@ import { currentLeagueQueryOptions } from "../../api/league";
 import { useAuth } from "../../auth/AuthProvider";
 import "./AppShell.css";
 
+function FootballIcon({
+  className,
+}: {
+  className?: string;
+}) {
+  return (
+    <svg
+      className={className}
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M4.6 18.8C1.8 16 3.3 10.1 7.9 5.5C12.5.9 18.4-.6 21.2 2.2C24 5 22.5 10.9 17.9 15.5C13.3 20.1 7.4 21.6 4.6 18.8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="square"
+        strokeLinejoin="miter"
+      />
+      <path
+        d="M7 17L19.4 4.6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="square"
+      />
+      <path
+        d="M9.2 9.6L14.4 14.8M11 7.8L16.2 13M12.8 6L18 11.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="square"
+      />
+    </svg>
+  );
+}
+
+
 interface NavigationItem {
   label: string;
   path: string;
@@ -120,7 +157,7 @@ export function AppShell() {
 
         <div className="mobile-brand">
           <span className="brand-mark">
-            <BarChart3 aria-hidden="true" />
+            <FootballIcon aria-hidden="true" />
           </span>
 
           <span>Fantasy What-If</span>
@@ -156,7 +193,7 @@ export function AppShell() {
         <div className="sidebar-heading">
           <div className="sidebar-brand">
             <span className="brand-mark">
-              <BarChart3 aria-hidden="true" />
+              <FootballIcon aria-hidden="true" />
             </span>
 
             <div>
