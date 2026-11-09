@@ -401,3 +401,33 @@ def test_invalid_provider_data_rolls_back(
         )
         == before_player_count
     )
+
+
+def test_provider_sync_can_leave_transaction_to_caller(
+    database_session: Session,
+) -> None:
+    provider = FakeProvider()
+
+    result = synchronize_provider(
+        session=database_session,
+        season_id=1,
+        provider=provider,
+        full_sync=False,
+        explicit_from_week=8,
+        explicit_through_week=8,
+        commit_transaction=False,
+    )
+
+    assert result.season_id == 1
+    assert result.teams_upserted == 12
+    assert result.matchups_upserted == 6
+    assert result.player_week_scores_upserted == 12
+
+    assert database_session.in_transaction() is True
+
+    latest_run = database_session.scalar(
+        select(SyncRun).where(SyncRun.season_id == 1).order_by(SyncRun.id.desc()).limit(1)
+    )
+
+    assert latest_run is not None
+    assert latest_run.status is SyncStatus.SUCCEEDED

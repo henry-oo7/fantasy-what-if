@@ -50,8 +50,15 @@ def synchronize_provider(
     full_sync: bool,
     explicit_from_week: int | None = None,
     explicit_through_week: int | None = None,
+    commit_transaction: bool = True,
 ) -> ProviderSyncResult:
-    """Synchronize one internal season through a provider adapter."""
+    """Synchronize one season through a provider adapter.
+
+    By default, this function preserves the existing standalone
+    transaction behavior. Setup finalization may pass
+    commit_transaction=False so the caller can atomically combine
+    synchronization with installation activation.
+    """
 
     repository = ProviderSyncRepository(session)
     context = repository.load_context(
@@ -169,9 +176,13 @@ def synchronize_provider(
             analytics_rebuilt=False,
         )
 
-        session.commit()
+        if commit_transaction:
+            session.commit()
+        else:
+            session.flush()
     except Exception:
-        session.rollback()
+        if commit_transaction:
+            session.rollback()
         raise
 
     return ProviderSyncResult(
