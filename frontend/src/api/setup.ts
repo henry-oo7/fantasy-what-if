@@ -1,11 +1,21 @@
-import { queryOptions } from "@tanstack/react-query";
+import {
+  queryOptions,
+} from "@tanstack/react-query";
 
-import { getJson } from "./client";
-import type { SetupStatus } from "../types/setup";
+import {
+  getJson,
+  postJson,
+} from "./client";
+import type {
+  BootstrapAdminRequest,
+  BootstrapAdminResponse,
+  SetupStatus,
+} from "../types/setup";
 
 
 export const setupQueryKeys = {
   all: ["setup"] as const,
+
   status: () =>
     [
       ...setupQueryKeys.all,
@@ -25,4 +35,18 @@ export function setupStatusQueryOptions() {
     staleTime: 30_000,
     retry: false,
   });
+}
+
+
+export function bootstrapAdministrator(
+  request: BootstrapAdminRequest,
+  csrfToken: string,
+): Promise<BootstrapAdminResponse> {
+  return postJson<BootstrapAdminResponse>(
+    "/setup/bootstrap-admin",
+    request,
+    {
+      csrfToken,
+    },
+  );
 }

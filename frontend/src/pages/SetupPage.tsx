@@ -1,21 +1,66 @@
 import {
+  useState,
+  type FormEvent,
+} from "react";
+import {
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
   CheckCircle2,
   KeyRound,
   ShieldCheck,
   Trophy,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
 
+import { requestPreAuthCsrf } from "../api/auth";
+import { ApiError } from "../api/client";
 import {
+  bootstrapAdministrator,
+  setupQueryKeys,
   setupStatusQueryOptions,
 } from "../api/setup";
+import { useAuth } from "../auth/AuthProvider";
 import "./setup.css";
 
 
+function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.detail;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unable to create the administrator account.";
+}
+
+
 export function SetupPage() {
+  const auth = useAuth();
+  const queryClient = useQueryClient();
+
   const setupQuery = useQuery(
     setupStatusQueryOptions(),
   );
+
+  const [username, setUsername] =
+    useState("");
+  const [displayName, setDisplayName] =
+    useState("");
+  const [email, setEmail] =
+    useState("");
+  const [password, setPassword] =
+    useState("");
+  const [
+    confirmPassword,
+    setConfirmPassword,
+  ] = useState("");
+  const [error, setError] =
+    useState<string | null>(null);
+  const [submitting, setSubmitting] =
+    useState(false);
 
   const setupStatus =
     setupQuery.data?.status ??
@@ -23,6 +68,54 @@ export function SetupPage() {
 
   const administratorComplete =
     setupStatus === "setup_in_progress";
+
+  const authenticatedAdministrator =
+    auth.status === "authenticated" &&
+    auth.user?.role === "admin";
+
+  async function handleBootstrap(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    setError(null);
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const csrf = await requestPreAuthCsrf();
+
+      await bootstrapAdministrator(
+        {
+          username,
+          display_name: displayName,
+          email:
+            email.trim().length > 0
+              ? email
+              : null,
+          password,
+        },
+        csrf.csrf_token,
+      );
+
+      await auth.loginUser({
+        username,
+        password,
+      });
+
+      await queryClient.invalidateQueries({
+        queryKey: setupQueryKeys.all,
+      });
+    } catch (currentError) {
+      setError(errorMessage(currentError));
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <main className="setup-page">
@@ -39,9 +132,9 @@ export function SetupPage() {
         <h1>Set up your fantasy league</h1>
 
         <p className="setup-introduction">
-          Connect one supported fantasy provider,
-          synchronize the selected season, and prepare
-          the analytics application.
+          Create the installation administrator,
+          connect one supported fantasy provider, and
+          synchronize the selected season.
         </p>
       </header>
 
@@ -94,7 +187,7 @@ export function SetupPage() {
             </strong>
             <p>
               ESPN is available now. Sleeper and Yahoo
-              will remain disabled until their adapters
+              remain unavailable until their adapters
               are implemented.
             </p>
           </div>
@@ -118,23 +211,158 @@ export function SetupPage() {
         </article>
       </section>
 
-      <section className="setup-placeholder">
-        <p className="setup-kicker">
-          Setup workflow
-        </p>
+      {!administratorComplete ? (
+        <section className="setup-form-panel">
+          <div className="setup-panel-heading">
+            <p className="setup-kicker">
+              Administrator account
+            </p>
 
-        <h2>
-          {administratorComplete
-            ? "Administrator created"
-            : "Administrator account required"}
-        </h2>
+            <h2>Create the installation owner</h2>
 
-        <p>
-          The installation route guard is now active.
-          The interactive account and provider forms
-          will be added in the next slice.
-        </p>
-      </section>
+            <p>
+              This account controls provider credentials,
+              synchronization, and installation settings.
+            </p>
+          </div>
+
+          <form
+            className="setup-form"
+            onSubmit={(event) => {
+              void handleBootstrap(event);
+            }}
+          >
+            <label>
+              Username
+              <input
+                value={username}
+                onChange={(event) => {
+                  setUsername(event.target.value);
+                }}
+                minLength={3}
+                maxLength={50}
+                autoComplete="username"
+                required
+              />
+              <small>
+                Lowercase letters, numbers, periods,
+                underscores, and hyphens.
+              </small>
+            </label>
+
+            <label>
+              Display name
+              <input
+                value={displayName}
+                onChange={(event) => {
+                  setDisplayName(event.target.value);
+                }}
+                maxLength={100}
+                autoComplete="name"
+                required
+              />
+            </label>
+
+            <label>
+              Email
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                }}
+                maxLength={320}
+                autoComplete="email"
+              />
+              <small>Optional</small>
+            </label>
+
+            <label>
+              Password
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                }}
+                minLength={12}
+                maxLength={128}
+                autoComplete="new-password"
+                required
+              />
+              <small>
+                At least 12 characters.
+              </small>
+            </label>
+
+            <label>
+              Confirm password
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(
+                    event.target.value,
+                  );
+                }}
+                minLength={12}
+                maxLength={128}
+                autoComplete="new-password"
+                required
+              />
+            </label>
+
+            {error ? (
+              <p
+                className="setup-form-error"
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={submitting}
+            >
+              {submitting
+                ? "Creating administrator..."
+                : "Create administrator"}
+            </button>
+          </form>
+        </section>
+      ) : (
+        <section className="setup-form-panel">
+          <div className="setup-panel-heading">
+            <p className="setup-kicker">
+              Provider connection
+            </p>
+
+            <h2>Administrator created</h2>
+
+            <p>
+              {authenticatedAdministrator
+                ? `Signed in as ${auth.user?.display_name}.`
+                : "Sign in with the administrator account to continue."}
+            </p>
+          </div>
+
+          <div className="setup-success-message">
+            <CheckCircle2 aria-hidden="true" />
+
+            <div>
+              <strong>
+                Account setup complete
+              </strong>
+
+              <p>
+                The ESPN provider form will be added in
+                the next setup slice.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
     </main>
   );
 }
