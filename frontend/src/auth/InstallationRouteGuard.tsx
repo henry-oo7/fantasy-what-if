@@ -100,9 +100,16 @@ export function InstallationRouteGuard({
   const isSetupRoute =
     location.pathname === "/setup";
 
+  const isLoginRoute =
+    location.pathname === "/login";
+
   if (
     setup.status !== "active" &&
-    !isSetupRoute
+    !isSetupRoute &&
+    !(
+      setup.administrator_configured &&
+      isLoginRoute
+    )
   ) {
     return (
       <Navigate

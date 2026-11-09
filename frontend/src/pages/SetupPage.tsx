@@ -21,6 +21,7 @@ import {
   setupStatusQueryOptions,
 } from "../api/setup";
 import { useAuth } from "../auth/AuthProvider";
+import { ProviderSetupPanel } from "./ProviderSetupPanel";
 import "./setup.css";
 
 
@@ -353,18 +354,16 @@ export function SetupPage() {
             </button>
           </form>
         </section>
+      ) : !providerComplete ? (
+        <ProviderSetupPanel />
       ) : (
         <section className="setup-form-panel">
           <div className="setup-panel-heading">
             <p className="setup-kicker">
-              Provider connection
+              Initial synchronization
             </p>
 
-            <h2>
-              {providerComplete
-                ? "Provider connected"
-                : "Administrator created"}
-            </h2>
+            <h2>Provider connected</h2>
 
             <p>
               {authenticatedAdministrator
@@ -378,15 +377,12 @@ export function SetupPage() {
 
             <div>
               <strong>
-                {providerComplete
-                  ? "Provider setup complete"
-                  : "Account setup complete"}
+                Provider setup complete
               </strong>
 
               <p>
-                {providerComplete
-                  ? "The installation is ready for its initial synchronization."
-                  : "Continue by connecting the ESPN fantasy provider."}
+                The installation is ready for its
+                initial synchronization and activation.
               </p>
             </div>
           </div>

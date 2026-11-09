@@ -342,3 +342,164 @@
     grid-column: 1 / -1;
   }
 }
+
+.provider-grid {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1.5rem;
+}
+
+.provider-card {
+  padding: 1rem;
+  border: 1px solid #aab5ad;
+  background: #f8faf8;
+}
+
+.provider-card-available {
+  border-left: 5px solid #27663f;
+}
+
+.provider-card-coming {
+  color: #5f6a63;
+  background: #f2f3f2;
+}
+
+.provider-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.provider-card-heading strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.25rem;
+  text-transform: uppercase;
+}
+
+.provider-card-heading span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.provider-card-heading svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.provider-card p {
+  margin: 0.55rem 0 0;
+  color: inherit;
+  line-height: 1.45;
+}
+
+.provider-secret-heading {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #c9d0cb;
+}
+
+.provider-secret-heading strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.15rem;
+  text-transform: uppercase;
+}
+
+.provider-secret-heading p {
+  max-width: 38rem;
+  margin: 0.3rem 0 0;
+  color: #66736a;
+  line-height: 1.45;
+}
+
+.setup-secondary-button {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.4rem;
+  padding-inline: 0.75rem;
+  border: 1px solid #54705f;
+  border-radius: 0;
+  color: #154f2d;
+  background: #ffffff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.setup-secondary-button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.setup-auth-required {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-left: 5px solid #8a6923;
+  background: #f8f2e6;
+}
+
+.setup-auth-required > svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #765719;
+}
+
+.setup-auth-required strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.2rem;
+  text-transform: uppercase;
+}
+
+.setup-auth-required p {
+  margin: 0.3rem 0 0.75rem;
+  color: #5f5848;
+}
+
+.setup-auth-required a {
+  color: #154f2d;
+  font-weight: 700;
+}
+
+.setup-inline-status,
+.setup-inline-error {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-left: 5px solid #54705f;
+  background: #edf4ef;
+}
+
+.setup-inline-error {
+  border-left-color: #a12622;
+  color: #7d1d19;
+  background: #f9e8e7;
+}
+
+.setup-inline-error button {
+  min-height: 2.5rem;
+  padding-inline: 0.8rem;
+  border: 1px solid currentColor;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (min-width: 48rem) {
+  .provider-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
