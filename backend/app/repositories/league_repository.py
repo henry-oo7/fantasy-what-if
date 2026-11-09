@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -98,4 +101,55 @@ def load_league_snapshot(
         regular_season_weeks=(season.regular_season_weeks),
         teams=teams,
         matchups=tuple(matchups),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ImportedSeason:
+    """Safe metadata for one imported season."""
+
+    season_id: int
+    league_id: int
+    league_name: str
+    year: int
+    status: str | None
+    is_active: bool
+    last_synced_at: datetime | None
+
+
+def list_imported_seasons(
+    session: Session,
+    *,
+    installation_id: int,
+    active_season_id: int,
+) -> tuple[ImportedSeason, ...]:
+    """Return imported seasons for one installation."""
+
+    rows = session.execute(
+        select(
+            Season,
+            League,
+        )
+        .join(
+            League,
+            League.id == Season.league_id,
+        )
+        .where(League.installation_id == installation_id)
+        .order_by(
+            Season.year.desc(),
+            Season.id.desc(),
+        )
+    ).all()
+
+    return tuple(
+        ImportedSeason(
+            season_id=season.id,
+            league_id=league.id,
+            league_name=league.name,
+            year=season.year,
+            status=(season.status.value if season.status is not None else None),
+            is_active=(season.id == active_season_id),
+            last_synced_at=season.last_synced_at,
+        )
+        for season, league in rows
     )
