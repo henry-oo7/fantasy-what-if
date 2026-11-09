@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Settings,
   ShieldCheck,
   Target,
   X,
@@ -216,6 +217,32 @@ export function AppShell() {
             </div>
           </div>
         </nav>
+
+        {auth.user.role === "admin" ? (
+          <nav
+            className="sidebar-admin-navigation"
+            aria-label="Administration navigation"
+          >
+            <span className="navigation-section-label">
+              Administration
+            </span>
+
+            <NavLink
+              to="/admin"
+              onClick={() => {
+                setDrawerOpen(false);
+              }}
+              className={({ isActive }) =>
+                isActive
+                  ? "sidebar-link sidebar-link-active"
+                  : "sidebar-link"
+              }
+            >
+              <Settings aria-hidden="true" />
+              <span>Administration</span>
+            </NavLink>
+          </nav>
+        ) : null}
 
         <div className="sidebar-account">
           <div className="sidebar-user">

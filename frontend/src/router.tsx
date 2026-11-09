@@ -5,9 +5,11 @@ import {
 } from "react-router-dom";
 
 import App from "./App";
+import { AdminRoute } from "./auth/AdminRoute";
 import { InstallationRouteGuard } from "./auth/InstallationRouteGuard";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
+import { AdminPage } from "./pages/AdminPage";
 import { AllPlayPage } from "./pages/AllPlayPage";
 import { LeagueAveragePage } from "./pages/LeagueAveragePage";
 import { LoginPage } from "./pages/LoginPage";
@@ -41,6 +43,15 @@ function ApplicationRoutes() {
         <Route
           index
           element={<App />}
+        />
+
+        <Route
+          path="admin"
+          element={
+            <AdminRoute>
+              <AdminPage />
+            </AdminRoute>
+          }
         />
 
         <Route
