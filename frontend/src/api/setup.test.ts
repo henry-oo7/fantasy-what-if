@@ -53,6 +53,7 @@ describe("setup API", () => {
         bootstrap_available: true,
         administrator_configured: false,
         provider_configured: false,
+        spectator_configured: false,
         active_league_configured: false,
       }),
     );
@@ -71,6 +72,7 @@ describe("setup API", () => {
       bootstrap_available: true,
       administrator_configured: false,
       provider_configured: false,
+      spectator_configured: false,
       active_league_configured: false,
     });
 

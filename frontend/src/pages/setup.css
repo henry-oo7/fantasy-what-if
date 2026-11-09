@@ -877,3 +877,59 @@
     transition: none;
   }
 }
+
+.spectator-access-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-left: 5px solid #154f2d;
+  background: #edf4ef;
+}
+
+.spectator-access-summary > svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #154f2d;
+}
+
+.spectator-access-summary strong,
+.spectator-password-heading strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.2rem;
+  text-transform: uppercase;
+}
+
+.spectator-access-summary p,
+.spectator-password-heading p {
+  margin: 0.3rem 0 0;
+  color: #526057;
+  line-height: 1.5;
+}
+
+.spectator-password-heading {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #c9d0cb;
+}
+
+@media (min-width: 48rem) {
+  .setup-progress {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 47.99rem) {
+  .spectator-password-heading {
+    display: grid;
+  }
+
+  .spectator-password-heading button {
+    justify-content: center;
+  }
+}

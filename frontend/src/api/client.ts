@@ -124,3 +124,21 @@ export function postJson<T>(
     signal: options.signal,
   });
 }
+
+
+export function patchJson<T>(
+  path: string,
+  body: unknown,
+  options: {
+    csrfToken?: string | null;
+    signal?: AbortSignal;
+  } = {},
+): Promise<T> {
+  return apiRequest<T>(path, {
+    method: "PATCH",
+    body,
+    csrfToken: options.csrfToken,
+    signal: options.signal,
+  });
+}
+

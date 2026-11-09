@@ -9,6 +9,7 @@ export interface SetupStatus {
   bootstrap_available: boolean;
   administrator_configured: boolean;
   provider_configured: boolean;
+  spectator_configured: boolean;
   active_league_configured: boolean;
 }
 
@@ -77,3 +78,22 @@ export interface SetupFinalizationResponse {
   fantasy_byes_upserted: number;
   player_week_scores_upserted: number;
 }
+
+
+export interface CreateSpectatorRequest {
+  username: string;
+  display_name: "League Spectator";
+  email: null;
+  password: string;
+}
+
+export interface SpectatorAccountResponse {
+  configured: boolean;
+  id: number | null;
+  username: string | null;
+  display_name: string | null;
+  email: string | null;
+  is_active: boolean | null;
+  revoked_sessions?: number;
+}
+

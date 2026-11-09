@@ -23,6 +23,7 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import { FinalizeSetupPanel } from "./FinalizeSetupPanel";
 import { ProviderSetupPanel } from "./ProviderSetupPanel";
+import { SpectatorSetupPanel } from "./SpectatorSetupPanel";
 import "./setup.css";
 
 
@@ -71,6 +72,9 @@ export function SetupPage() {
 
   const providerComplete =
     setup?.provider_configured ?? false;
+
+  const spectatorComplete =
+    setup?.spectator_configured ?? false;
 
   const activationComplete =
     setup?.active_league_configured ?? false;
@@ -203,9 +207,38 @@ export function SetupPage() {
 
         <article
           className={
-            activationComplete
+            spectatorComplete
               ? "setup-step setup-step-complete"
               : providerComplete
+                ? "setup-step setup-step-current"
+                : "setup-step"
+          }
+        >
+          <span className="setup-step-icon">
+            {spectatorComplete ? (
+              <CheckCircle2 aria-hidden="true" />
+            ) : (
+              <KeyRound aria-hidden="true" />
+            )}
+          </span>
+
+          <div>
+            <span>Step 3</span>
+            <strong>
+              Create spectator access
+            </strong>
+            <p>
+              Create one shared read-only account for
+              current league members.
+            </p>
+          </div>
+        </article>
+
+        <article
+          className={
+            activationComplete
+              ? "setup-step setup-step-complete"
+              : spectatorComplete
                 ? "setup-step setup-step-current"
                 : "setup-step"
           }
@@ -219,7 +252,7 @@ export function SetupPage() {
           </span>
 
           <div>
-            <span>Step 3</span>
+            <span>Step 4</span>
             <strong>
               Synchronize and activate
             </strong>
@@ -372,6 +405,8 @@ export function SetupPage() {
         </section>
       ) : !providerComplete ? (
         <ProviderSetupPanel />
+      ) : !spectatorComplete ? (
+        <SpectatorSetupPanel />
       ) : (
         <FinalizeSetupPanel />
       )}
