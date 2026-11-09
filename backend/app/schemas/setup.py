@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 class SetupStatusResponse(BaseModel):
-    """Minimum public state required for frontend routing."""
+    """Minimum public state required for setup routing."""
 
     status: Literal[
         "setup_required",
@@ -15,6 +15,9 @@ class SetupStatusResponse(BaseModel):
     ]
     installation_exists: bool
     bootstrap_available: bool
+    administrator_configured: bool
+    provider_configured: bool
+    active_league_configured: bool
 
 
 class BootstrapAdminRequest(BaseModel):

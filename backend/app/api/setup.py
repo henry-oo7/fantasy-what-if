@@ -112,6 +112,9 @@ def read_setup_status() -> SetupStatusResponse:
         status=setup_state.status.value,
         installation_exists=(setup_state.installation_exists),
         bootstrap_available=(setup_state.bootstrap_available),
+        administrator_configured=(setup_state.administrator_configured),
+        provider_configured=(setup_state.provider_configured),
+        active_league_configured=(setup_state.active_league_configured),
     )
 
 
