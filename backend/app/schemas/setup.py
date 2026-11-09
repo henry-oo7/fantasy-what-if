@@ -15,3 +15,22 @@ class SetupStatusResponse(BaseModel):
     ]
     installation_exists: bool
     bootstrap_available: bool
+
+
+class BootstrapAdminRequest(BaseModel):
+    """Initial administrator account details."""
+
+    username: str
+    display_name: str
+    email: str | None = None
+    password: str
+
+
+class BootstrapAdminResponse(BaseModel):
+    """Public result of the one-time administrator bootstrap."""
+
+    installation_status: Literal["setup_in_progress"]
+    administrator_id: int
+    username: str
+    display_name: str
+    email: str | None
