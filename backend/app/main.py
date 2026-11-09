@@ -5,6 +5,7 @@ from app.api.admin import router as admin_router
 from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.leagues import router as leagues_router
+from app.api.setup import router as setup_router
 from app.core.settings import get_settings
 
 settings = get_settings()
@@ -37,6 +38,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(setup_router)
 app.include_router(admin_router)
 app.include_router(leagues_router)
 app.include_router(analytics_router)
