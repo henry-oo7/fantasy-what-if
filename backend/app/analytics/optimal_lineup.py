@@ -5,18 +5,6 @@ from app.domain.lineup import (
     TeamWeekRoster,
 )
 
-DEFAULT_FOOTBALL_STARTING_SLOTS = (
-    "QB",
-    "RB",
-    "RB",
-    "WR",
-    "WR",
-    "TE",
-    "FLEX",
-    "K",
-    "DST",
-)
-
 
 @dataclass(frozen=True, slots=True)
 class LineupPlayer:
@@ -81,8 +69,14 @@ def calculate_team_week_optimal_lineup(
 ) -> TeamWeekOptimalLineup:
     candidates = tuple(player for player in roster.players if not player.is_injured_reserve)
 
-    optimal_assignments = _find_optimal_assignments(candidates)
-    actual_assignments = _build_actual_assignments(roster.players)
+    optimal_assignments = _find_optimal_assignments(
+        candidates,
+        starting_slots=roster.starting_slots,
+    )
+    actual_assignments = _build_actual_assignments(
+        roster.players,
+        starting_slots=roster.starting_slots,
+    )
 
     actual_points = round(
         sum(
@@ -227,10 +221,12 @@ def calculate_optimal_lineup_summaries(
 
 def _find_optimal_assignments(
     players: tuple[PlayerWeekSnapshot, ...],
+    *,
+    starting_slots: tuple[str, ...],
 ) -> tuple[_Assignment, ...]:
     slot_order = tuple(
         sorted(
-            enumerate(DEFAULT_FOOTBALL_STARTING_SLOTS),
+            enumerate(starting_slots),
             key=lambda item: (
                 _eligible_player_count(
                     players,
@@ -255,7 +251,7 @@ def _find_optimal_assignments(
 
         if slot_index == len(slot_order):
             ordered_assignments = tuple(
-                current_assignments[index] for index in range(len(DEFAULT_FOOTBALL_STARTING_SLOTS))
+                current_assignments[index] for index in range(len(starting_slots))
             )
 
             if score > best_score or (
@@ -318,12 +314,14 @@ def _find_optimal_assignments(
 
 def _build_actual_assignments(
     players: tuple[PlayerWeekSnapshot, ...],
+    *,
+    starting_slots: tuple[str, ...],
 ) -> tuple[_Assignment, ...]:
     unused_starters = [player for player in players if player.is_starter]
 
     assignments: list[_Assignment] = []
 
-    for slot in DEFAULT_FOOTBALL_STARTING_SLOTS:
+    for slot in starting_slots:
         matching_index = next(
             (
                 index

@@ -14,6 +14,7 @@ from app.providers.domain import (
     ProviderCredentials,
     ProviderLeague,
     ProviderLeagueReference,
+    ProviderLineupSlot,
     ProviderMatchup,
     ProviderScheduleRules,
     ProviderValidationResult,
@@ -35,8 +36,114 @@ from app.providers.espn.client import (
     create_espn_client,
     parse_espn_configuration,
 )
+from app.providers.espn.mappings import (
+    canonical_lineup_slot,
+    is_bench_slot,
+    is_injured_reserve_slot,
+)
 from app.providers.espn.protocols import EspnLeague
 from app.providers.registry import ProviderRegistry
+
+_ELIGIBLE_POSITIONS_BY_CANONICAL_SLOT: dict[
+    str,
+    tuple[str, ...],
+] = {
+    "QB": ("QB",),
+    "TQB": ("QB",),
+    "RB": ("RB",),
+    "WR": ("WR",),
+    "TE": ("TE",),
+    "FLEX": ("RB", "WR", "TE"),
+    "SUPERFLEX": (
+        "QB",
+        "RB",
+        "WR",
+        "TE",
+    ),
+    "DT": ("DT",),
+    "DE": ("DE",),
+    "LB": ("LB",),
+    "DL": ("DT", "DE"),
+    "CB": ("CB",),
+    "S": ("S",),
+    "DB": ("CB", "S"),
+    "IDP_FLEX": (
+        "DT",
+        "DE",
+        "LB",
+        "CB",
+        "S",
+    ),
+    "DST": ("DST",),
+    "K": ("K",),
+    "P": ("P",),
+    "HC": ("HC",),
+}
+
+
+def _create_lineup_slots(
+    position_slot_counts: dict[str, int],
+) -> tuple[ProviderLineupSlot, ...]:
+    """Convert ESPN roster settings into canonical season rules."""
+
+    lineup_slots: list[ProviderLineupSlot] = []
+
+    for order, (
+        provider_slot_code,
+        raw_count,
+    ) in enumerate(position_slot_counts.items()):
+        provider_code = str(provider_slot_code).strip()
+
+        if not provider_code:
+            continue
+
+        try:
+            slot_count = int(raw_count)
+        except (
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise ValueError("ESPN lineup-slot counts must be integers.") from exc
+
+        if slot_count < 0:
+            raise ValueError("ESPN lineup-slot counts must not be negative.")
+
+        if slot_count == 0:
+            continue
+
+        canonical_code = canonical_lineup_slot(provider_code)
+        bench = is_bench_slot(provider_code)
+        injured_reserve = is_injured_reserve_slot(provider_code)
+        starter = not bench and not injured_reserve
+
+        lineup_slots.append(
+            ProviderLineupSlot(
+                provider_slot_code=provider_code,
+                canonical_slot_code=canonical_code,
+                display_name=canonical_code,
+                order=order,
+                starter_count=(slot_count if starter else 0),
+                is_starter=starter,
+                is_bench=bench,
+                is_injured_reserve=(injured_reserve),
+                eligible_positions=(
+                    _ELIGIBLE_POSITIONS_BY_CANONICAL_SLOT.get(
+                        canonical_code,
+                        (),
+                    )
+                ),
+                metadata={
+                    "provider": "espn",
+                    "provider_slot_count": (slot_count),
+                },
+            )
+        )
+
+    if not any(slot.is_starter and slot.starter_count > 0 for slot in lineup_slots):
+        raise ValueError("ESPN did not return any configured starting lineup slots.")
+
+    return tuple(lineup_slots)
+
 
 EspnClientFactory = Callable[
     [ProviderCredentials],
@@ -239,6 +346,9 @@ class EspnProvider:
             current_week = int(client.current_week)
             regular_season_weeks = int(client.settings.reg_season_count)
             name = str(client.settings.name).strip()
+            lineup_slots = _create_lineup_slots(
+                client.settings.position_slot_counts,
+            )
             teams = tuple(
                 sorted(
                     (create_provider_team(team) for team in client.teams),
@@ -273,7 +383,7 @@ class EspnProvider:
             supports_head_to_head=True,
             supports_weekly_matchups=True,
             supports_lineup_history=True,
-            supports_optimal_lineups=False,
+            supports_optimal_lineups=True,
             supports_schedule_swap=True,
             supports_all_play=True,
             supports_league_average=True,
@@ -293,7 +403,7 @@ class EspnProvider:
             scoring_type="head_to_head_points",
             logo_url=None,
             teams=teams,
-            lineup_slots=(),
+            lineup_slots=lineup_slots,
             scoring_rules=(),
             schedule_rules=schedule_rules,
             capabilities=capabilities,
@@ -301,7 +411,8 @@ class EspnProvider:
                 {
                     "provider": "espn",
                     "experimental_connector": True,
-                    "rules_imported": False,
+                    "rules_imported": True,
+                    "lineup_rules_imported": True,
                 }
             ),
         )

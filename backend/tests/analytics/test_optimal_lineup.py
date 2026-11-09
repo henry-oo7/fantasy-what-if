@@ -437,3 +437,86 @@ def test_substitution_players_match_starter_set_difference() -> None:
 
     assert substitution_out_ids == actual_ids - optimal_ids
     assert substitution_in_ids == optimal_ids - actual_ids
+
+
+def test_default_roster_uses_single_flex_lineup() -> None:
+    roster = create_complete_roster()
+
+    result = calculate_team_week_optimal_lineup(roster)
+
+    assert len(result.actual_lineup) == 9
+    assert len(result.optimal_lineup) == 9
+
+    assert [player.lineup_slot for player in result.actual_lineup].count("FLEX") == 1
+
+    assert [player.lineup_slot for player in result.optimal_lineup].count("FLEX") == 1
+
+
+def test_optimizer_supports_double_flex_lineup() -> None:
+    roster = create_complete_roster()
+
+    second_flex_starter = create_player(
+        601,
+        "Second Starting Flex",
+        "WR",
+        "FLEX",
+        (
+            "WR",
+            "FLEX",
+            "BENCH",
+        ),
+        6.0,
+        is_starter=True,
+    )
+    second_flex_bench = create_player(
+        602,
+        "Double Flex Upgrade",
+        "RB",
+        "BENCH",
+        (
+            "RB",
+            "FLEX",
+            "BENCH",
+        ),
+        18.0,
+        is_bench=True,
+    )
+
+    double_flex_roster = TeamWeekRoster(
+        team_id=roster.team_id,
+        team_name=roster.team_name,
+        week=roster.week,
+        players=(
+            roster.players
+            + (
+                second_flex_starter,
+                second_flex_bench,
+            )
+        ),
+        starting_slots=(
+            "QB",
+            "RB",
+            "RB",
+            "WR",
+            "WR",
+            "TE",
+            "FLEX",
+            "FLEX",
+            "K",
+            "DST",
+        ),
+    )
+
+    result = calculate_team_week_optimal_lineup(double_flex_roster)
+
+    assert len(result.actual_lineup) == 10
+    assert len(result.optimal_lineup) == 10
+
+    actual_flex = [player for player in result.actual_lineup if player.lineup_slot == "FLEX"]
+    optimal_flex = [player for player in result.optimal_lineup if player.lineup_slot == "FLEX"]
+
+    assert len(actual_flex) == 2
+    assert len(optimal_flex) == 2
+    assert result.actual_starter_count == 10
+    assert result.optimal_filled_slot_count == 10
+    assert any(player.player_name == "Double Flex Upgrade" for player in optimal_flex)

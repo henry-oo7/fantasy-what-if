@@ -21,6 +21,19 @@ from app.providers.registry import ProviderRegistry
 class FakeSettings:
     name: str = "Jimmy and Friends"
     reg_season_count: int = 12
+    position_slot_counts: dict[str, int] = field(
+        default_factory=lambda: {
+            "QB": 1,
+            "RB": 2,
+            "WR": 2,
+            "TE": 1,
+            "D/ST": 1,
+            "K": 1,
+            "BE": 7,
+            "IR": 1,
+            "RB/WR/TE": 1,
+        }
+    )
 
 
 @dataclass
@@ -190,9 +203,54 @@ def test_fetch_league_returns_canonical_data() -> None:
     assert league.regular_season_weeks == 12
     assert len(league.teams) == 3
     assert league.teams[0].provider_team_id == "2"
-    assert league.lineup_slots == ()
+    assert [
+        (
+            slot.provider_slot_code,
+            slot.canonical_slot_code,
+            slot.starter_count,
+            slot.is_starter,
+        )
+        for slot in league.lineup_slots
+    ] == [
+        ("QB", "QB", 1, True),
+        ("RB", "RB", 2, True),
+        ("WR", "WR", 2, True),
+        ("TE", "TE", 1, True),
+        ("D/ST", "DST", 1, True),
+        ("K", "K", 1, True),
+        ("BE", "BENCH", 0, False),
+        ("IR", "IR", 0, False),
+        ("RB/WR/TE", "FLEX", 1, True),
+    ]
     assert league.scoring_rules == ()
-    assert league.capabilities.supports_optimal_lineups is False
+    assert league.capabilities.supports_optimal_lineups is True
+
+
+def test_fetch_league_preserves_double_flex_count() -> None:
+    fake_league = FakeLeague()
+    fake_league.settings = FakeSettings()
+    fake_league.settings.position_slot_counts["RB/WR/TE"] = 2
+
+    adapter = EspnProvider(
+        credentials(),
+        client_factory=lambda _: fake_league,
+    )
+
+    league = adapter.fetch_league(
+        provider_league_id="529250970",
+        provider_season_id="2026",
+    )
+
+    flex = next(slot for slot in league.lineup_slots if slot.canonical_slot_code == "FLEX")
+
+    assert flex.provider_slot_code == "RB/WR/TE"
+    assert flex.starter_count == 2
+    assert flex.is_starter is True
+    assert flex.eligible_positions == (
+        "RB",
+        "WR",
+        "TE",
+    )
 
 
 def test_fetch_rejects_different_identity() -> None:

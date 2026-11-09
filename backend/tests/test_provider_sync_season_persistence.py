@@ -5,12 +5,17 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import model_registry  # noqa: F401
-from app.db.models import ScheduleRule
+from app.db.models import (
+    LineupSlotDefinition,
+    LineupSlotEligibility,
+    ScheduleRule,
+)
 from app.db.platform_enums import FantasySport
 from app.db.session import engine
 from app.providers.domain import (
     ProviderCapabilities,
     ProviderLeague,
+    ProviderLineupSlot,
     ProviderScheduleRules,
     ProviderTeam,
 )
@@ -98,7 +103,111 @@ def make_provider_league(
         scoring_type="head_to_head_points",
         logo_url=None,
         teams=teams,
-        lineup_slots=(),
+        lineup_slots=(
+            ProviderLineupSlot(
+                provider_slot_code="QB",
+                canonical_slot_code="QB",
+                display_name="QB",
+                order=0,
+                starter_count=1,
+                is_starter=True,
+                is_bench=False,
+                is_injured_reserve=False,
+                eligible_positions=("QB",),
+            ),
+            ProviderLineupSlot(
+                provider_slot_code="RB",
+                canonical_slot_code="RB",
+                display_name="RB",
+                order=1,
+                starter_count=2,
+                is_starter=True,
+                is_bench=False,
+                is_injured_reserve=False,
+                eligible_positions=("RB",),
+            ),
+            ProviderLineupSlot(
+                provider_slot_code="WR",
+                canonical_slot_code="WR",
+                display_name="WR",
+                order=2,
+                starter_count=2,
+                is_starter=True,
+                is_bench=False,
+                is_injured_reserve=False,
+                eligible_positions=("WR",),
+            ),
+            ProviderLineupSlot(
+                provider_slot_code="TE",
+                canonical_slot_code="TE",
+                display_name="TE",
+                order=3,
+                starter_count=1,
+                is_starter=True,
+                is_bench=False,
+                is_injured_reserve=False,
+                eligible_positions=("TE",),
+            ),
+            ProviderLineupSlot(
+                provider_slot_code="RB/WR/TE",
+                canonical_slot_code="FLEX",
+                display_name="FLEX",
+                order=4,
+                starter_count=1,
+                is_starter=True,
+                is_bench=False,
+                is_injured_reserve=False,
+                eligible_positions=(
+                    "RB",
+                    "WR",
+                    "TE",
+                ),
+            ),
+            ProviderLineupSlot(
+                provider_slot_code="K",
+                canonical_slot_code="K",
+                display_name="K",
+                order=5,
+                starter_count=1,
+                is_starter=True,
+                is_bench=False,
+                is_injured_reserve=False,
+                eligible_positions=("K",),
+            ),
+            ProviderLineupSlot(
+                provider_slot_code="D/ST",
+                canonical_slot_code="DST",
+                display_name="DST",
+                order=6,
+                starter_count=1,
+                is_starter=True,
+                is_bench=False,
+                is_injured_reserve=False,
+                eligible_positions=("DST",),
+            ),
+            ProviderLineupSlot(
+                provider_slot_code="BE",
+                canonical_slot_code="BENCH",
+                display_name="BENCH",
+                order=7,
+                starter_count=0,
+                is_starter=False,
+                is_bench=True,
+                is_injured_reserve=False,
+                eligible_positions=(),
+            ),
+            ProviderLineupSlot(
+                provider_slot_code="IR",
+                canonical_slot_code="IR",
+                display_name="IR",
+                order=8,
+                starter_count=0,
+                is_starter=False,
+                is_bench=False,
+                is_injured_reserve=True,
+                eligible_positions=(),
+            ),
+        ),
         scoring_rules=(),
         schedule_rules=schedule_rules,
         capabilities=capabilities,
@@ -141,6 +250,56 @@ def test_season_configuration_update_is_idempotent(
     database_session.flush()
 
     assert schedule_rule_count(database_session) == 1
+
+    lineup_definitions = database_session.scalars(
+        select(LineupSlotDefinition)
+        .where(
+            LineupSlotDefinition.season_id == context.season_id,
+        )
+        .order_by(
+            LineupSlotDefinition.slot_order,
+        )
+    ).all()
+
+    assert [
+        (
+            definition.provider_slot_code,
+            definition.canonical_slot_code,
+            definition.starter_count,
+            definition.is_starter,
+        )
+        for definition in lineup_definitions
+    ] == [
+        ("QB", "QB", 1, True),
+        ("RB", "RB", 2, True),
+        ("WR", "WR", 2, True),
+        ("TE", "TE", 1, True),
+        ("RB/WR/TE", "FLEX", 1, True),
+        ("K", "K", 1, True),
+        ("D/ST", "DST", 1, True),
+        ("BE", "BENCH", 0, False),
+        ("IR", "IR", 0, False),
+    ]
+
+    flex_definition = next(
+        definition for definition in lineup_definitions if definition.canonical_slot_code == "FLEX"
+    )
+
+    flex_eligibility = database_session.scalars(
+        select(LineupSlotEligibility)
+        .where(
+            LineupSlotEligibility.lineup_slot_definition_id == flex_definition.id,
+        )
+        .order_by(
+            LineupSlotEligibility.canonical_position,
+        )
+    ).all()
+
+    assert [eligibility.canonical_position for eligibility in flex_eligibility] == [
+        "RB",
+        "TE",
+        "WR",
+    ]
 
     assert context.league.name == "Canonical Jimmy and Friends"
     assert context.season.current_week == 10
@@ -265,3 +424,111 @@ def test_schedule_rule_upsert_updates_existing_row(
     assert second_rule.has_divisions is True
     assert second_rule.has_median_game is True
     assert second_rule.allows_ties is False
+
+
+def test_lineup_rule_replacement_preserves_double_flex(
+    database_session: Session,
+) -> None:
+    repository = ProviderSyncRepository(database_session)
+    context = repository.load_context(
+        season_id=1,
+    )
+    provider_league = make_provider_league()
+
+    double_flex_slots = tuple(
+        ProviderLineupSlot(
+            provider_slot_code=slot.provider_slot_code,
+            canonical_slot_code=slot.canonical_slot_code,
+            display_name=slot.display_name,
+            order=slot.order,
+            starter_count=(2 if slot.canonical_slot_code == "FLEX" else slot.starter_count),
+            is_starter=slot.is_starter,
+            is_bench=slot.is_bench,
+            is_injured_reserve=(slot.is_injured_reserve),
+            eligible_positions=(slot.eligible_positions),
+            metadata=slot.metadata,
+        )
+        for slot in provider_league.lineup_slots
+    )
+
+    stored = repository.replace_lineup_slot_definitions(
+        context=context,
+        lineup_slots=double_flex_slots,
+    )
+
+    database_session.flush()
+
+    flex = next(definition for definition in stored if definition.canonical_slot_code == "FLEX")
+
+    assert flex.starter_count == 2
+
+    total_starters = sum(definition.starter_count for definition in stored if definition.is_starter)
+
+    assert total_starters == 10
+
+
+def test_lineup_rule_replacement_validates_before_delete(
+    database_session: Session,
+) -> None:
+    repository = ProviderSyncRepository(database_session)
+    context = repository.load_context(
+        season_id=1,
+    )
+
+    valid_slots = (
+        ProviderLineupSlot(
+            provider_slot_code="QB",
+            canonical_slot_code="QB",
+            display_name="QB",
+            order=0,
+            starter_count=1,
+            is_starter=True,
+            is_bench=False,
+            is_injured_reserve=False,
+            eligible_positions=("QB",),
+        ),
+    )
+
+    repository.replace_lineup_slot_definitions(
+        context=context,
+        lineup_slots=valid_slots,
+    )
+    database_session.flush()
+
+    duplicate_slots = (
+        valid_slots[0],
+        ProviderLineupSlot(
+            provider_slot_code="QB",
+            canonical_slot_code="SUPERFLEX",
+            display_name="SUPERFLEX",
+            order=1,
+            starter_count=1,
+            is_starter=True,
+            is_bench=False,
+            is_injured_reserve=False,
+            eligible_positions=(
+                "QB",
+                "RB",
+                "WR",
+                "TE",
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="duplicate provider slot",
+    ):
+        repository.replace_lineup_slot_definitions(
+            context=context,
+            lineup_slots=duplicate_slots,
+        )
+
+    remaining = database_session.scalars(
+        select(LineupSlotDefinition).where(
+            LineupSlotDefinition.season_id == context.season_id,
+        )
+    ).all()
+
+    assert len(remaining) == 1
+    assert remaining[0].provider_slot_code == "QB"

@@ -171,7 +171,7 @@ def test_replace_serializes_complete_result() -> None:
     assert result.actual_lineup[0]["player_name"] == "Starting QB"
     assert result.optimal_lineup[0]["player_name"] == "Bench QB"
     assert result.substitutions[0]["point_change"] == 10.0
-    assert result.calculation_version == 2
+    assert result.calculation_version == 3
 
     session.add.assert_called_once_with(result)
     session.flush.assert_called_once()

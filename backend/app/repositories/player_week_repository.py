@@ -5,10 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    LineupSlotDefinition,
     PlayerWeekScore,
     Team,
 )
 from app.domain.lineup import (
+    DEFAULT_FOOTBALL_STARTING_SLOTS,
     PlayerWeekSnapshot,
     TeamWeekRoster,
 )
@@ -55,6 +57,29 @@ def load_team_week_rosters(
         statement = statement.where(PlayerWeekScore.week.in_(normalized_weeks))
 
     rows = session.execute(statement).all()
+
+    lineup_definitions = session.scalars(
+        select(LineupSlotDefinition)
+        .where(
+            LineupSlotDefinition.season_id == season_id,
+            LineupSlotDefinition.is_starter.is_(True),
+            LineupSlotDefinition.starter_count > 0,
+        )
+        .order_by(
+            LineupSlotDefinition.slot_order,
+            LineupSlotDefinition.id,
+        )
+    ).all()
+
+    configured_starting_slots = tuple(
+        definition.canonical_slot_code
+        for definition in lineup_definitions
+        for _ in range(definition.starter_count)
+    )
+
+    starting_slots = (
+        configured_starting_slots if configured_starting_slots else DEFAULT_FOOTBALL_STARTING_SLOTS
+    )
 
     grouped_players: dict[
         tuple[int, str, int],
@@ -104,6 +129,7 @@ def load_team_week_rosters(
             team_name=team_name,
             week=week,
             players=tuple(players),
+            starting_slots=starting_slots,
         )
         for (
             team_id,

@@ -8,6 +8,7 @@ from typing import Any, Protocol
 class EspnLeagueSettings(Protocol):
     name: str
     reg_season_count: int
+    position_slot_counts: dict[str, int]
 
 
 class EspnTeam(Protocol):

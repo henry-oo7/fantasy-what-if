@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     League,
+    LineupSlotDefinition,
+    LineupSlotEligibility,
     Matchup,
     PlayerWeekScore,
     ScheduleRule,
@@ -26,6 +28,7 @@ from app.db.platform_models import (
 )
 from app.providers.domain import (
     ProviderLeague,
+    ProviderLineupSlot,
     ProviderMatchup,
     ProviderScheduleRules,
     ProviderTeam,
@@ -208,10 +211,102 @@ class ProviderSyncRepository:
         context.season.supports_league_average = capabilities.supports_league_average
         context.season.supports_team_logos = capabilities.supports_team_logos
 
+        self.replace_lineup_slot_definitions(
+            context=context,
+            lineup_slots=provider_league.lineup_slots,
+        )
+
         self.upsert_schedule_rule(
             context=context,
             schedule_rules=(provider_league.schedule_rules),
         )
+
+    def replace_lineup_slot_definitions(
+        self,
+        *,
+        context: ProviderSyncContext,
+        lineup_slots: tuple[
+            ProviderLineupSlot,
+            ...,
+        ],
+    ) -> tuple[
+        LineupSlotDefinition,
+        ...,
+    ]:
+        """Replace one season's provider-neutral lineup rules."""
+
+        provider_codes: set[str] = set()
+        slot_orders: set[int] = set()
+
+        for lineup_slot in lineup_slots:
+            provider_code = lineup_slot.provider_slot_code.strip()
+            canonical_code = lineup_slot.canonical_slot_code.strip()
+
+            if not provider_code:
+                raise ValueError("Lineup rules require a provider slot code.")
+
+            if not canonical_code:
+                raise ValueError("Lineup rules require a canonical slot code.")
+
+            if provider_code in provider_codes:
+                raise ValueError(
+                    f"Lineup rules contain duplicate provider slot code {provider_code!r}."
+                )
+
+            if lineup_slot.order in slot_orders:
+                raise ValueError(f"Lineup rules contain duplicate slot order {lineup_slot.order}.")
+
+            if lineup_slot.is_starter and lineup_slot.starter_count < 1:
+                raise ValueError("Starting lineup rules must have a positive starter count.")
+
+            if not lineup_slot.is_starter and lineup_slot.starter_count != 0:
+                raise ValueError("Non-starting lineup rules must have starter_count equal to zero.")
+
+            provider_codes.add(provider_code)
+            slot_orders.add(lineup_slot.order)
+
+        self.session.execute(
+            delete(LineupSlotDefinition).where(
+                LineupSlotDefinition.season_id == context.season_id,
+            )
+        )
+        self.session.flush()
+
+        stored_definitions: list[LineupSlotDefinition] = []
+
+        for lineup_slot in sorted(
+            lineup_slots,
+            key=lambda current: current.order,
+        ):
+            stored = LineupSlotDefinition(
+                season_id=context.season_id,
+                provider_slot_code=(lineup_slot.provider_slot_code),
+                canonical_slot_code=(lineup_slot.canonical_slot_code),
+                display_name=lineup_slot.display_name,
+                slot_order=lineup_slot.order,
+                starter_count=(lineup_slot.starter_count),
+                is_starter=lineup_slot.is_starter,
+                is_bench=lineup_slot.is_bench,
+                is_injured_reserve=(lineup_slot.is_injured_reserve),
+                metadata_payload=dict(lineup_slot.metadata),
+            )
+
+            self.session.add(stored)
+            self.session.flush()
+
+            for canonical_position in dict.fromkeys(lineup_slot.eligible_positions):
+                self.session.add(
+                    LineupSlotEligibility(
+                        lineup_slot_definition_id=(stored.id),
+                        canonical_position=(canonical_position),
+                    )
+                )
+
+            stored_definitions.append(stored)
+
+        self.session.flush()
+
+        return tuple(stored_definitions)
 
     def upsert_schedule_rule(
         self,
