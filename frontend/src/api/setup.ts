@@ -50,3 +50,60 @@ export function bootstrapAdministrator(
     },
   );
 }
+
+
+export function setupProvidersQueryOptions() {
+  return queryOptions({
+    queryKey: [
+      ...setupQueryKeys.all,
+      "providers",
+    ] as const,
+    queryFn: ({ signal }) =>
+      getJson<
+        import(
+          "../types/setup"
+        ).SetupProvidersResponse
+      >(
+        "/setup/providers",
+        signal,
+      ),
+    staleTime: 300_000,
+  });
+}
+
+
+export function createProviderConnection(
+  request: import(
+    "../types/setup"
+  ).ProviderConnectionRequest,
+  csrfToken: string,
+): Promise<
+  import(
+    "../types/setup"
+  ).ProviderConnectionResponse
+> {
+  return postJson(
+    "/setup/provider-connection",
+    request,
+    {
+      csrfToken,
+    },
+  );
+}
+
+
+export function finalizeSetup(
+  csrfToken: string,
+): Promise<
+  import(
+    "../types/setup"
+  ).SetupFinalizationResponse
+> {
+  return postJson(
+    "/setup/finalize",
+    {},
+    {
+      csrfToken,
+    },
+  );
+}
