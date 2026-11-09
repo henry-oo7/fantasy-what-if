@@ -17,6 +17,7 @@ class SetupStatusResponse(BaseModel):
     bootstrap_available: bool
     administrator_configured: bool
     provider_configured: bool
+    spectator_configured: bool
     active_league_configured: bool
 
 

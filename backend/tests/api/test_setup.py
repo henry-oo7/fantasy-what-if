@@ -16,6 +16,7 @@ def test_active_installation_status_is_public() -> None:
         "bootstrap_available": False,
         "administrator_configured": True,
         "provider_configured": True,
+        "spectator_configured": True,
         "active_league_configured": True,
     }
 

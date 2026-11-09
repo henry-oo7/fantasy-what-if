@@ -34,6 +34,7 @@ def setup_session(
     installations: list[Installation],
     user_count: int,
     provider_count: int = 0,
+    spectator_count: int = 0,
 ) -> MagicMock:
     session = MagicMock()
 
@@ -42,6 +43,7 @@ def setup_session(
     session.scalar.side_effect = [
         user_count,
         provider_count,
+        spectator_count,
     ]
 
     return session
@@ -61,6 +63,7 @@ def test_empty_database_allows_bootstrap() -> None:
         bootstrap_available=True,
         administrator_configured=False,
         provider_configured=False,
+        spectator_configured=False,
         active_league_configured=False,
     )
 
@@ -74,17 +77,17 @@ def test_administrator_advances_to_provider_setup() -> None:
                 )
             ],
             user_count=1,
-            provider_count=0,
         )
     )
 
     assert state.administrator_configured is True
     assert state.provider_configured is False
+    assert state.spectator_configured is False
     assert state.active_league_configured is False
     assert state.bootstrap_available is False
 
 
-def test_provider_advances_to_finalization() -> None:
+def test_provider_advances_to_spectator_setup() -> None:
     state = resolve_setup_state(
         setup_session(
             installations=[
@@ -99,6 +102,27 @@ def test_provider_advances_to_finalization() -> None:
 
     assert state.administrator_configured is True
     assert state.provider_configured is True
+    assert state.spectator_configured is False
+    assert state.active_league_configured is False
+
+
+def test_spectator_advances_to_finalization() -> None:
+    state = resolve_setup_state(
+        setup_session(
+            installations=[
+                installation(
+                    status=(InstallationStatus.SETUP_IN_PROGRESS),
+                )
+            ],
+            user_count=2,
+            provider_count=1,
+            spectator_count=1,
+        )
+    )
+
+    assert state.administrator_configured is True
+    assert state.provider_configured is True
+    assert state.spectator_configured is True
     assert state.active_league_configured is False
 
 
@@ -114,6 +138,7 @@ def test_active_installation_reports_complete_progress() -> None:
             ],
             user_count=2,
             provider_count=1,
+            spectator_count=1,
         )
     )
 
@@ -123,25 +148,48 @@ def test_active_installation_reports_complete_progress() -> None:
         bootstrap_available=False,
         administrator_configured=True,
         provider_configured=True,
+        spectator_configured=True,
         active_league_configured=True,
     )
 
 
-def test_partial_active_references_are_incomplete() -> None:
+def test_active_installation_can_exist_without_spectator() -> None:
     state = resolve_setup_state(
         setup_session(
             installations=[
                 installation(
-                    status=(InstallationStatus.SETUP_IN_PROGRESS),
+                    status=InstallationStatus.ACTIVE,
                     active_league_id=1,
+                    active_season_id=1,
                 )
             ],
             user_count=1,
             provider_count=1,
+            spectator_count=0,
         )
     )
 
-    assert state.active_league_configured is False
+    assert state.active_league_configured is True
+    assert state.spectator_configured is False
+
+
+def test_multiple_spectators_are_rejected() -> None:
+    with pytest.raises(
+        SetupStateError,
+        match="Multiple spectator",
+    ):
+        resolve_setup_state(
+            setup_session(
+                installations=[
+                    installation(
+                        status=(InstallationStatus.SETUP_IN_PROGRESS),
+                    )
+                ],
+                user_count=3,
+                provider_count=1,
+                spectator_count=2,
+            )
+        )
 
 
 def test_multiple_installations_are_rejected() -> None:

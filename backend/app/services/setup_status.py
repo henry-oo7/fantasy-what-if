@@ -6,7 +6,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import model_registry  # noqa: F401
-from app.db.auth_models import User
+from app.db.auth_models import (
+    User,
+    UserRole,
+)
 from app.db.platform_enums import InstallationStatus
 from app.db.platform_models import (
     Installation,
@@ -27,6 +30,7 @@ class SetupState:
     bootstrap_available: bool
     administrator_configured: bool
     provider_configured: bool
+    spectator_configured: bool
     active_league_configured: bool
 
 
@@ -51,6 +55,7 @@ def resolve_setup_state(
             bootstrap_available=(not administrator_configured),
             administrator_configured=(administrator_configured),
             provider_configured=False,
+            spectator_configured=False,
             active_league_configured=False,
         )
 
@@ -67,6 +72,18 @@ def resolve_setup_state(
 
     provider_configured = provider_count > 0
 
+    spectator_count = int(
+        session.scalar(
+            select(func.count()).select_from(User).where(User.role == UserRole.SPECTATOR)
+        )
+        or 0
+    )
+
+    if spectator_count > 1:
+        raise SetupStateError("Multiple spectator accounts are configured.")
+
+    spectator_configured = spectator_count == 1
+
     active_league_configured = (
         installation.active_league_id is not None and installation.active_season_id is not None
     )
@@ -81,5 +98,6 @@ def resolve_setup_state(
         bootstrap_available=bootstrap_available,
         administrator_configured=(administrator_configured),
         provider_configured=provider_configured,
+        spectator_configured=spectator_configured,
         active_league_configured=(active_league_configured),
     )
