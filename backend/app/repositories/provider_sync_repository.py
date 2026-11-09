@@ -519,7 +519,7 @@ class ProviderSyncRepository:
                     provider_position=(player.provider_position),
                     player_name=player.player_name,
                     pro_team=player.pro_team,
-                    default_position=(player.provider_position),
+                    default_position=(player.canonical_position),
                     actual_lineup_slot=(player.actual_lineup_slot),
                     eligible_lineup_slots=list(player.eligible_lineup_slots),
                     points=player.points,

@@ -13,6 +13,10 @@ from app.analytics.league_average import (
 from app.analytics.optimal_lineup import (
     TeamOptimalLineupSummary,
 )
+from app.analytics.optimal_lineup_breakdown import (
+    TeamOptimalLineupBreakdown,
+    build_optimal_lineup_breakdown,
+)
 from app.analytics.schedule_swap import (
     ScheduleSwapResult,
     calculate_schedule_swap,
@@ -98,7 +102,11 @@ def read_team_optimal_lineup_summary(
         tuple[TeamOptimalLineupSummary, ...],
         Depends(get_persisted_optimal_lineup_summaries),
     ],
-) -> TeamOptimalLineupSummary:
+    snapshot: Annotated[
+        LeagueSnapshot,
+        Depends(get_current_league_snapshot),
+    ],
+) -> TeamOptimalLineupBreakdown:
     summary = next(
         (current_summary for current_summary in summaries if current_summary.team_id == team_id),
         None,
@@ -110,4 +118,13 @@ def read_team_optimal_lineup_summary(
             detail=f"Team {team_id} was not found.",
         )
 
-    return summary
+    try:
+        return build_optimal_lineup_breakdown(
+            summary=summary,
+            snapshot=snapshot,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
+            detail=str(exc),
+        ) from exc

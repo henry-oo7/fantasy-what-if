@@ -282,7 +282,7 @@ def create_provider_player_week(
         pro_team=optional_text(getattr(player, "proTeam", None)),
         provider_position=provider_position,
         canonical_position=canonical_position(provider_position),
-        actual_lineup_slot=provider_slot,
+        actual_lineup_slot=canonical_lineup_slot(provider_slot),
         eligible_lineup_slots=normalize_eligible_slots(getattr(player, "eligibleSlots", ())),
         points=decimal_from_provider(
             player.points,

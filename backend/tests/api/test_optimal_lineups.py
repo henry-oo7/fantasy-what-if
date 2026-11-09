@@ -5,7 +5,13 @@ from app.analytics.optimal_lineup import (
     calculate_optimal_lineup_summaries,
 )
 from app.api.dependencies import (
+    get_current_league_snapshot,
     get_persisted_optimal_lineup_summaries,
+)
+from app.domain.league import (
+    LeagueSnapshot,
+    MatchupSnapshot,
+    TeamSnapshot,
 )
 from app.domain.lineup import (
     PlayerWeekSnapshot,
@@ -54,7 +60,7 @@ def create_roster() -> TeamWeekRoster:
                 name="Starting QB",
                 position="QB",
                 actual_slot="QB",
-                eligible_slots=("QB", "BE"),
+                eligible_slots=("QB", "BENCH"),
                 points=10.0,
                 is_starter=True,
             ),
@@ -62,8 +68,8 @@ def create_roster() -> TeamWeekRoster:
                 player_id=2,
                 name="Bench QB",
                 position="QB",
-                actual_slot="BE",
-                eligible_slots=("QB", "BE"),
+                actual_slot="BENCH",
+                eligible_slots=("QB", "BENCH"),
                 points=20.0,
                 is_bench=True,
             ),
@@ -72,7 +78,7 @@ def create_roster() -> TeamWeekRoster:
                 name="RB One",
                 position="RB",
                 actual_slot="RB",
-                eligible_slots=("RB", "RB/WR/TE", "BE"),
+                eligible_slots=("RB", "FLEX", "BENCH"),
                 points=12.0,
                 is_starter=True,
             ),
@@ -81,7 +87,7 @@ def create_roster() -> TeamWeekRoster:
                 name="RB Two",
                 position="RB",
                 actual_slot="RB",
-                eligible_slots=("RB", "RB/WR/TE", "BE"),
+                eligible_slots=("RB", "FLEX", "BENCH"),
                 points=11.0,
                 is_starter=True,
             ),
@@ -90,7 +96,7 @@ def create_roster() -> TeamWeekRoster:
                 name="WR One",
                 position="WR",
                 actual_slot="WR",
-                eligible_slots=("WR", "RB/WR/TE", "BE"),
+                eligible_slots=("WR", "FLEX", "BENCH"),
                 points=14.0,
                 is_starter=True,
             ),
@@ -99,7 +105,7 @@ def create_roster() -> TeamWeekRoster:
                 name="WR Two",
                 position="WR",
                 actual_slot="WR",
-                eligible_slots=("WR", "RB/WR/TE", "BE"),
+                eligible_slots=("WR", "FLEX", "BENCH"),
                 points=13.0,
                 is_starter=True,
             ),
@@ -108,7 +114,7 @@ def create_roster() -> TeamWeekRoster:
                 name="Starting TE",
                 position="TE",
                 actual_slot="TE",
-                eligible_slots=("TE", "RB/WR/TE", "BE"),
+                eligible_slots=("TE", "FLEX", "BENCH"),
                 points=8.0,
                 is_starter=True,
             ),
@@ -116,8 +122,8 @@ def create_roster() -> TeamWeekRoster:
                 player_id=8,
                 name="Starting Flex",
                 position="RB",
-                actual_slot="RB/WR/TE",
-                eligible_slots=("RB", "RB/WR/TE", "BE"),
+                actual_slot="FLEX",
+                eligible_slots=("RB", "FLEX", "BENCH"),
                 points=7.0,
                 is_starter=True,
             ),
@@ -126,16 +132,16 @@ def create_roster() -> TeamWeekRoster:
                 name="Starting Kicker",
                 position="K",
                 actual_slot="K",
-                eligible_slots=("K", "BE"),
+                eligible_slots=("K", "BENCH"),
                 points=6.0,
                 is_starter=True,
             ),
             create_player(
                 player_id=10,
                 name="Starting Defense",
-                position="D/ST",
-                actual_slot="D/ST",
-                eligible_slots=("D/ST", "BE"),
+                position="DST",
+                actual_slot="DST",
+                eligible_slots=("DST", "BENCH"),
                 points=5.0,
                 is_starter=True,
             ),
@@ -145,6 +151,45 @@ def create_roster() -> TeamWeekRoster:
 
 def override_summaries():
     return calculate_optimal_lineup_summaries((create_roster(),))
+
+
+def override_snapshot() -> LeagueSnapshot:
+    return LeagueSnapshot(
+        league_id=1,
+        name="Test League",
+        season=2026,
+        current_week=2,
+        regular_season_weeks=14,
+        teams=(
+            TeamSnapshot(
+                team_id=1,
+                name="Team Alpha",
+                wins=0,
+                losses=1,
+                ties=0,
+                points_for=86.0,
+                points_against=90.0,
+            ),
+            TeamSnapshot(
+                team_id=2,
+                name="Team Bravo",
+                wins=1,
+                losses=0,
+                ties=0,
+                points_for=90.0,
+                points_against=86.0,
+            ),
+        ),
+        matchups=(
+            MatchupSnapshot(
+                week=1,
+                home_team_id=1,
+                away_team_id=2,
+                home_score=86.0,
+                away_score=90.0,
+            ),
+        ),
+    )
 
 
 def test_optimal_lineups_endpoint_returns_team_summaries() -> None:
@@ -178,12 +223,17 @@ def test_optimal_lineups_endpoint_returns_team_summaries() -> None:
 
 def test_team_optimal_lineup_endpoint_returns_requested_team() -> None:
     app.dependency_overrides[get_persisted_optimal_lineup_summaries] = override_summaries
+    app.dependency_overrides[get_current_league_snapshot] = override_snapshot
 
     try:
         response = client.get("/api/analytics/optimal-lineups/1")
     finally:
         app.dependency_overrides.pop(
             get_persisted_optimal_lineup_summaries,
+            None,
+        )
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
             None,
         )
 
@@ -202,6 +252,16 @@ def test_team_optimal_lineup_endpoint_returns_requested_team() -> None:
     assert week["actual_starter_count"] == 9
     assert week["optimal_filled_slot_count"] == 9
     assert week["unfilled_slots"] == []
+    assert week["opponent_team_id"] == 2
+    assert week["opponent_team_name"] == "Team Bravo"
+    assert week["opponent_points"] == 90.0
+    assert week["actual_result"] == "loss"
+    assert week["optimal_result"] == "win"
+    assert week["result_flipped"] is True
+    assert summary["actual_record"]["losses"] == 1
+    assert summary["optimal_record"]["wins"] == 1
+    assert summary["equivalent_wins_gained"] == 1.0
+    assert summary["results_flipped"] == 1
 
     optimal_names = {player["player_name"] for player in week["optimal_lineup"]}
 
@@ -211,12 +271,17 @@ def test_team_optimal_lineup_endpoint_returns_requested_team() -> None:
 
 def test_team_optimal_lineup_endpoint_returns_not_found() -> None:
     app.dependency_overrides[get_persisted_optimal_lineup_summaries] = override_summaries
+    app.dependency_overrides[get_current_league_snapshot] = override_snapshot
 
     try:
         response = client.get("/api/analytics/optimal-lineups/999")
     finally:
         app.dependency_overrides.pop(
             get_persisted_optimal_lineup_summaries,
+            None,
+        )
+        app.dependency_overrides.pop(
+            get_current_league_snapshot,
             None,
         )
 

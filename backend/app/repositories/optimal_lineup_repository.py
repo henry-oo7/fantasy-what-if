@@ -15,7 +15,7 @@ from app.analytics.optimal_lineup import (
 )
 from app.db.models import OptimalLineupResult
 
-OPTIMAL_LINEUP_CALCULATION_VERSION = 1
+OPTIMAL_LINEUP_CALCULATION_VERSION = 2
 
 
 def replace_optimal_lineup_results(

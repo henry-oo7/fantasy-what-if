@@ -74,9 +74,9 @@ def test_eligible_slots_are_normalized_and_deduplicated() -> None:
         ]
     ) == (
         "WR",
-        "Rookie",
-        "RB/WR/TE",
-        "BE",
+        "ESPN_ROOKIE",
+        "FLEX",
+        "BENCH",
     )
 
 
@@ -109,3 +109,22 @@ def test_empty_espn_codes_are_rejected(
 ) -> None:
     with pytest.raises(ValueError):
         normalize_espn_code(value)
+
+
+def test_eligible_slots_are_canonicalized() -> None:
+    assert normalize_eligible_slots(
+        (
+            "RB/WR/TE",
+            "OP",
+            "D/ST",
+            "BE",
+            "BN",
+            "IR",
+        )
+    ) == (
+        "FLEX",
+        "SUPERFLEX",
+        "DST",
+        "BENCH",
+        "IR",
+    )

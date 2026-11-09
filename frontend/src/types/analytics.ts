@@ -113,3 +113,30 @@ export interface TeamOptimalLineupSummary {
   efficiency_percentage: number;
   weekly_results: TeamWeekOptimalLineup[];
 }
+
+
+
+export interface TeamWeekOptimalLineupBreakdown
+  extends TeamWeekOptimalLineup {
+  opponent_team_id: number;
+  opponent_team_name: string;
+  opponent_points: number;
+  actual_result: MatchupResult;
+  optimal_result: MatchupResult;
+  result_flipped: boolean;
+}
+
+export interface TeamOptimalLineupBreakdown {
+  team_id: number;
+  team_name: string;
+  weeks_played: number;
+  actual_points: number;
+  optimal_points: number;
+  missed_points: number;
+  efficiency_percentage: number;
+  actual_record: AnalyticsRecord;
+  optimal_record: AnalyticsRecord;
+  equivalent_wins_gained: number;
+  results_flipped: number;
+  weekly_results: TeamWeekOptimalLineupBreakdown[];
+}

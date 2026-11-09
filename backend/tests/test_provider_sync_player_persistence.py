@@ -217,7 +217,7 @@ def test_defense_preserves_provider_position(
 
     assert len(stored) == 1
     assert stored[0].provider_position == "D/ST"
-    assert stored[0].default_position == "D/ST"
+    assert stored[0].default_position == "DST"
     assert stored[0].raw_metadata["canonical_position"] == "DST"
 
 

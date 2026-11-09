@@ -13,6 +13,9 @@ import { AdminPage } from "./pages/AdminPage";
 import { AllPlayPage } from "./pages/AllPlayPage";
 import { LeagueAveragePage } from "./pages/LeagueAveragePage";
 import { LoginPage } from "./pages/LoginPage";
+import {
+  OptimalLineupBreakdownPage,
+} from "./pages/OptimalLineupBreakdownPage";
 import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
 import {
   ScheduleSwapPage,
@@ -76,12 +79,7 @@ function ApplicationRoutes() {
 
         <Route
           path="optimal-lineups/:teamId"
-          element={
-            <Navigate
-              to="/optimal-lineups"
-              replace
-            />
-          }
+          element={<OptimalLineupBreakdownPage />}
         />
       </Route>
 

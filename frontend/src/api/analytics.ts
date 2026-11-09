@@ -6,6 +6,7 @@ import { getJson } from "./client";
 import type {
   LeagueAverageStanding,
   ScheduleSwapResult,
+  TeamOptimalLineupBreakdown,
   TeamOptimalLineupSummary,
 } from "../types/analytics";
 
@@ -106,7 +107,7 @@ export function teamOptimalLineupQueryOptions(
         teamId,
       ),
     queryFn: ({ signal }) =>
-      getJson<TeamOptimalLineupSummary>(
+      getJson<TeamOptimalLineupBreakdown>(
         `/analytics/optimal-lineups/${teamId}`,
         signal,
       ),

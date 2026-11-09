@@ -102,11 +102,13 @@ def normalize_eligible_slots(
         if not normalized:
             continue
 
-        if normalized in seen_slots:
+        canonical = canonical_lineup_slot(normalized)
+
+        if canonical in seen_slots:
             continue
 
-        seen_slots.add(normalized)
-        normalized_slots.append(normalized)
+        seen_slots.add(canonical)
+        normalized_slots.append(canonical)
 
     return tuple(normalized_slots)
 
