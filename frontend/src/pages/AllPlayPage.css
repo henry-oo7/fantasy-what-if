@@ -233,54 +233,17 @@
   line-height: 1.55;
 }
 
+/*
+ * Page-level responsive behavior.
+ * Standings rows respond separately to their actual panel width.
+ */
 @media (max-width: 980px) {
   .all-play-column-headings {
     display: none;
   }
 
-  .all-play-row {
-    grid-template-columns:
-      42px
-      minmax(0, 1fr)
-      auto;
-    gap: 12px;
-    padding: 14px 16px;
-  }
-
-  .all-play-record,
-  .all-play-percentage,
-  .actual-rank {
-    display: grid;
-    gap: 2px;
-    justify-items: end;
-  }
-
-  .all-play-record {
-    grid-column: 2;
-    justify-items: start;
-  }
-
-  .all-play-percentage {
-    grid-column: 3;
-  }
-
-  .actual-rank {
-    grid-column: 2;
-    justify-items: start;
-  }
-
-  .rank-difference {
-    grid-column: 3;
-    justify-self: end;
-  }
-
   .mobile-field-label {
     display: block;
-    color: var(--color-text-muted);
-    font-family: "Barlow", sans-serif;
-    font-size: 0.62rem;
-    font-weight: 600;
-    text-transform: uppercase;
   }
 }
 
@@ -309,10 +272,239 @@
     font-size: clamp(2.6rem, 15vw, 3.8rem);
   }
 
-  .all-play-row {
+  .all-play-panel-heading {
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .all-play-panel-heading > span {
+    flex: 0 0 auto;
+    font-size: 0.66rem;
+    white-space: nowrap;
+  }
+}
+
+
+/*
+ * Use the actual standings-panel width instead of only the browser
+ * viewport. This supports narrow desktop windows with the fixed
+ * application sidebar still visible.
+ */
+.all-play-panel {
+  container-name: all-play-standings;
+  container-type: inline-size;
+}
+
+
+/*
+ * Compact standings layout.
+ *
+ * Row 1: rank and team identity
+ * Row 2: All-Play Record, Win Rate, and Actual Rank
+ * Row 3: Rank Difference
+ */
+@container all-play-standings (max-width: 780px) {
+  .all-play-standings > .all-play-row {
+    display: grid;
+    grid-template-areas:
+      "rank team team team"
+      "record record percentage actual"
+      "difference difference difference difference";
     grid-template-columns:
-      32px
-      minmax(0, 1fr)
-      auto;
+      34px repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    min-height: 0;
+    gap: 0;
+    padding: 0;
+  }
+
+  .all-play-row > .all-play-rank {
+    grid-area: rank;
+    display: flex;
+    grid-column: auto;
+    grid-row: auto;
+    align-items: flex-start;
+    align-self: stretch;
+    justify-content: flex-start;
+    min-width: 0;
+    padding: 16px 0 12px 14px;
+  }
+
+  .all-play-row > .all-play-team {
+    grid-area: team;
+    display: grid;
+    grid-column: auto;
+    grid-row: auto;
+    min-width: 0;
+    align-content: start;
+    gap: 2px;
+    padding: 15px 14px 12px 8px;
+  }
+
+  .all-play-row > .all-play-team > strong {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    font-size: 1.05rem;
+    line-height: 1.1;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .all-play-row > .all-play-team > small {
+    font-size: 0.7rem;
+  }
+
+  .all-play-row > .all-play-record,
+  .all-play-row > .all-play-percentage,
+  .all-play-row > .actual-rank {
+    display: grid;
+    min-width: 0;
+    width: auto;
+    min-height: 66px;
+    align-content: start;
+    align-items: start;
+    justify-content: stretch;
+    justify-items: start;
+    gap: 6px;
+    padding: 11px 10px 12px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .all-play-row > .all-play-record {
+    grid-area: record;
+    grid-column: 1 / 3;
+    grid-row: 2;
+    padding-left: 14px;
+  }
+
+  .all-play-row > .all-play-percentage {
+    grid-area: percentage;
+    grid-column: 3;
+    grid-row: 2;
+    border-left: 1px solid var(--color-border);
+  }
+
+  .all-play-row > .actual-rank {
+    grid-area: actual;
+    grid-column: 4;
+    grid-row: 2;
+    border-left: 1px solid var(--color-border);
+  }
+
+  .all-play-row .mobile-field-label {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    color: var(--color-text-muted);
+    font-family: "Barlow", sans-serif;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.025em;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .all-play-row > .all-play-record > strong,
+  .all-play-row > .all-play-percentage > strong,
+  .all-play-row > .actual-rank > strong {
+    display: block;
+    width: 100%;
+    font-size: 1.08rem;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .all-play-row > .rank-difference {
+    grid-area: difference;
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    width: auto;
+    min-width: 0;
+    min-height: 44px;
+    align-items: center;
+    justify-content: flex-end;
+    justify-self: stretch;
+    gap: 0.55rem;
+    padding: 9px 14px;
+    border-top: 1px solid var(--color-border);
+    border-radius: 0;
+    background: var(--color-surface-muted);
+  }
+
+  .rank-difference-label {
+    display: block;
+    color: var(--color-text-muted);
+    font-family: "Barlow", sans-serif;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.025em;
+    line-height: 1.15;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .rank-difference-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 1rem;
+    white-space: nowrap;
+  }
+
+  .rank-difference-value svg {
+    width: 0.9rem;
+    height: 0.9rem;
+  }
+}
+
+
+/*
+ * Very narrow layouts retain all three comparison columns while
+ * reducing horizontal padding.
+ */
+@container all-play-standings (max-width: 430px) {
+  .all-play-standings > .all-play-row {
+    grid-template-columns:
+      30px repeat(3, minmax(0, 1fr));
+  }
+
+  .all-play-row > .all-play-rank {
+    padding-left: 10px;
+  }
+
+  .all-play-row > .all-play-team {
+    padding-right: 10px;
+    padding-left: 6px;
+  }
+
+  .all-play-row > .all-play-record {
+    padding-left: 10px;
+  }
+
+  .all-play-row > .all-play-record,
+  .all-play-row > .all-play-percentage,
+  .all-play-row > .actual-rank {
+    padding-right: 6px;
+  }
+
+  .all-play-row .mobile-field-label,
+  .rank-difference-label {
+    font-size: 0.52rem;
+  }
+}
+
+
+@container all-play-standings (min-width: 781px) {
+  .rank-difference-label {
+    display: none;
+  }
+
+  .rank-difference-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
 }

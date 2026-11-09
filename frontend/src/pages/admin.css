@@ -394,3 +394,52 @@
     width: 100%;
   }
 }
+
+/*
+ * Keep password controls within the administration panel.
+ * Container sizing handles narrow desktop windows where the fixed
+ * sidebar leaves less space than the viewport width suggests.
+ */
+.admin-control-panel {
+  container-name: admin-control-panel;
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.admin-password-grid {
+  min-width: 0;
+}
+
+.admin-password-grid label {
+  min-width: 0;
+}
+
+.admin-password-grid input {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+
+@container admin-control-panel (max-width: 560px) {
+  .admin-password-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-actions > button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@container admin-control-panel (min-width: 561px) {
+  .admin-password-grid {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+}

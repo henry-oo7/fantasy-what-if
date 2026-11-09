@@ -271,18 +271,24 @@ export function AllPlayPage() {
                         : "rank-difference"
                   }
                 >
-                  {difference > 0 ? (
-                    <ArrowUp aria-hidden="true" />
-                  ) : difference < 0 ? (
-                    <ArrowDown aria-hidden="true" />
-                  ) : (
-                    <Minus aria-hidden="true" />
-                  )}
+                  <span className="rank-difference-label">
+                    Rank difference
+                  </span>
 
-                  <span>
-                    {difference > 0
-                      ? `+${difference}`
-                      : difference}
+                  <span className="rank-difference-value">
+                    {difference > 0 ? (
+                      <ArrowUp aria-hidden="true" />
+                    ) : difference < 0 ? (
+                      <ArrowDown aria-hidden="true" />
+                    ) : (
+                      <Minus aria-hidden="true" />
+                    )}
+
+                    <strong>
+                      {difference > 0
+                        ? `+${difference}`
+                        : difference}
+                    </strong>
                   </span>
                 </div>
               </article>
