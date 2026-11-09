@@ -75,9 +75,15 @@ interface LineupTableProps {
   title: string;
   lineup: LineupPlayer[];
   tone: "actual" | "optimal";
+  changedPlayerIds: Set<number>;
 }
 
-function LineupTable({ title, lineup, tone }: LineupTableProps) {
+function LineupTable({
+  title,
+  lineup,
+  tone,
+  changedPlayerIds,
+}: LineupTableProps) {
   return (
     <section
       className={`breakdown-lineup breakdown-lineup-${tone}`}
@@ -103,11 +109,16 @@ function LineupTable({ title, lineup, tone }: LineupTableProps) {
       <div className="breakdown-lineup-rows">
         {lineup.map((player, index) => (
           <div
-            className={
-              player.is_unfilled
-                ? "breakdown-player-row breakdown-player-unfilled"
-                : "breakdown-player-row"
-            }
+            className={[
+              "breakdown-player-row",
+              player.is_unfilled ? "breakdown-player-unfilled" : "",
+              player.player_id !== null &&
+              changedPlayerIds.has(player.player_id)
+                ? `breakdown-player-changed breakdown-player-changed-${tone}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             key={`${player.lineup_slot}-${player.player_id ?? "empty"}-${index}`}
           >
             <span className="breakdown-slot">{player.lineup_slot}</span>
@@ -141,6 +152,14 @@ interface WeekPanelProps {
 function WeekPanel({ week, expanded, onToggle }: WeekPanelProps) {
   const panelId = `optimal-week-${week.week}-content`;
   const buttonId = `optimal-week-${week.week}-button`;
+
+  const playersOutIds = new Set(
+    week.players_out.map((player) => player.player_id),
+  );
+
+  const playersInIds = new Set(
+    week.players_in.map((player) => player.player_id),
+  );
 
   return (
     <article
@@ -267,49 +286,147 @@ function WeekPanel({ week, expanded, onToggle }: WeekPanelProps) {
               <div>
                 <p className="panel-kicker">What would change</p>
 
-                <h3>Optimal substitutions</h3>
+                <h3>Lineup changes</h3>
               </div>
 
-              <span>
-                {week.substitutions.length}{" "}
-                {week.substitutions.length === 1 ? "change" : "changes"}
-              </span>
+              <div className="breakdown-net-gain">
+                <span>Net lineup gain</span>
+
+                <strong>+{week.net_point_gain.toFixed(2)}</strong>
+              </div>
             </div>
 
-            {week.substitutions.length > 0 ? (
-              <div className="breakdown-swap-list">
-                {week.substitutions.map((substitution, index) => (
-                  <article key={`${substitution.lineup_slot}-${index}`}>
-                    <span className="breakdown-swap-slot">
-                      {substitution.lineup_slot}
-                    </span>
+            {week.players_out.length > 0 ||
+            week.players_in.length > 0 ||
+            week.retained_player_moves.length > 0 ? (
+              <div className="breakdown-change-groups">
+                <section
+                  className="breakdown-change-group"
+                  aria-label="Players removed from the lineup"
+                >
+                  <div className="breakdown-change-title">
+                    <span>Players out</span>
 
-                    <div>
-                      <small>Out</small>
-                      <strong>
-                        {substitution.player_out_name ?? "Unfilled slot"}
-                      </strong>
+                    <strong>{week.players_out.length}</strong>
+                  </div>
+
+                  {week.players_out.length > 0 ? (
+                    <div className="breakdown-change-list">
+                      {week.players_out.map((player) => (
+                        <article key={player.player_id}>
+                          <span className="breakdown-swap-slot">
+                            {player.lineup_slot}
+                          </span>
+
+                          <div>
+                            <strong>{player.player_name}</strong>
+
+                            <small>
+                              {[player.default_position, player.pro_team]
+                                .filter(
+                                  (value): value is string =>
+                                    value !== null && value.length > 0,
+                                )
+                                .join(" · ") || "Rostered player"}
+                            </small>
+                          </div>
+
+                          <strong className="breakdown-change-points breakdown-points-out">
+                            {player.points.toFixed(2)}
+                          </strong>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="breakdown-change-empty">
+                      No actual starter leaves the lineup.
+                    </p>
+                  )}
+                </section>
+
+                <section
+                  className="breakdown-change-group breakdown-change-group-in"
+                  aria-label="Players added to the lineup"
+                >
+                  <div className="breakdown-change-title">
+                    <span>Players in</span>
+
+                    <strong>{week.players_in.length}</strong>
+                  </div>
+
+                  {week.players_in.length > 0 ? (
+                    <div className="breakdown-change-list">
+                      {week.players_in.map((player) => (
+                        <article key={player.player_id}>
+                          <span className="breakdown-swap-slot">
+                            {player.lineup_slot}
+                          </span>
+
+                          <div>
+                            <strong>{player.player_name}</strong>
+
+                            <small>
+                              {[player.default_position, player.pro_team]
+                                .filter(
+                                  (value): value is string =>
+                                    value !== null && value.length > 0,
+                                )
+                                .join(" · ") || "Rostered player"}
+                            </small>
+                          </div>
+
+                          <strong className="breakdown-change-points breakdown-points-in">
+                            {player.points.toFixed(2)}
+                          </strong>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="breakdown-change-empty">
+                      No replacement enters the lineup. A negative-scoring slot
+                      is left empty.
+                    </p>
+                  )}
+                </section>
+
+                {week.retained_player_moves.length > 0 ? (
+                  <section
+                    className="breakdown-movements"
+                    aria-label="Retained starter slot movements"
+                  >
+                    <div className="breakdown-change-title">
+                      <span>Slot movements</span>
+
+                      <strong>{week.retained_player_moves.length}</strong>
                     </div>
 
-                    <div>
-                      <small>In</small>
-                      <strong>
-                        {substitution.player_in_name ?? "Unfilled slot"}
-                      </strong>
-                    </div>
+                    <div className="breakdown-movement-list">
+                      {week.retained_player_moves.map((movement) => (
+                        <article key={movement.player_id}>
+                          <div>
+                            <strong>{movement.player_name}</strong>
 
-                    <strong
-                      className={
-                        substitution.point_change >= 0
-                          ? "breakdown-point-change breakdown-point-positive"
-                          : "breakdown-point-change breakdown-point-negative"
-                      }
-                    >
-                      {substitution.point_change >= 0 ? "+" : ""}
-                      {substitution.point_change.toFixed(2)}
-                    </strong>
-                  </article>
-                ))}
+                            <small>
+                              Remains in the optimal starting lineup
+                            </small>
+                          </div>
+
+                          <div className="breakdown-slot-move">
+                            <span>{movement.from_slot}</span>
+
+                            <span aria-hidden="true">→</span>
+
+                            <strong>{movement.to_slot}</strong>
+                          </div>
+
+                          <strong className="breakdown-move-points">
+                            {movement.points.toFixed(2)}
+                          </strong>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
               </div>
             ) : (
               <p className="breakdown-no-changes">
@@ -317,6 +434,12 @@ function WeekPanel({ week, expanded, onToggle }: WeekPanelProps) {
                 lineup for this roster.
               </p>
             )}
+
+            <p className="breakdown-change-note">
+              Players who remain starters but move between positions are shown
+              separately. Slot movements do not add or subtract points from the
+              net gain.
+            </p>
           </section>
 
           <div className="breakdown-lineup-grid">
@@ -324,12 +447,14 @@ function WeekPanel({ week, expanded, onToggle }: WeekPanelProps) {
               title="Actual lineup"
               lineup={week.actual_lineup}
               tone="actual"
+              changedPlayerIds={playersOutIds}
             />
 
             <LineupTable
               title="Optimal lineup"
               lineup={week.optimal_lineup}
               tone="optimal"
+              changedPlayerIds={playersInIds}
             />
           </div>
 
@@ -355,9 +480,7 @@ export function OptimalLineupBreakdownPage() {
 
   const breakdownQuery = useQuery(teamOptimalLineupQueryOptions(teamId));
 
-  const [selectedWeek, setSelectedWeek] = useState<number | null | undefined>(
-    undefined,
-  );
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
   if (teamId === 0) {
     return (
@@ -408,16 +531,6 @@ export function OptimalLineupBreakdownPage() {
   }
 
   const breakdown = breakdownQuery.data;
-
-  const firstFlippedWeek = breakdown.weekly_results.find(
-    (week) => week.result_flipped,
-  );
-
-  const defaultExpandedWeek =
-    firstFlippedWeek?.week ?? breakdown.weekly_results[0]?.week ?? null;
-
-  const expandedWeek =
-    selectedWeek === undefined ? defaultExpandedWeek : selectedWeek;
 
   return (
     <div className="optimal-breakdown-page">
@@ -549,10 +662,10 @@ export function OptimalLineupBreakdownPage() {
               <WeekPanel
                 key={week.week}
                 week={week}
-                expanded={expandedWeek === week.week}
+                expanded={selectedWeek === week.week}
                 onToggle={() => {
                   setSelectedWeek(
-                    expandedWeek === week.week ? null : week.week,
+                    selectedWeek === week.week ? null : week.week,
                   );
                 }}
               />

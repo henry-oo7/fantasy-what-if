@@ -187,3 +187,53 @@ def test_breakdown_rejects_missing_matchup() -> None:
         assert "does not contain a completed matchup" in str(exc)
     else:
         raise AssertionError("Expected missing matchup rejection.")
+
+
+def test_breakdown_separates_membership_changes_from_slot_moves() -> None:
+    weekly_summary = summary()
+    original_week = weekly_summary.weekly_results[0]
+
+    actual_qb = original_week.actual_lineup[0]
+    optimal_qb = original_week.optimal_lineup[0]
+
+    breakdown = build_optimal_lineup_breakdown(
+        summary=weekly_summary,
+        snapshot=snapshot(),
+    )
+
+    week = breakdown.weekly_results[0]
+
+    assert [player.player_id for player in week.players_out] == [actual_qb.player_id]
+
+    assert [player.player_id for player in week.players_in] == [optimal_qb.player_id]
+
+    assert week.retained_player_moves == ()
+    assert week.net_point_gain == 10.0
+
+
+def test_breakdown_does_not_pair_unrelated_players() -> None:
+    breakdown = build_optimal_lineup_breakdown(
+        summary=summary(),
+        snapshot=snapshot(),
+    )
+
+    week = breakdown.weekly_results[0]
+
+    players_out_points = round(
+        sum(player.points for player in week.players_out),
+        2,
+    )
+    players_in_points = round(
+        sum(player.points for player in week.players_in),
+        2,
+    )
+
+    assert (
+        round(
+            players_in_points - players_out_points,
+            2,
+        )
+        == week.net_point_gain
+    )
+
+    assert week.net_point_gain == week.missed_points

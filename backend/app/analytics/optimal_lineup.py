@@ -359,29 +359,80 @@ def _build_substitutions(
     actual_assignments: tuple[_Assignment, ...],
     optimal_assignments: tuple[_Assignment, ...],
 ) -> tuple[LineupSubstitution, ...]:
+    """Describe true starter-set changes.
+
+    Players who remain in the starting lineup but move between
+    eligible slots are not substitutions. This prevents positional
+    exchanges, especially RB/WR/TE and FLEX rearrangements, from
+    appearing as offsetting positive and negative changes.
+    """
+
+    actual_players = {
+        assignment.player.player_id: assignment
+        for assignment in actual_assignments
+        if assignment.player is not None
+    }
+    optimal_players = {
+        assignment.player.player_id: assignment
+        for assignment in optimal_assignments
+        if assignment.player is not None
+    }
+
+    exited_assignments = [
+        assignment
+        for player_id, assignment in actual_players.items()
+        if player_id not in optimal_players
+    ]
+    entered_assignments = [
+        assignment
+        for player_id, assignment in optimal_players.items()
+        if player_id not in actual_players
+    ]
+
+    exited_assignments.sort(
+        key=lambda assignment: (
+            assignment.player.points if assignment.player is not None else 0.0,
+            assignment.slot,
+            (assignment.player.player_id if assignment.player is not None else 10**12),
+        )
+    )
+    entered_assignments.sort(
+        key=lambda assignment: (
+            -(assignment.player.points if assignment.player is not None else 0.0),
+            assignment.slot,
+            (assignment.player.player_id if assignment.player is not None else 10**12),
+        )
+    )
+
     substitutions: list[LineupSubstitution] = []
+    pair_count = max(
+        len(exited_assignments),
+        len(entered_assignments),
+    )
 
-    for actual, optimal in zip(
-        actual_assignments,
-        optimal_assignments,
-        strict=True,
-    ):
-        actual_id = actual.player.player_id if actual.player is not None else None
-        optimal_id = optimal.player.player_id if optimal.player is not None else None
+    for index in range(pair_count):
+        actual = exited_assignments[index] if index < len(exited_assignments) else None
+        optimal = entered_assignments[index] if index < len(entered_assignments) else None
 
-        if actual_id == optimal_id:
-            continue
+        actual_player = actual.player if actual is not None else None
+        optimal_player = optimal.player if optimal is not None else None
 
-        actual_points = actual.player.points if actual.player is not None else 0.0
-        optimal_points = optimal.player.points if optimal.player is not None else 0.0
+        actual_points = actual_player.points if actual_player is not None else 0.0
+        optimal_points = optimal_player.points if optimal_player is not None else 0.0
 
         substitutions.append(
             LineupSubstitution(
-                lineup_slot=actual.slot,
-                player_in_id=optimal_id,
-                player_in_name=(optimal.player.player_name if optimal.player is not None else None),
-                player_out_id=actual_id,
-                player_out_name=(actual.player.player_name if actual.player is not None else None),
+                lineup_slot=(
+                    optimal.slot
+                    if optimal is not None
+                    else actual.slot
+                    if actual is not None
+                    else "UNKNOWN"
+                ),
+                player_in_id=(optimal_player.player_id if optimal_player is not None else None),
+                player_in_name=(optimal_player.player_name if optimal_player is not None else None),
+                player_out_id=(actual_player.player_id if actual_player is not None else None),
+                player_out_name=(actual_player.player_name if actual_player is not None else None),
                 point_change=round(
                     optimal_points - actual_points,
                     2,

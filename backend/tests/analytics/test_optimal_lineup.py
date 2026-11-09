@@ -288,3 +288,152 @@ def test_summary_combines_multiple_weeks() -> None:
     assert summary.missed_points == 64.0
     assert summary.efficiency_percentage == 72.88
     assert [result.week for result in summary.weekly_results] == [1, 2]
+
+
+def test_substitutions_ignore_retained_players_that_exchange_rb_and_flex() -> None:
+    players = (
+        create_player(
+            201,
+            "Starting QB",
+            "QB",
+            "QB",
+            ("QB", "BENCH"),
+            20.0,
+            is_starter=True,
+        ),
+        create_player(
+            202,
+            "D'Andre Swift",
+            "RB",
+            "RB",
+            ("RB", "FLEX", "BENCH"),
+            10.0,
+            is_starter=True,
+        ),
+        create_player(
+            203,
+            "Javonte Williams",
+            "RB",
+            "FLEX",
+            ("RB", "FLEX", "BENCH"),
+            14.5,
+            is_starter=True,
+        ),
+        create_player(
+            204,
+            "Starting RB",
+            "RB",
+            "RB",
+            ("RB", "FLEX", "BENCH"),
+            12.0,
+            is_starter=True,
+        ),
+        create_player(
+            205,
+            "Starting WR One",
+            "WR",
+            "WR",
+            ("WR", "FLEX", "BENCH"),
+            11.0,
+            is_starter=True,
+        ),
+        create_player(
+            206,
+            "Devaughn Vele",
+            "WR",
+            "WR",
+            ("WR", "FLEX", "BENCH"),
+            5.0,
+            is_starter=True,
+        ),
+        create_player(
+            207,
+            "Starting TE",
+            "TE",
+            "TE",
+            ("TE", "FLEX", "BENCH"),
+            8.0,
+            is_starter=True,
+        ),
+        create_player(
+            208,
+            "Starting Kicker",
+            "K",
+            "K",
+            ("K", "BENCH"),
+            7.0,
+            is_starter=True,
+        ),
+        create_player(
+            209,
+            "Starting Defense",
+            "DST",
+            "DST",
+            ("DST", "BENCH"),
+            6.0,
+            is_starter=True,
+        ),
+        create_player(
+            210,
+            "KC Concepcion",
+            "WR",
+            "BENCH",
+            ("WR", "FLEX", "BENCH"),
+            10.3,
+            is_bench=True,
+        ),
+    )
+
+    result = calculate_team_week_optimal_lineup(
+        TeamWeekRoster(
+            team_id=1,
+            team_name="Team Alpha",
+            week=1,
+            players=players,
+        )
+    )
+
+    actual_ids = {
+        player.player_id for player in result.actual_lineup if player.player_id is not None
+    }
+    optimal_ids = {
+        player.player_id for player in result.optimal_lineup if player.player_id is not None
+    }
+
+    assert 202 in actual_ids
+    assert 202 in optimal_ids
+    assert 203 in actual_ids
+    assert 203 in optimal_ids
+
+    assert len(result.substitutions) == 1
+
+    substitution = result.substitutions[0]
+
+    assert substitution.player_out_name == "Devaughn Vele"
+    assert substitution.player_in_name == "KC Concepcion"
+    assert substitution.point_change == 5.3
+
+
+def test_substitution_players_match_starter_set_difference() -> None:
+    result = calculate_team_week_optimal_lineup(create_complete_roster())
+
+    actual_ids = {
+        player.player_id for player in result.actual_lineup if player.player_id is not None
+    }
+    optimal_ids = {
+        player.player_id for player in result.optimal_lineup if player.player_id is not None
+    }
+
+    substitution_out_ids = {
+        substitution.player_out_id
+        for substitution in result.substitutions
+        if substitution.player_out_id is not None
+    }
+    substitution_in_ids = {
+        substitution.player_in_id
+        for substitution in result.substitutions
+        if substitution.player_in_id is not None
+    }
+
+    assert substitution_out_ids == actual_ids - optimal_ids
+    assert substitution_in_ids == optimal_ids - actual_ids

@@ -351,41 +351,104 @@
   padding: 17px 20px;
 }
 
-.breakdown-swap-list {
+.breakdown-net-gain {
   display: grid;
+  gap: 2px;
+  justify-items: end;
 }
 
-.breakdown-swap-list article {
-  display: grid;
-  grid-template-columns:
-    74px
-    minmax(140px, 1fr)
-    minmax(140px, 1fr)
-    80px;
-  gap: 16px;
-  align-items: center;
-  min-height: 68px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.breakdown-swap-list article:last-child {
-  border-bottom: 0;
-}
-
-.breakdown-swap-list article > div {
-  display: grid;
-  gap: 3px;
-}
-
-.breakdown-swap-list small {
+.breakdown-net-gain span {
   color: var(--color-text-muted);
   font-size: 0.63rem;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
-.breakdown-swap-list strong {
+.breakdown-net-gain strong {
+  color: var(--color-success);
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.breakdown-change-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.breakdown-change-group {
+  min-width: 0;
+  border-right: 1px solid var(--color-border);
+}
+
+.breakdown-change-group-in {
+  border-right: 0;
+}
+
+.breakdown-change-title {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 0 18px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.breakdown-change-group-in .breakdown-change-title {
+  color: var(--color-green-800);
+  background: var(--color-green-50);
+}
+
+.breakdown-change-list,
+.breakdown-movement-list {
+  display: grid;
+}
+
+.breakdown-change-list article {
+  display: grid;
+  grid-template-columns:
+    66px
+    minmax(0, 1fr)
+    70px;
+  gap: 12px;
+  align-items: center;
+  min-height: 62px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.breakdown-change-list article:last-child {
+  border-bottom: 0;
+}
+
+.breakdown-change-list article > div,
+.breakdown-movement-list article > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.breakdown-change-list article > div strong,
+.breakdown-movement-list article > div strong {
+  overflow: hidden;
   font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-change-list small,
+.breakdown-movement-list small {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.65rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .breakdown-swap-slot {
@@ -394,18 +457,78 @@
   font-weight: 800;
 }
 
-.breakdown-point-change {
+.breakdown-change-points,
+.breakdown-move-points {
   justify-self: end;
   font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
-  font-size: 1rem !important;
+  font-size: 0.95rem;
 }
 
-.breakdown-point-positive {
+.breakdown-points-out {
+  color: var(--color-danger);
+}
+
+.breakdown-points-in {
   color: var(--color-success);
 }
 
-.breakdown-point-negative {
-  color: var(--color-danger);
+.breakdown-change-empty {
+  min-height: 62px;
+  margin: 0;
+  padding: 16px 18px;
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.breakdown-movements {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--color-border);
+}
+
+.breakdown-movement-list article {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1fr)
+    minmax(130px, auto)
+    70px;
+  gap: 16px;
+  align-items: center;
+  min-height: 62px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.breakdown-movement-list article:last-child {
+  border-bottom: 0;
+}
+
+.breakdown-slot-move {
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center;
+  color: var(--color-text-muted);
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.breakdown-slot-move strong {
+  color: var(--color-green-800);
+}
+
+.breakdown-move-points {
+  color: var(--color-text);
+}
+
+.breakdown-change-note {
+  margin: 0;
+  padding: 13px 18px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-top: 1px solid var(--color-border);
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .breakdown-no-changes,
@@ -596,6 +719,40 @@
 }
 
 @media (max-width: 620px) {
+  .breakdown-change-groups {
+    grid-template-columns: 1fr;
+  }
+
+  .breakdown-change-group {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .breakdown-change-group-in {
+    border-bottom: 0;
+  }
+
+  .breakdown-movements {
+    grid-column: 1;
+  }
+
+  .breakdown-movement-list article {
+    grid-template-columns:
+      minmax(0, 1fr)
+      auto;
+    gap: 8px 12px;
+  }
+
+  .breakdown-slot-move {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .breakdown-move-points {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+
   .optimal-breakdown-header h1 {
     font-size: clamp(2.5rem, 14vw, 3.7rem);
   }
@@ -680,4 +837,34 @@
     grid-column: 3;
     grid-row: 1 / 3;
   }
+}
+
+/*
+ * Lineup membership comparison.
+ *
+ * Only true starter-set changes receive color treatment.
+ * Retained starters that move between eligible slots remain neutral.
+ */
+.breakdown-player-changed {
+  position: relative;
+}
+
+.breakdown-player-changed-actual {
+  background: #fff1f0;
+  box-shadow: inset 4px 0 0 var(--color-danger);
+}
+
+.breakdown-player-changed-actual .breakdown-player > strong,
+.breakdown-player-changed-actual .breakdown-player-points {
+  color: var(--color-danger);
+}
+
+.breakdown-player-changed-optimal {
+  background: var(--color-green-50);
+  box-shadow: inset 4px 0 0 var(--color-green-600);
+}
+
+.breakdown-player-changed-optimal .breakdown-player > strong,
+.breakdown-player-changed-optimal .breakdown-player-points {
+  color: var(--color-success);
 }

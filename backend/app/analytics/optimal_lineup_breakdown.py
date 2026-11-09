@@ -27,6 +27,25 @@ class OptimalLineupRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class OptimalLineupPlayerChange:
+    player_id: int
+    player_name: str
+    lineup_slot: str
+    points: float
+    default_position: str | None
+    pro_team: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class OptimalLineupPlayerMove:
+    player_id: int
+    player_name: str
+    from_slot: str
+    to_slot: str
+    points: float
+
+
+@dataclass(frozen=True, slots=True)
 class TeamWeekOptimalLineupBreakdown:
     team_id: int
     team_name: str
@@ -47,6 +66,19 @@ class TeamWeekOptimalLineupBreakdown:
     actual_result: ResultType
     optimal_result: ResultType
     result_flipped: bool
+    players_out: tuple[
+        OptimalLineupPlayerChange,
+        ...,
+    ]
+    players_in: tuple[
+        OptimalLineupPlayerChange,
+        ...,
+    ]
+    retained_player_moves: tuple[
+        OptimalLineupPlayerMove,
+        ...,
+    ]
+    net_point_gain: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +264,87 @@ def _build_week_breakdown(
     actual_result: ResultType,
     optimal_result: ResultType,
 ) -> TeamWeekOptimalLineupBreakdown:
+    actual_by_id = {
+        player.player_id: player
+        for player in weekly_result.actual_lineup
+        if player.player_id is not None
+    }
+    optimal_by_id = {
+        player.player_id: player
+        for player in weekly_result.optimal_lineup
+        if player.player_id is not None
+    }
+
+    actual_ids = set(actual_by_id)
+    optimal_ids = set(optimal_by_id)
+
+    players_out = tuple(
+        _player_change(actual_by_id[player_id])
+        for player_id in sorted(
+            actual_ids - optimal_ids,
+            key=lambda current_id: (
+                actual_by_id[current_id].lineup_slot,
+                -actual_by_id[current_id].points,
+                current_id,
+            ),
+        )
+    )
+
+    players_in = tuple(
+        _player_change(optimal_by_id[player_id])
+        for player_id in sorted(
+            optimal_ids - actual_ids,
+            key=lambda current_id: (
+                optimal_by_id[current_id].lineup_slot,
+                -optimal_by_id[current_id].points,
+                current_id,
+            ),
+        )
+    )
+
+    retained_player_moves = tuple(
+        OptimalLineupPlayerMove(
+            player_id=player_id,
+            player_name=(optimal_by_id[player_id].player_name or "Unknown player"),
+            from_slot=(actual_by_id[player_id].lineup_slot),
+            to_slot=(optimal_by_id[player_id].lineup_slot),
+            points=round(
+                optimal_by_id[player_id].points,
+                2,
+            ),
+        )
+        for player_id in sorted(
+            actual_ids & optimal_ids,
+            key=lambda current_id: (
+                actual_by_id[current_id].lineup_slot,
+                optimal_by_id[current_id].lineup_slot,
+                current_id,
+            ),
+        )
+        if (actual_by_id[player_id].lineup_slot != optimal_by_id[player_id].lineup_slot)
+    )
+
+    players_out_points = round(
+        sum(player.points for player in players_out),
+        2,
+    )
+    players_in_points = round(
+        sum(player.points for player in players_in),
+        2,
+    )
+    net_point_gain = round(
+        players_in_points - players_out_points,
+        2,
+    )
+
+    if net_point_gain != weekly_result.missed_points:
+        raise ValueError(
+            "Optimal-lineup membership changes do not "
+            "match the stored missed-point total for "
+            f"team {weekly_result.team_id}, "
+            f"week {weekly_result.week}."
+        )
+
     return TeamWeekOptimalLineupBreakdown(
         team_id=weekly_result.team_id,
         team_name=weekly_result.team_name,
@@ -255,4 +368,27 @@ def _build_week_breakdown(
         actual_result=actual_result,
         optimal_result=optimal_result,
         result_flipped=(actual_result != optimal_result),
+        players_out=players_out,
+        players_in=players_in,
+        retained_player_moves=(retained_player_moves),
+        net_point_gain=net_point_gain,
+    )
+
+
+def _player_change(
+    player: LineupPlayer,
+) -> OptimalLineupPlayerChange:
+    if player.player_id is None or player.player_name is None:
+        raise ValueError("A lineup membership change must reference a player.")
+
+    return OptimalLineupPlayerChange(
+        player_id=player.player_id,
+        player_name=player.player_name,
+        lineup_slot=player.lineup_slot,
+        points=round(
+            player.points,
+            2,
+        ),
+        default_position=player.default_position,
+        pro_team=player.pro_team,
     )
