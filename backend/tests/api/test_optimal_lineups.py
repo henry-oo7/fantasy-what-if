@@ -1,8 +1,11 @@
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from app.analytics.optimal_lineup import (
+    calculate_optimal_lineup_summaries,
+)
 from app.api.dependencies import (
-    get_completed_team_week_rosters,
+    get_persisted_optimal_lineup_summaries,
 )
 from app.domain.lineup import (
     PlayerWeekSnapshot,
@@ -140,18 +143,18 @@ def create_roster() -> TeamWeekRoster:
     )
 
 
-def override_rosters() -> tuple[TeamWeekRoster, ...]:
-    return (create_roster(),)
+def override_summaries():
+    return calculate_optimal_lineup_summaries((create_roster(),))
 
 
 def test_optimal_lineups_endpoint_returns_team_summaries() -> None:
-    app.dependency_overrides[get_completed_team_week_rosters] = override_rosters
+    app.dependency_overrides[get_persisted_optimal_lineup_summaries] = override_summaries
 
     try:
         response = client.get("/api/analytics/optimal-lineups")
     finally:
         app.dependency_overrides.pop(
-            get_completed_team_week_rosters,
+            get_persisted_optimal_lineup_summaries,
             None,
         )
 
@@ -174,13 +177,13 @@ def test_optimal_lineups_endpoint_returns_team_summaries() -> None:
 
 
 def test_team_optimal_lineup_endpoint_returns_requested_team() -> None:
-    app.dependency_overrides[get_completed_team_week_rosters] = override_rosters
+    app.dependency_overrides[get_persisted_optimal_lineup_summaries] = override_summaries
 
     try:
         response = client.get("/api/analytics/optimal-lineups/1")
     finally:
         app.dependency_overrides.pop(
-            get_completed_team_week_rosters,
+            get_persisted_optimal_lineup_summaries,
             None,
         )
 
@@ -207,15 +210,42 @@ def test_team_optimal_lineup_endpoint_returns_requested_team() -> None:
 
 
 def test_team_optimal_lineup_endpoint_returns_not_found() -> None:
-    app.dependency_overrides[get_completed_team_week_rosters] = override_rosters
+    app.dependency_overrides[get_persisted_optimal_lineup_summaries] = override_summaries
 
     try:
         response = client.get("/api/analytics/optimal-lineups/999")
     finally:
         app.dependency_overrides.pop(
-            get_completed_team_week_rosters,
+            get_persisted_optimal_lineup_summaries,
             None,
         )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json() == {"detail": "Team 999 was not found."}
+
+
+def test_optimal_lineup_api_does_not_run_optimizer() -> None:
+    from unittest.mock import patch
+
+    # Build the test fixture before optimizer calls are blocked.
+    persisted_summaries = override_summaries()
+
+    def override_persisted_summaries():
+        return persisted_summaries
+
+    app.dependency_overrides[get_persisted_optimal_lineup_summaries] = override_persisted_summaries
+
+    try:
+        with patch(
+            "app.analytics.optimal_lineup.calculate_team_week_optimal_lineup",
+            side_effect=AssertionError("Optimizer must not run during GET."),
+        ):
+            response = client.get("/api/analytics/optimal-lineups")
+    finally:
+        app.dependency_overrides.pop(
+            get_persisted_optimal_lineup_summaries,
+            None,
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert len(response.json()) == 1
