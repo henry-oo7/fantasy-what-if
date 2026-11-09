@@ -7,6 +7,9 @@ export interface SetupStatus {
   status: InstallationStatus;
   installation_exists: boolean;
   bootstrap_available: boolean;
+  administrator_configured: boolean;
+  provider_configured: boolean;
+  active_league_configured: boolean;
 }
 
 export interface BootstrapAdminRequest {

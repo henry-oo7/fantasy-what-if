@@ -62,12 +62,16 @@ export function SetupPage() {
   const [submitting, setSubmitting] =
     useState(false);
 
-  const setupStatus =
-    setupQuery.data?.status ??
-    "setup_required";
+  const setup = setupQuery.data;
 
   const administratorComplete =
-    setupStatus === "setup_in_progress";
+    setup?.administrator_configured ?? false;
+
+  const providerComplete =
+    setup?.provider_configured ?? false;
+
+  const activationComplete =
+    setup?.active_league_configured ?? false;
 
   const authenticatedAdministrator =
     auth.status === "authenticated" &&
@@ -171,13 +175,19 @@ export function SetupPage() {
 
         <article
           className={
-            administratorComplete
-              ? "setup-step setup-step-current"
-              : "setup-step"
+            providerComplete
+              ? "setup-step setup-step-complete"
+              : administratorComplete
+                ? "setup-step setup-step-current"
+                : "setup-step"
           }
         >
           <span className="setup-step-icon">
-            <Trophy aria-hidden="true" />
+            {providerComplete ? (
+              <CheckCircle2 aria-hidden="true" />
+            ) : (
+              <Trophy aria-hidden="true" />
+            )}
           </span>
 
           <div>
@@ -193,9 +203,21 @@ export function SetupPage() {
           </div>
         </article>
 
-        <article className="setup-step">
+        <article
+          className={
+            activationComplete
+              ? "setup-step setup-step-complete"
+              : providerComplete
+                ? "setup-step setup-step-current"
+                : "setup-step"
+          }
+        >
           <span className="setup-step-icon">
-            <ShieldCheck aria-hidden="true" />
+            {activationComplete ? (
+              <CheckCircle2 aria-hidden="true" />
+            ) : (
+              <ShieldCheck aria-hidden="true" />
+            )}
           </span>
 
           <div>
@@ -338,7 +360,11 @@ export function SetupPage() {
               Provider connection
             </p>
 
-            <h2>Administrator created</h2>
+            <h2>
+              {providerComplete
+                ? "Provider connected"
+                : "Administrator created"}
+            </h2>
 
             <p>
               {authenticatedAdministrator
@@ -352,12 +378,15 @@ export function SetupPage() {
 
             <div>
               <strong>
-                Account setup complete
+                {providerComplete
+                  ? "Provider setup complete"
+                  : "Account setup complete"}
               </strong>
 
               <p>
-                The ESPN provider form will be added in
-                the next setup slice.
+                {providerComplete
+                  ? "The installation is ready for its initial synchronization."
+                  : "Continue by connecting the ESPN fantasy provider."}
               </p>
             </div>
           </div>

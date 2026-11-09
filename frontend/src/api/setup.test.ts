@@ -51,6 +51,9 @@ describe("setup API", () => {
         status: "setup_required",
         installation_exists: false,
         bootstrap_available: true,
+        administrator_configured: false,
+        provider_configured: false,
+        active_league_configured: false,
       }),
     );
 
@@ -66,6 +69,9 @@ describe("setup API", () => {
       status: "setup_required",
       installation_exists: false,
       bootstrap_available: true,
+      administrator_configured: false,
+      provider_configured: false,
+      active_league_configured: false,
     });
 
     const [requestedUrl, options] =
