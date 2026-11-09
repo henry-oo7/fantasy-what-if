@@ -5,19 +5,27 @@ import {
 } from "react-router-dom";
 
 import App from "./App";
-import { AllPlayPage } from "./pages/AllPlayPage";
-import { LeagueAveragePage } from "./pages/LeagueAveragePage";
-import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
+import { InstallationRouteGuard } from "./auth/InstallationRouteGuard";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
+import { AllPlayPage } from "./pages/AllPlayPage";
+import { LeagueAveragePage } from "./pages/LeagueAveragePage";
 import { LoginPage } from "./pages/LoginPage";
+import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
 import {
   ScheduleSwapPage,
 } from "./pages/ScheduleSwapPage";
+import { SetupPage } from "./pages/SetupPage";
 
-export function AppRouter() {
+
+function ApplicationRoutes() {
   return (
     <Routes>
+      <Route
+        path="/setup"
+        element={<SetupPage />}
+      />
+
       <Route
         path="/login"
         element={<LoginPage />}
@@ -76,5 +84,14 @@ export function AppRouter() {
         }
       />
     </Routes>
+  );
+}
+
+
+export function AppRouter() {
+  return (
+    <InstallationRouteGuard>
+      <ApplicationRoutes />
+    </InstallationRouteGuard>
   );
 }
