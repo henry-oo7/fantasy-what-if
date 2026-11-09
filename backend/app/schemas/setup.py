@@ -72,3 +72,21 @@ class SetupProviderConnectionResponse(BaseModel):
     credential_version: int
     is_active: bool
     validated: bool
+
+
+class SetupFinalizationResponse(BaseModel):
+    """Safe summary of a completed installation setup."""
+
+    installation_status: Literal["active"]
+    installation_id: int
+    league_id: int
+    season_id: int
+    provider: Literal["espn", "sleeper", "yahoo"]
+    provider_league_id: str
+    provider_season_id: str
+    current_week: int
+    full_sync: bool
+    teams_upserted: int
+    matchups_upserted: int
+    fantasy_byes_upserted: int
+    player_week_scores_upserted: int

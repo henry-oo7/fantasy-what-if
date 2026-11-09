@@ -19,7 +19,9 @@ from app.api.security import (
     validate_request_origin,
 )
 from app.api.setup_dependencies import (
+    SetupFinalizer,
     SetupProviderConnectionConfigurator,
+    get_setup_finalizer,
     get_setup_provider_configurator,
 )
 from app.auth.security import (
@@ -40,6 +42,7 @@ from app.repositories.auth_repository import (
 from app.schemas.setup import (
     BootstrapAdminRequest,
     BootstrapAdminResponse,
+    SetupFinalizationResponse,
     SetupProviderConnectionRequest,
     SetupProviderConnectionResponse,
     SetupProviderResponse,
@@ -50,6 +53,10 @@ from app.services.setup_bootstrap import (
     SetupBootstrapStateError,
     SetupBootstrapUnavailableError,
     bootstrap_administrator,
+)
+from app.services.setup_finalization import (
+    SetupFinalizationUnavailableError,
+    SetupFinalizationValidationError,
 )
 from app.services.setup_provider_connection import (
     SetupProviderAlreadyConfiguredError,
@@ -251,4 +258,67 @@ def create_setup_provider_connection(
         validated=(
             connection.last_validated_at is not None and connection.last_validation_error is None
         ),
+    )
+
+
+@router.post("/finalize")
+def finalize_setup_installation(
+    _: Annotated[
+        User,
+        Depends(require_admin_user),
+    ],
+    __: Annotated[
+        None,
+        Depends(validate_request_origin),
+    ],
+    ___: Annotated[
+        AuthenticationContext,
+        Depends(require_session_csrf),
+    ],
+    finalizer: Annotated[
+        SetupFinalizer,
+        Depends(get_setup_finalizer),
+    ],
+) -> SetupFinalizationResponse:
+    """Synchronize and activate the configured installation."""
+
+    try:
+        result = finalizer()
+    except SetupFinalizationUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except SetupFinalizationValidationError as exc:
+        raise HTTPException(
+            status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
+            detail=str(exc),
+        ) from exc
+    except ProviderCredentialConfigurationError as exc:
+        raise HTTPException(
+            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+            detail=("Provider credential encryption is not configured."),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=("Unable to complete the initial provider synchronization."),
+        ) from exc
+
+    sync_result = result.sync_result
+
+    return SetupFinalizationResponse(
+        installation_status="active",
+        installation_id=result.installation_id,
+        league_id=result.league_id,
+        season_id=result.season_id,
+        provider=sync_result.provider.value,
+        provider_league_id=(sync_result.provider_league_id),
+        provider_season_id=(sync_result.provider_season_id),
+        current_week=sync_result.current_week,
+        full_sync=sync_result.full_sync,
+        teams_upserted=sync_result.teams_upserted,
+        matchups_upserted=(sync_result.matchups_upserted),
+        fantasy_byes_upserted=(sync_result.fantasy_byes_upserted),
+        player_week_scores_upserted=(sync_result.player_week_scores_upserted),
     )

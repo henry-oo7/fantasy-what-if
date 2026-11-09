@@ -10,6 +10,10 @@ from app.providers.credential_vault import (
     ProviderCredentialConfigurationError,
 )
 from app.providers.domain import ProviderCredentials
+from app.services.setup_finalization import (
+    SetupFinalizationResult,
+    finalize_installation_setup,
+)
 from app.services.setup_provider_connection import (
     configure_provider_connection,
 )
@@ -61,3 +65,33 @@ def get_setup_provider_configurator() -> SetupProviderConnectionConfigurator:
     """Return the production provider configurator."""
 
     return configure_setup_provider_connection
+
+
+class SetupFinalizer(Protocol):
+    """Callable that completes installation setup."""
+
+    def __call__(self) -> SetupFinalizationResult: ...
+
+
+def finalize_setup() -> SetupFinalizationResult:
+    """Finalize setup using configured credential encryption."""
+
+    settings = get_settings()
+    key_setting = settings.provider_credential_key
+
+    if key_setting is None:
+        raise ProviderCredentialConfigurationError(
+            "Provider credential encryption is not configured."
+        )
+
+    with SessionFactory() as session:
+        return finalize_installation_setup(
+            session,
+            credential_key=(key_setting.get_secret_value()),
+        )
+
+
+def get_setup_finalizer() -> SetupFinalizer:
+    """Return the production setup finalizer."""
+
+    return finalize_setup
