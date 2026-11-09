@@ -19,6 +19,7 @@ def load_team_week_rosters(
     *,
     season_id: int,
     through_week: int | None = None,
+    weeks: tuple[int, ...] | None = None,
 ) -> tuple[TeamWeekRoster, ...]:
     """Load stored rosters using canonical internal identities."""
 
@@ -44,6 +45,14 @@ def load_team_week_rosters(
 
     if through_week is not None:
         statement = statement.where(PlayerWeekScore.week <= through_week)
+
+    if weeks is not None:
+        normalized_weeks = tuple(sorted(set(weeks)))
+
+        if any(not isinstance(week, int) or week < 1 for week in normalized_weeks):
+            raise ValueError("weeks must contain positive integers.")
+
+        statement = statement.where(PlayerWeekScore.week.in_(normalized_weeks))
 
     rows = session.execute(statement).all()
 

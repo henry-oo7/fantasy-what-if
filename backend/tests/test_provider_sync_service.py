@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import model_registry  # noqa: F401
 from app.db.models import (
     Matchup,
+    OptimalLineupResult,
     PlayerWeekScore,
     SyncRun,
     SyncStatus,
@@ -227,7 +228,7 @@ class WrongProvider(FakeProvider):
 
 def count_rows(
     session: Session,
-    model: type[Team | Matchup | PlayerWeekScore | SyncRun],
+    model: type[Team | Matchup | PlayerWeekScore | OptimalLineupResult | SyncRun],
 ) -> int:
     return int(session.scalar(select(func.count()).select_from(model)) or 0)
 
@@ -257,7 +258,7 @@ def test_incremental_provider_sync_orchestrates_canonical_writes(
     assert result.matchups_upserted == 6
     assert result.fantasy_byes_upserted == 0
     assert result.player_week_scores_upserted == 12
-    assert result.analytics_rebuilt is False
+    assert result.analytics_rebuilt is True
 
     assert provider.fetch_league_calls == 1
     assert provider.matchup_requests == [
@@ -311,7 +312,18 @@ def test_incremental_provider_sync_orchestrates_canonical_writes(
     assert latest_run.teams_upserted == 12
     assert latest_run.matchups_upserted == 6
     assert latest_run.player_week_scores_upserted == 12
-    assert latest_run.analytics_rebuilt is False
+    assert latest_run.analytics_rebuilt is True
+
+    week_eight_optimal_results = database_session.scalar(
+        select(func.count())
+        .select_from(OptimalLineupResult)
+        .where(
+            OptimalLineupResult.season_id == 1,
+            OptimalLineupResult.week == 8,
+        )
+    )
+
+    assert week_eight_optimal_results == 12
 
 
 def test_provider_must_match_season_connection(

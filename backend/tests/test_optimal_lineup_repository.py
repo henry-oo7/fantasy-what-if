@@ -280,3 +280,42 @@ def test_empty_storage_returns_no_summaries() -> None:
         )
         == ()
     )
+
+
+def test_roster_loader_supports_exact_weeks() -> None:
+    from app.repositories.player_week_repository import (
+        load_team_week_rosters,
+    )
+
+    session = MagicMock()
+    session.execute.return_value.all.return_value = []
+
+    result = load_team_week_rosters(
+        session,
+        season_id=4,
+        weeks=(8, 8),
+    )
+
+    assert result == ()
+
+    statement = str(session.execute.call_args.args[0])
+
+    assert "player_week_scores.week IN" in statement
+
+
+def test_roster_loader_rejects_invalid_week() -> None:
+    from app.repositories.player_week_repository import (
+        load_team_week_rosters,
+    )
+
+    session = MagicMock()
+
+    with pytest.raises(
+        ValueError,
+        match="positive integers",
+    ):
+        load_team_week_rosters(
+            session,
+            season_id=4,
+            weeks=(0,),
+        )

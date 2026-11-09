@@ -6,8 +6,17 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.analytics.optimal_lineup import (
+    calculate_team_week_optimal_lineup,
+)
 from app.db.platform_enums import FantasyProvider
 from app.providers.base import ProviderAdapter
+from app.repositories.optimal_lineup_repository import (
+    replace_optimal_lineup_results,
+)
+from app.repositories.player_week_repository import (
+    load_team_week_rosters,
+)
 from app.repositories.provider_sync_repository import (
     ProviderSyncRepository,
 )
@@ -168,12 +177,32 @@ def synchronize_provider(
             requested_weeks=player_weeks,
         )
 
+        analytics_rebuilt = bool(player_weeks)
+
+        if analytics_rebuilt:
+            affected_rosters = load_team_week_rosters(
+                session,
+                season_id=(context.season_id),
+                weeks=player_weeks,
+            )
+
+            calculated_results = tuple(
+                calculate_team_week_optimal_lineup(roster) for roster in affected_rosters
+            )
+
+            replace_optimal_lineup_results(
+                session,
+                season_id=context.season_id,
+                weeks=player_weeks,
+                results=calculated_results,
+            )
+
         repository.complete_sync_run(
             sync_run,
             teams_upserted=len(stored_teams),
             matchups_upserted=(len(stored_matchups)),
             player_week_scores_upserted=(len(stored_player_scores)),
-            analytics_rebuilt=False,
+            analytics_rebuilt=(analytics_rebuilt),
         )
 
         if commit_transaction:
@@ -198,5 +227,5 @@ def synchronize_provider(
         matchups_upserted=len(stored_matchups),
         fantasy_byes_upserted=sum(matchup.is_bye for matchup in provider_matchups),
         player_week_scores_upserted=(len(stored_player_scores)),
-        analytics_rebuilt=False,
+        analytics_rebuilt=analytics_rebuilt,
     )
