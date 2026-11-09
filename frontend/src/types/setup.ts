@@ -86,14 +86,3 @@ export interface CreateSpectatorRequest {
   email: null;
   password: string;
 }
-
-export interface SpectatorAccountResponse {
-  configured: boolean;
-  id: number | null;
-  username: string | null;
-  display_name: string | null;
-  email: string | null;
-  is_active: boolean | null;
-  revoked_sessions?: number;
-}
-
