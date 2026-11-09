@@ -86,3 +86,51 @@ def test_active_installation_rejects_bootstrap() -> None:
     assert response.json() == {
         "detail": ("Administrator bootstrap is no longer available."),
     }
+
+
+def test_setup_provider_discovery_is_public() -> None:
+    response = client.get("/api/setup/providers")
+
+    assert response.status_code == status.HTTP_200_OK
+
+    assert response.json() == {
+        "providers": [
+            {
+                "provider": "espn",
+                "display_name": ("ESPN Fantasy Football"),
+                "implemented": True,
+                "requires_credentials": True,
+                "credential_fields": [
+                    "league_id",
+                    "season",
+                    "espn_s2",
+                    "swid",
+                ],
+            },
+            {
+                "provider": "sleeper",
+                "display_name": "Sleeper",
+                "implemented": False,
+                "requires_credentials": False,
+                "credential_fields": [],
+            },
+            {
+                "provider": "yahoo",
+                "display_name": ("Yahoo Fantasy Sports"),
+                "implemented": False,
+                "requires_credentials": True,
+                "credential_fields": [],
+            },
+        ],
+    }
+
+
+def test_provider_discovery_exposes_no_secrets() -> None:
+    response = client.get("/api/setup/providers")
+
+    serialized = response.text.casefold()
+
+    assert "encrypted_credentials" not in serialized
+    assert "provider_credential_key" not in serialized
+    assert "private-cookie" not in serialized
+    assert "environment-swid" not in serialized

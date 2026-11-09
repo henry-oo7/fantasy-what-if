@@ -25,12 +25,17 @@ from app.repositories.auth_repository import (
 from app.schemas.setup import (
     BootstrapAdminRequest,
     BootstrapAdminResponse,
+    SetupProviderResponse,
+    SetupProvidersResponse,
     SetupStatusResponse,
 )
 from app.services.setup_bootstrap import (
     SetupBootstrapStateError,
     SetupBootstrapUnavailableError,
     bootstrap_administrator,
+)
+from app.services.setup_providers import (
+    list_setup_providers,
 )
 from app.services.setup_status import (
     SetupStateError,
@@ -41,6 +46,24 @@ router = APIRouter(
     prefix="/api/setup",
     tags=["setup"],
 )
+
+
+@router.get("/providers")
+def read_setup_providers() -> SetupProvidersResponse:
+    """Return safe metadata for known fantasy providers."""
+
+    return SetupProvidersResponse(
+        providers=tuple(
+            SetupProviderResponse(
+                provider=provider.provider.value,
+                display_name=provider.display_name,
+                implemented=provider.implemented,
+                requires_credentials=(provider.requires_credentials),
+                credential_fields=(provider.credential_fields),
+            )
+            for provider in list_setup_providers()
+        )
+    )
 
 
 @router.get("/status")

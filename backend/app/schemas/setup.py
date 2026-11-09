@@ -34,3 +34,19 @@ class BootstrapAdminResponse(BaseModel):
     username: str
     display_name: str
     email: str | None
+
+
+class SetupProviderResponse(BaseModel):
+    """One provider visible during installation setup."""
+
+    provider: Literal["espn", "sleeper", "yahoo"]
+    display_name: str
+    implemented: bool
+    requires_credentials: bool
+    credential_fields: tuple[str, ...]
+
+
+class SetupProvidersResponse(BaseModel):
+    """Providers supported by the platform setup contract."""
+
+    providers: tuple[SetupProviderResponse, ...]
