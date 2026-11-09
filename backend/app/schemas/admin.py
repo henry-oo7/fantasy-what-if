@@ -42,3 +42,48 @@ class SyncResultResponse(BaseModel):
     matchups_upserted: int
     fantasy_byes_upserted: int
     player_week_scores_upserted: int
+
+
+class SpectatorAccountResponse(BaseModel):
+    """Safe shared spectator account metadata."""
+
+    configured: bool
+    id: int | None = None
+    username: str | None = None
+    display_name: str | None = None
+    email: str | None = None
+    is_active: bool | None = None
+
+
+class CreateSpectatorRequest(BaseModel):
+    """Create the installation's shared spectator."""
+
+    username: str
+    display_name: str
+    email: str | None = None
+    password: str
+
+
+class UpdateSpectatorProfileRequest(BaseModel):
+    """Update spectator profile metadata."""
+
+    display_name: str
+    email: str | None = None
+
+
+class ResetSpectatorPasswordRequest(BaseModel):
+    """Replace the shared spectator password."""
+
+    password: str
+
+
+class SetSpectatorAccessRequest(BaseModel):
+    """Enable or disable shared spectator access."""
+
+    is_active: bool
+
+
+class SpectatorAccountMutationResponse(SpectatorAccountResponse):
+    """Spectator metadata plus revoked-session count."""
+
+    revoked_sessions: int = 0
