@@ -50,3 +50,25 @@ class SetupProvidersResponse(BaseModel):
     """Providers supported by the platform setup contract."""
 
     providers: tuple[SetupProviderResponse, ...]
+
+
+class SetupProviderConnectionRequest(BaseModel):
+    """Provider configuration submitted during setup."""
+
+    provider: Literal["espn", "sleeper", "yahoo"]
+    display_name: str
+    league_id: str
+    season: str
+    espn_s2: str | None = None
+    swid: str | None = None
+
+
+class SetupProviderConnectionResponse(BaseModel):
+    """Safe metadata for a stored provider connection."""
+
+    connection_id: int
+    provider: Literal["espn", "sleeper", "yahoo"]
+    display_name: str
+    credential_version: int
+    is_active: bool
+    validated: bool

@@ -9,15 +9,30 @@ from fastapi import (
     status,
 )
 
+from app.api.auth_dependencies import (
+    AuthenticationContext,
+    require_admin_user,
+    require_session_csrf,
+)
 from app.api.security import (
     require_pre_auth_csrf,
     validate_request_origin,
+)
+from app.api.setup_dependencies import (
+    SetupProviderConnectionConfigurator,
+    get_setup_provider_configurator,
 )
 from app.auth.security import (
     InvalidPasswordError,
     InvalidUsernameError,
 )
+from app.db.auth_models import User
+from app.db.platform_enums import FantasyProvider
 from app.db.session import SessionFactory
+from app.providers.credential_vault import (
+    ProviderCredentialConfigurationError,
+)
+from app.providers.domain import ProviderCredentials
 from app.repositories.auth_repository import (
     DuplicateEmailError,
     DuplicateUsernameError,
@@ -25,6 +40,8 @@ from app.repositories.auth_repository import (
 from app.schemas.setup import (
     BootstrapAdminRequest,
     BootstrapAdminResponse,
+    SetupProviderConnectionRequest,
+    SetupProviderConnectionResponse,
     SetupProviderResponse,
     SetupProvidersResponse,
     SetupStatusResponse,
@@ -33,6 +50,11 @@ from app.services.setup_bootstrap import (
     SetupBootstrapStateError,
     SetupBootstrapUnavailableError,
     bootstrap_administrator,
+)
+from app.services.setup_provider_connection import (
+    SetupProviderAlreadyConfiguredError,
+    SetupProviderConnectionUnavailableError,
+    SetupProviderValidationError,
 )
 from app.services.setup_providers import (
     list_setup_providers,
@@ -149,3 +171,84 @@ def bootstrap_admin(
             status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
             detail=str(exc),
         ) from exc
+
+
+@router.post("/provider-connection")
+def create_setup_provider_connection(
+    payload: SetupProviderConnectionRequest,
+    _: Annotated[
+        User,
+        Depends(require_admin_user),
+    ],
+    __: Annotated[
+        None,
+        Depends(validate_request_origin),
+    ],
+    ___: Annotated[
+        AuthenticationContext,
+        Depends(require_session_csrf),
+    ],
+    configurator: Annotated[
+        SetupProviderConnectionConfigurator,
+        Depends(get_setup_provider_configurator),
+    ],
+) -> SetupProviderConnectionResponse:
+    """Validate and store one encrypted provider connection."""
+
+    provider = FantasyProvider(payload.provider)
+
+    credentials = ProviderCredentials(
+        values={
+            key: value
+            for key, value in {
+                "league_id": payload.league_id,
+                "season": payload.season,
+                "espn_s2": payload.espn_s2,
+                "swid": payload.swid,
+            }.items()
+            if value is not None and value.strip()
+        }
+    )
+
+    try:
+        connection = configurator(
+            provider=provider,
+            display_name=payload.display_name,
+            credentials=credentials,
+        )
+    except SetupProviderAlreadyConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except SetupProviderConnectionUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except SetupProviderValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except ProviderCredentialConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=("Provider credential encryption is not configured."),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return SetupProviderConnectionResponse(
+        connection_id=connection.id,
+        provider=connection.provider.value,
+        display_name=connection.display_name,
+        credential_version=connection.credential_version,
+        is_active=connection.is_active,
+        validated=(
+            connection.last_validated_at is not None and connection.last_validation_error is None
+        ),
+    )
