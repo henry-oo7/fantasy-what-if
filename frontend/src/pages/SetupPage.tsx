@@ -252,8 +252,10 @@ export function SetupPage() {
               void handleBootstrap(event);
             }}
           >
-            <label>
-              Username
+            <label className="setup-field">
+              <span className="setup-field-label">
+                Username
+              </span>
               <input
                 value={username}
                 onChange={(event) => {
@@ -270,8 +272,11 @@ export function SetupPage() {
               </small>
             </label>
 
-            <label>
-              Display name
+            <label className="setup-field">
+              <span className="setup-field-label">
+                Display name
+              </span>
+
               <input
                 value={displayName}
                 onChange={(event) => {
@@ -281,10 +286,16 @@ export function SetupPage() {
                 autoComplete="name"
                 required
               />
+
+              <small>
+                The name shown throughout the application.
+              </small>
             </label>
 
-            <label>
-              Email
+            <label className="setup-field">
+              <span className="setup-field-label">
+                Email
+              </span>
               <input
                 type="email"
                 value={email}
@@ -297,8 +308,10 @@ export function SetupPage() {
               <small>Optional</small>
             </label>
 
-            <label>
-              Password
+            <label className="setup-field">
+              <span className="setup-field-label">
+                Password
+              </span>
               <input
                 type="password"
                 value={password}
@@ -315,8 +328,10 @@ export function SetupPage() {
               </small>
             </label>
 
-            <label>
-              Confirm password
+            <label className="setup-field">
+              <span className="setup-field-label">
+                Confirm password
+              </span>
               <input
                 type="password"
                 value={confirmPassword}
@@ -330,6 +345,10 @@ export function SetupPage() {
                 autoComplete="new-password"
                 required
               />
+
+              <small>
+                Enter the same password again.
+              </small>
             </label>
 
             {error ? (
