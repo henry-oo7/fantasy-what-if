@@ -635,6 +635,120 @@ class SyncRun(Base):
     )
 
 
+class OptimalLineupResult(Base):
+    """Persisted optimal-lineup calculation for one team-week."""
+
+    __tablename__ = "optimal_lineup_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "season_id",
+            "team_id",
+            "week",
+            name=("uq_optimal_lineup_results_season_team_week"),
+        ),
+        sa.CheckConstraint(
+            "week >= 1",
+            name=("ck_optimal_lineup_results_week_positive"),
+        ),
+        sa.CheckConstraint(
+            "calculation_version >= 1",
+            name=("ck_optimal_lineup_results_calculation_version_positive"),
+        ),
+        sa.Index(
+            "ix_optimal_lineup_results_season_week",
+            "season_id",
+            "week",
+        ),
+        sa.Index(
+            "ix_optimal_lineup_results_season_team",
+            "season_id",
+            "team_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    season_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "seasons.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "teams.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    week: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    team_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    actual_points: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+    )
+    optimal_points: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+    )
+    missed_points: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+    )
+    efficiency_percentage: Mapped[Decimal] = mapped_column(
+        Numeric(7, 2),
+        nullable=False,
+    )
+    actual_starter_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    optimal_filled_slot_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    unfilled_slots: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+    )
+    actual_lineup: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+    )
+    optimal_lineup: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+    )
+    substitutions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+    )
+    calculation_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class LineupSlotDefinition(TimestampMixin, Base):
     __tablename__ = "lineup_slot_definitions"
     __table_args__ = (
