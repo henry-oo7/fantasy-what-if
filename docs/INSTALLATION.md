@@ -74,7 +74,7 @@ The generated provider encryption key is required to decrypt stored provider cre
 Edit `.env` and select the desired release:
 
 ```text
-APP_VERSION=v1
+APP_VERSION=1
 ```
 
 Available tag styles include:
