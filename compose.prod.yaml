@@ -2,6 +2,8 @@ services:
   database:
     restart: unless-stopped
     ports: []
+    networks:
+      fantasy_internal:
 
   migrate:
     image: fantasy-what-if-backend:prod
@@ -9,7 +11,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     env_file:
-      - .env.prod
+      - ${PRODUCTION_ENV_FILE:-.env.prod}
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
     command:
@@ -20,7 +22,7 @@ services:
       database:
         condition: service_healthy
     networks:
-      - fantasy_internal
+      fantasy_internal:
     restart: "no"
     security_opt:
       - no-new-privileges:true
@@ -31,9 +33,10 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     env_file:
-      - .env.prod
+      - ${PRODUCTION_ENV_FILE:-.env.prod}
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      FORWARDED_ALLOW_IPS: ${FRONTEND_PROXY_IP:-172.31.100.10}
       SYNC_SCHEDULER_ENABLED: "false"
     expose:
       - "8000"
@@ -43,11 +46,33 @@ services:
       migrate:
         condition: service_completed_successfully
     networks:
-      - fantasy_internal
+      fantasy_internal:
     restart: unless-stopped
     read_only: true
     tmpfs:
       - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    image: fantasy-what-if-frontend:prod
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    networks:
+      fantasy_internal:
+        ipv4_address: ${FRONTEND_PROXY_IP:-172.31.100.10}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
     security_opt:
       - no-new-privileges:true
 
@@ -57,7 +82,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     env_file:
-      - .env.prod
+      - ${PRODUCTION_ENV_FILE:-.env.prod}
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       SYNC_SCHEDULER_ENABLED: "true"
@@ -71,7 +96,7 @@ services:
       migrate:
         condition: service_completed_successfully
     networks:
-      - fantasy_internal
+      fantasy_internal:
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -80,3 +105,9 @@ services:
       - no-new-privileges:true
     healthcheck:
       disable: true
+
+networks:
+  fantasy_internal:
+    ipam:
+      config:
+        - subnet: ${PRODUCTION_SUBNET:-172.31.100.0/24}
