@@ -274,6 +274,66 @@ def _seed_canonical_integration_baseline() -> bool:
             team_rows,
         )
 
+        matchup_rows = []
+        matchup_id = 1
+
+        for week in range(1, 13):
+            for home_team_id in range(
+                1,
+                13,
+                2,
+            ):
+                away_team_id = home_team_id + 1
+
+                matchup_rows.append(
+                    {
+                        "id": matchup_id,
+                        "season_id": 1,
+                        "week": week,
+                        "home_team_id": (home_team_id),
+                        "away_team_id": (away_team_id),
+                        "home_score": Decimal(f"{100 + week}.00"),
+                        "away_score": Decimal(f"{90 + week}.00"),
+                        "now": now,
+                    }
+                )
+
+                matchup_id += 1
+
+        connection.execute(
+            text(
+                """
+                INSERT INTO matchups (
+                    id,
+                    season_id,
+                    week,
+                    home_team_id,
+                    away_team_id,
+                    home_score,
+                    away_score,
+                    is_complete,
+                    is_bye,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :id,
+                    :season_id,
+                    :week,
+                    :home_team_id,
+                    :away_team_id,
+                    :home_score,
+                    :away_score,
+                    true,
+                    false,
+                    :now,
+                    :now
+                )
+                """
+            ),
+            matchup_rows,
+        )
+
         roster_rows = []
 
         for team_id in range(1, 13):
@@ -463,6 +523,7 @@ def _seed_canonical_integration_baseline() -> bool:
             "leagues_id_seq",
             "seasons_id_seq",
             "teams_id_seq",
+            "matchups_id_seq",
             "player_week_scores_id_seq",
             "sync_runs_id_seq",
             "users_id_seq",
