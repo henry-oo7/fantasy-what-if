@@ -1,0 +1,214 @@
+name: Container images
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "compose.release.yaml"
+      - ".github/workflows/container-images.yaml"
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:18-bookworm
+        env:
+          POSTGRES_DB: fantasy_what_if_test
+          POSTGRES_USER: fantasy_app
+          POSTGRES_PASSWORD: test-database-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd
+          "pg_isready -U fantasy_app -d fantasy_what_if_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      APP_ENV: development
+      APP_DEBUG: "false"
+      APP_SECRET_KEY: github-actions-test-secret
+      FRONTEND_ORIGIN: http://localhost:5173
+      TRUSTED_ORIGINS: http://localhost:5173
+      FORWARDED_ALLOW_IPS: 127.0.0.1
+      SESSION_COOKIE_NAME: fantasy_session
+      SESSION_COOKIE_SECURE: "false"
+      SESSION_COOKIE_SAMESITE: lax
+      DATABASE_URL: postgresql+psycopg://fantasy_app:test-database-password@127.0.0.1:5432/fantasy_what_if_test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install Python
+        run: uv python install 3.14
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --dev
+
+      - name: Apply database migrations
+        run: uv run alembic upgrade head
+
+      - name: Check formatting
+        run: uv run ruff format --check app tests
+
+      - name: Run lint
+        run: uv run ruff check app tests
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  frontend-tests:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build production frontend
+        run: npm run build
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=low
+
+  build-images:
+    name: Build ${{ matrix.name }} image
+    needs:
+      - backend-tests
+      - frontend-tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            context: backend
+            image: fantasy-what-if-backend
+            title: Fantasy What-If Backend
+            description: FastAPI backend and synchronization engine for Fantasy What-If
+          - name: frontend
+            context: frontend
+            image: fantasy-what-if-frontend
+            title: Fantasy What-If Frontend
+            description: Production frontend and reverse proxy for Fantasy What-If
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}},value=${{ github.ref_name }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-,enable=${{ !startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.vendor=Henry Huynh
+          annotations: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+
+      - name: Build and optionally publish image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          annotations: ${{ steps.metadata.outputs.annotations }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Show published digest
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          printf '%s image digest: %s\n'             '${{ matrix.name }}'             '${{ steps.build.outputs.digest }}'
