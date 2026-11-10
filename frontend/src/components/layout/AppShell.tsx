@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   GitCompareArrows,
@@ -8,18 +7,45 @@ import {
   Menu,
   ShieldCheck,
   Target,
-  UserPlus,
   X,
 } from "lucide-react";
-import {
-  NavLink,
-  Outlet,
-  useNavigate,
-} from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { currentLeagueQueryOptions } from "../../api/league";
 import { useAuth } from "../../auth/AuthProvider";
+import { SeasonMenu } from "./SeasonMenu";
 import "./AppShell.css";
+
+function FootballIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M4.6 18.8C1.8 16 3.3 10.1 7.9 5.5C12.5.9 18.4-.6 21.2 2.2C24 5 22.5 10.9 17.9 15.5C13.3 20.1 7.4 21.6 4.6 18.8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="square"
+        strokeLinejoin="miter"
+      />
+      <path
+        d="M7 17L19.4 4.6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="square"
+      />
+      <path
+        d="M9.2 9.6L14.4 14.8M11 7.8L16.2 13M12.8 6L18 11.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="square"
+      />
+    </svg>
+  );
+}
 
 interface NavigationItem {
   label: string;
@@ -59,16 +85,11 @@ const navigationItems: NavigationItem[] = [
 
 export function AppShell() {
   const auth = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
-  const leagueQuery = useQuery(
-    currentLeagueQueryOptions(),
-  );
-  const [drawerOpen, setDrawerOpen] =
-    useState(false);
-  const [loggingOut, setLoggingOut] =
-    useState(false);
-  const [logoutError, setLogoutError] =
-    useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -81,16 +102,10 @@ export function AppShell() {
       }
     }
 
-    document.addEventListener(
-      "keydown",
-      handleEscape,
-    );
+    document.addEventListener("keydown", handleEscape);
 
     return () => {
-      document.removeEventListener(
-        "keydown",
-        handleEscape,
-      );
+      document.removeEventListener("keydown", handleEscape);
     };
   }, [drawerOpen]);
 
@@ -109,19 +124,14 @@ export function AppShell() {
         replace: true,
       });
     } catch {
-      setLogoutError(
-        "Unable to sign out. Please try again.",
-      );
+      setLogoutError("Unable to sign out. Please try again.");
     } finally {
       setLoggingOut(false);
     }
   }
 
   const userInitial =
-    auth.user.display_name
-      .trim()
-      .charAt(0)
-      .toUpperCase() || "U";
+    auth.user.display_name.trim().charAt(0).toUpperCase() || "U";
 
   return (
     <div className="application-shell">
@@ -141,16 +151,13 @@ export function AppShell() {
 
         <div className="mobile-brand">
           <span className="brand-mark">
-            <BarChart3 aria-hidden="true" />
+            <FootballIcon aria-hidden="true" />
           </span>
 
           <span>Fantasy What-If</span>
         </div>
 
-        <div
-          className="mobile-user-avatar"
-          aria-label={auth.user.display_name}
-        >
+        <div className="mobile-user-avatar" aria-label={auth.user.display_name}>
           {userInitial}
         </div>
       </header>
@@ -180,7 +187,7 @@ export function AppShell() {
         <div className="sidebar-heading">
           <div className="sidebar-brand">
             <span className="brand-mark">
-              <BarChart3 aria-hidden="true" />
+              <FootballIcon aria-hidden="true" />
             </span>
 
             <div>
@@ -201,27 +208,14 @@ export function AppShell() {
           </button>
         </div>
 
-        <div className="sidebar-league">
-          <strong>
-            {leagueQuery.data?.name ??
-              "Jimmy and Friends"}
-          </strong>
+        <SeasonMenu
+          onNavigate={() => {
+            setDrawerOpen(false);
+          }}
+        />
 
-          <small>
-            {leagueQuery.data?.season ??
-              auth.user.season ??
-              "Current"}{" "}
-            season
-          </small>
-        </div>
-
-        <nav
-          className="sidebar-navigation"
-          aria-label="Primary navigation"
-        >
-          <span className="navigation-section-label">
-            League
-          </span>
+        <nav className="sidebar-navigation" aria-label="Primary navigation">
+          <span className="navigation-section-label">League</span>
 
           {navigationItems.map((item) => {
             const Icon = item.icon;
@@ -229,15 +223,16 @@ export function AppShell() {
             return (
               <NavLink
                 key={item.path}
-                to={item.path}
+                to={{
+                  pathname: item.path,
+                  search: location.search,
+                }}
                 end={item.end}
                 onClick={() => {
                   setDrawerOpen(false);
                 }}
                 className={({ isActive }) =>
-                  isActive
-                    ? "sidebar-link sidebar-link-active"
-                    : "sidebar-link"
+                  isActive ? "sidebar-link sidebar-link-active" : "sidebar-link"
                 }
               >
                 <Icon aria-hidden="true" />
@@ -245,75 +240,52 @@ export function AppShell() {
               </NavLink>
             );
           })}
-
-          <div className="sidebar-coming-soon">
-            <span className="navigation-section-label">
-              Coming next
-            </span>
-
-            <div className="disabled-navigation-item">
-              <BarChart3 aria-hidden="true" />
-              <span>League Analytics</span>
-            </div>
-          </div>
         </nav>
 
-        {auth.user.role === "admin" ? (
-          <nav
-            className="sidebar-admin-navigation"
-            aria-label="Administration"
-          >
-            <span className="navigation-section-label">
-              Administration
-            </span>
-
-            <NavLink
-                to="/admin/invitations"
-                onClick={() => {
-                  setDrawerOpen(false);
-                }}
-                className={({ isActive }) =>
-                  isActive
-                    ? "sidebar-link sidebar-link-active"
-                    : "sidebar-link"
-                }
-              >
-                <UserPlus aria-hidden="true" />
-                <span>Invitations</span>
-              </NavLink>
-
-          </nav>
-        ) : null}
-
         <div className="sidebar-account">
-          <div className="sidebar-user">
-            <div
-              className="sidebar-user-avatar"
-              aria-hidden="true"
+          {auth.user.role === "admin" ? (
+            <NavLink
+              to={{
+                pathname: "/admin",
+                search: location.search,
+              }}
+              className={({ isActive }) =>
+                isActive
+                  ? "sidebar-user sidebar-user-link sidebar-user-link-active"
+                  : "sidebar-user sidebar-user-link"
+              }
+              aria-label="Open administration"
+              onClick={() => {
+                setDrawerOpen(false);
+              }}
             >
-              {userInitial}
-            </div>
+              <div className="sidebar-user-avatar" aria-hidden="true">
+                {userInitial}
+              </div>
 
-            <div className="sidebar-user-details">
-              <strong>
-                {auth.user.display_name}
-              </strong>
+              <div className="sidebar-user-details">
+                <strong>{auth.user.display_name}</strong>
 
-              <span>
-                {auth.user.team_name ??
-                  `@${auth.user.username}`}
-              </span>
-            </div>
+                <span>Administrator</span>
+              </div>
 
-            {auth.user.role === "admin" ? (
-              <span
-                className="sidebar-admin-icon"
-                title="Administrator"
-              >
+              <span className="sidebar-admin-icon" title="Open administration">
                 <ShieldCheck aria-hidden="true" />
               </span>
-            ) : null}
-          </div>
+            </NavLink>
+          ) : (
+            <div className="sidebar-user">
+              <div className="sidebar-user-avatar" aria-hidden="true">
+                {userInitial}
+              </div>
+
+              <div className="sidebar-user-details">
+                <strong>{auth.user.display_name}</strong>
+
+                <span>Spectator</span>
+              </div>
+            </div>
+          )}
 
           <button
             className="sidebar-logout"
@@ -325,16 +297,11 @@ export function AppShell() {
           >
             <LogOut aria-hidden="true" />
 
-            {loggingOut
-              ? "Signing out..."
-              : "Sign out"}
+            {loggingOut ? "Signing out..." : "Sign out"}
           </button>
 
           {logoutError ? (
-            <p
-              className="sidebar-error"
-              role="alert"
-            >
+            <p className="sidebar-error" role="alert">
               {logoutError}
             </p>
           ) : null}

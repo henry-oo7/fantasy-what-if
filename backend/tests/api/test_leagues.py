@@ -151,3 +151,21 @@ def test_current_league_endpoint_returns_upstream_error() -> None:
 
     assert response.status_code == status.HTTP_502_BAD_GATEWAY
     assert response.json() == {"detail": "Unable to retrieve the current ESPN league."}
+
+
+def test_authenticated_user_can_list_imported_seasons() -> None:
+    response = client.get("/api/leagues/seasons")
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert payload["seasons"]
+
+    active = [season for season in payload["seasons"] if season["is_active"]]
+
+    assert len(active) == 1
+    assert active[0]["season_id"] > 0
+    assert active[0]["league_id"] > 0
+    assert active[0]["league_name"]
+    assert active[0]["year"] > 2000

@@ -110,11 +110,6 @@ textarea,
   border-radius: 0;
 }
 
-.standing-row-current {
-  box-shadow:
-    inset 4px 0 0 var(--color-green-600);
-}
-
 /* Sidebar navigation uses rectangular selection states */
 .sidebar-link {
   border-radius: 3px;
@@ -125,8 +120,7 @@ textarea,
 }
 
 .sidebar-link-active {
-  box-shadow:
-    inset 3px 0 0 var(--color-green-400);
+  box-shadow: inset 3px 0 0 var(--color-green-400);
 }
 
 /* Flat drawer with only the scrim showing depth */
@@ -165,8 +159,7 @@ textarea,
 
 .form-field input:focus,
 .form-field select:focus {
-  box-shadow:
-    inset 3px 0 0 var(--color-green-600);
+  box-shadow: inset 3px 0 0 var(--color-green-600);
 }
 
 /* Remove lifting and scaling interactions */

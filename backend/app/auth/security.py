@@ -96,10 +96,6 @@ def generate_csrf_token() -> str:
     return token_urlsafe(CSRF_TOKEN_BYTES)
 
 
-def generate_invitation_token() -> str:
-    return token_urlsafe(INVITATION_TOKEN_BYTES)
-
-
 def hash_token(token: str) -> str:
     normalized = token.strip()
 
@@ -107,6 +103,36 @@ def hash_token(token: str) -> str:
         raise ValueError("Token cannot be empty.")
 
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def hmac_identifier(
+    value: str,
+    *,
+    secret: str,
+    namespace: str,
+) -> str:
+    """Create a stable, non-reversible identifier."""
+
+    normalized_value = value.strip().casefold()
+    normalized_namespace = namespace.strip()
+    normalized_secret = secret.strip()
+
+    if not normalized_value:
+        normalized_value = "unknown"
+
+    if not normalized_namespace:
+        raise ValueError("HMAC namespace cannot be empty.")
+
+    if not normalized_secret:
+        raise ValueError("HMAC secret cannot be empty.")
+
+    message = (f"{normalized_namespace}:{normalized_value}").encode()
+
+    return hmac.new(
+        normalized_secret.encode("utf-8"),
+        message,
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def tokens_match(

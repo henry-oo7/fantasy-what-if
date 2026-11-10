@@ -1,32 +1,145 @@
-# React + TypeScript + Vite
+# Fantasy What-If Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The Fantasy What-If frontend is a React and TypeScript single-page application built with Vite.
 
-Currently, two official plugins are available:
+## Production Architecture
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Production uses a multi-stage container build:
 
-## React Compiler
+1. Node.js installs locked dependencies.
+2. Vite builds the static application.
+3. Unprivileged Nginx serves the static assets.
+4. Nginx proxies `/api/` and `/health` to the backend.
+5. Browser routes fall back to `index.html`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The production image runs as the unprivileged `nginx` user on port `8080`.
 
-## Expanding the Oxlint configuration
+## Development
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+Install dependencies:
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Start Vite:
+
+```bash
+npm run dev
+```
+
+The development configuration supports the code-server proxy path:
+
+```text
+/proxy/5173/
+```
+
+Production builds use the root path:
+
+```text
+/
+```
+
+## Checks
+
+Run lint:
+
+```bash
+npm run lint
+```
+
+Run tests:
+
+```bash
+npm test
+```
+
+Build production assets:
+
+```bash
+npm run build
+```
+
+Audit dependencies:
+
+```bash
+npm audit --audit-level=low
+```
+
+## Production Image
+
+Build locally:
+
+```bash
+docker build \
+  --file Dockerfile \
+  --tag fantasy-what-if-frontend:local \
+  .
+```
+
+Inspect the runtime user:
+
+```bash
+docker image inspect \
+  fantasy-what-if-frontend:local \
+  --format 'User={{.Config.User}}'
+```
+
+Expected result:
+
+```text
+User=nginx
+```
+
+## Routes
+
+The frontend supports:
+
+- `/`
+- `/setup`
+- `/login`
+- `/admin`
+- `/all-play`
+- `/league-average`
+- `/schedule-swap`
+- `/optimal-lineups`
+- `/optimal-lineups/:teamId`
+
+Nginx returns `index.html` for browser routes.
+
+## API Access
+
+The frontend sends same-origin requests through:
+
+```text
+/api
+```
+
+Authentication uses cookies and CSRF tokens.
+
+State-changing requests send:
+
+```text
+X-CSRF-Token
+```
+
+The frontend does not embed the backend hostname into the production JavaScript bundle.
+
+## Static Asset Caching
+
+Hashed assets under `/assets/` use long-lived immutable caching.
+
+`index.html` uses cache-prevention headers so new deployments are detected promptly.
+
+## Security Headers
+
+The production frontend adds:
+
+- Content Security Policy
+- MIME-sniffing prevention
+- Frame embedding denial
+- Referrer restrictions
+- Permissions Policy
+- Cache prevention for `index.html`
+
+See the root README and docs/DEVELOPMENT.md for the complete project architecture.

@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     app_secret_key: SecretStr
 
     frontend_origin: str = "http://localhost:5173"
-    frontend_app_url: str = "http://localhost:5173"
     trusted_origins: str = "http://localhost:5173"
+    forwarded_allow_ips: str = "127.0.0.1,::1"
 
     session_cookie_name: str = "fantasy_session"
     session_cookie_secure: bool = False
@@ -44,10 +44,20 @@ class Settings(BaseSettings):
         ge=1,
         le=24 * 30,
     )
-    invite_lifetime_hours: int = Field(
-        default=168,
+    login_maximum_attempts: int = Field(
+        default=3,
         ge=1,
-        le=24 * 30,
+        le=10,
+    )
+    login_attempt_window_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=60,
+    )
+    login_lockout_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=24 * 60,
     )
 
     sync_scheduler_enabled: bool = False
@@ -73,10 +83,10 @@ class Settings(BaseSettings):
         le=300,
     )
 
-    espn_league_id: int = Field(gt=0)
-    espn_season: int = Field(ge=2018)
-    espn_s2: SecretStr
-    espn_swid: SecretStr
+    espn_s2: SecretStr | None = None
+    espn_swid: SecretStr | None = None
+
+    provider_credential_key: SecretStr | None = None
 
     database_url: str
     database_echo: bool = False
@@ -88,29 +98,76 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator(
-        "app_secret_key",
-        "espn_s2",
-        "espn_swid",
-    )
+    @field_validator("app_secret_key")
     @classmethod
-    def normalize_secrets(
+    def normalize_app_secret(
         cls,
         value: SecretStr,
     ) -> SecretStr:
         secret = value.get_secret_value().strip()
 
         if not secret:
-            raise ValueError("Secret values cannot be empty.")
+            raise ValueError("APP_SECRET_KEY cannot be empty.")
 
         return SecretStr(secret)
+
+    @field_validator(
+        "espn_s2",
+        "espn_swid",
+    )
+    @classmethod
+    def normalize_optional_espn_secret(
+        cls,
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        if value is None:
+            return None
+
+        secret = value.get_secret_value().strip()
+
+        if not secret:
+            return None
+
+        return SecretStr(secret)
+
+    @field_validator("provider_credential_key")
+    @classmethod
+    def validate_provider_credential_key(
+        cls,
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        """Validate an optional Fernet provider credential key."""
+
+        if value is None:
+            return None
+
+        normalized = value.get_secret_value().strip()
+
+        if not normalized:
+            return None
+
+        try:
+            from cryptography.fernet import Fernet
+
+            Fernet(normalized.encode("ascii"))
+        except (
+            TypeError,
+            ValueError,
+            UnicodeEncodeError,
+        ) as exc:
+            raise ValueError("PROVIDER_CREDENTIAL_KEY must be a valid Fernet key.") from exc
+
+        return SecretStr(normalized)
 
     @field_validator("espn_swid")
     @classmethod
     def normalize_swid(
         cls,
-        value: SecretStr,
-    ) -> SecretStr:
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        if value is None:
+            return None
+
         swid = value.get_secret_value()
 
         if not swid.startswith("{"):
@@ -123,7 +180,6 @@ class Settings(BaseSettings):
 
     @field_validator(
         "frontend_origin",
-        "frontend_app_url",
         "trusted_origins",
     )
     @classmethod
@@ -160,6 +216,14 @@ class Settings(BaseSettings):
         )
 
     @property
+    def forwarded_allow_ip_list(
+        self,
+    ) -> tuple[str, ...]:
+        return tuple(
+            value.strip() for value in self.forwarded_allow_ips.split(",") if value.strip()
+        )
+
+    @property
     def is_production(self) -> bool:
         return self.app_env == "production"
 
@@ -172,6 +236,11 @@ class Settings(BaseSettings):
         if "*" in origins:
             raise ValueError("Wildcard trusted origins are not allowed.")
 
+        forwarded_allow_ips = self.forwarded_allow_ip_list
+
+        if not forwarded_allow_ips:
+            raise ValueError("FORWARDED_ALLOW_IPS cannot be empty.")
+
         if frontend_origin not in origins:
             raise ValueError("FRONTEND_ORIGIN must also appear in TRUSTED_ORIGINS.")
 
@@ -183,6 +252,9 @@ class Settings(BaseSettings):
 
         if not self.is_production:
             return self
+
+        if "*" in forwarded_allow_ips:
+            raise ValueError("Production cannot trust forwarded headers from every source.")
 
         if self.app_debug:
             raise ValueError("APP_DEBUG must be false in production.")
@@ -204,9 +276,6 @@ class Settings(BaseSettings):
 
         if not frontend_origin.startswith("https://"):
             raise ValueError("FRONTEND_ORIGIN must use HTTPS in production.")
-
-        if not self.frontend_app_url.startswith("https://"):
-            raise ValueError("FRONTEND_APP_URL must use HTTPS in production.")
 
         if any(not origin.startswith("https://") for origin in origins):
             raise ValueError("Every production trusted origin must use HTTPS.")

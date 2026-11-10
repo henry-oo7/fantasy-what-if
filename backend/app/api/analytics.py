@@ -12,7 +12,10 @@ from app.analytics.league_average import (
 )
 from app.analytics.optimal_lineup import (
     TeamOptimalLineupSummary,
-    calculate_optimal_lineup_summaries,
+)
+from app.analytics.optimal_lineup_breakdown import (
+    TeamOptimalLineupBreakdown,
+    build_optimal_lineup_breakdown,
 )
 from app.analytics.schedule_swap import (
     ScheduleSwapResult,
@@ -20,11 +23,10 @@ from app.analytics.schedule_swap import (
 )
 from app.api.auth_dependencies import get_current_user
 from app.api.dependencies import (
-    get_completed_team_week_rosters,
     get_current_league_snapshot,
+    get_persisted_optimal_lineup_summaries,
 )
 from app.domain.league import LeagueSnapshot
-from app.domain.lineup import TeamWeekRoster
 
 router = APIRouter(
     prefix="/api/analytics",
@@ -85,24 +87,26 @@ def read_league_average_standings(
 
 @router.get("/optimal-lineups")
 def read_optimal_lineup_summaries(
-    rosters: Annotated[
-        tuple[TeamWeekRoster, ...],
-        Depends(get_completed_team_week_rosters),
+    summaries: Annotated[
+        tuple[TeamOptimalLineupSummary, ...],
+        Depends(get_persisted_optimal_lineup_summaries),
     ],
 ) -> tuple[TeamOptimalLineupSummary, ...]:
-    return calculate_optimal_lineup_summaries(rosters)
+    return summaries
 
 
 @router.get("/optimal-lineups/{team_id}")
 def read_team_optimal_lineup_summary(
     team_id: int,
-    rosters: Annotated[
-        tuple[TeamWeekRoster, ...],
-        Depends(get_completed_team_week_rosters),
+    summaries: Annotated[
+        tuple[TeamOptimalLineupSummary, ...],
+        Depends(get_persisted_optimal_lineup_summaries),
     ],
-) -> TeamOptimalLineupSummary:
-    summaries = calculate_optimal_lineup_summaries(rosters)
-
+    snapshot: Annotated[
+        LeagueSnapshot,
+        Depends(get_current_league_snapshot),
+    ],
+) -> TeamOptimalLineupBreakdown:
     summary = next(
         (current_summary for current_summary in summaries if current_summary.team_id == team_id),
         None,
@@ -114,4 +118,13 @@ def read_team_optimal_lineup_summary(
             detail=f"Team {team_id} was not found.",
         )
 
-    return summary
+    try:
+        return build_optimal_lineup_breakdown(
+            summary=summary,
+            snapshot=snapshot,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
+            detail=str(exc),
+        ) from exc

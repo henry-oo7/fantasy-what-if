@@ -6,7 +6,10 @@ from threading import Event
 
 from app.core.settings import Settings, get_settings
 from app.db.session import SessionFactory
-from app.services.espn_sync import SyncResult, synchronize_espn
+from app.services.active_provider_sync import (
+    synchronize_active_season,
+)
+from app.services.provider_sync import ProviderSyncResult
 from app.services.sync_lock import SyncAlreadyRunningError
 from app.services.sync_schedule import (
     calculate_next_sync_time,
@@ -18,9 +21,7 @@ SHUTDOWN_EVENT = Event()
 
 
 def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=("Run scheduled ESPN fantasy league synchronization.")
-    )
+    parser = argparse.ArgumentParser(description=("Run scheduled active-provider synchronization."))
 
     parser.add_argument(
         "--run-now",
@@ -65,16 +66,12 @@ def install_signal_handlers() -> None:
 
 def run_incremental_sync(
     settings: Settings,
-) -> SyncResult | None:
-    LOGGER.info(
-        "Starting incremental ESPN synchronization for league %s, season %s.",
-        settings.espn_league_id,
-        settings.espn_season,
-    )
+) -> ProviderSyncResult | None:
+    LOGGER.info("Starting incremental fantasy provider synchronization.")
 
     try:
         with SessionFactory() as session:
-            result = synchronize_espn(
+            result = synchronize_active_season(
                 session=session,
                 settings=settings,
                 full_sync=False,
@@ -85,7 +82,7 @@ def run_incremental_sync(
         )
         return None
     except Exception:
-        LOGGER.exception("Scheduled ESPN synchronization failed.")
+        LOGGER.exception("Scheduled fantasy provider synchronization failed.")
         return None
 
     LOGGER.info(
@@ -228,8 +225,10 @@ def main() -> None:
             raise SystemExit(1)
 
         print("=== IMMEDIATE SYNC COMPLETE ===")
-        print(f"League ID: {result.league_id}")
-        print(f"Season: {result.season}")
+        print(f"Provider: {result.provider.value}")
+        print(f"Provider league ID: {result.provider_league_id}")
+        print(f"Provider season ID: {result.provider_season_id}")
+        print(f"Internal season ID: {result.season_id}")
         print(f"Current week: {result.current_week}")
         print(f"Player weeks: {list(result.player_weeks)}")
         return

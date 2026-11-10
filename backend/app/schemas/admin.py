@@ -18,8 +18,10 @@ class SyncRunResponse(BaseModel):
 
 
 class SyncStatusResponse(BaseModel):
-    league_id: int
-    season: int
+    provider: str
+    season_id: int
+    provider_league_id: str
+    provider_season_id: str
     last_synced_at: datetime | None
     latest_run: SyncRunResponse | None
 
@@ -29,8 +31,10 @@ class SyncRequest(BaseModel):
 
 
 class SyncResultResponse(BaseModel):
-    league_id: int
-    season: int
+    provider: str
+    season_id: int
+    provider_league_id: str
+    provider_season_id: str
     current_week: int
     full_sync: bool
     player_weeks: tuple[int, ...]
@@ -40,42 +44,46 @@ class SyncResultResponse(BaseModel):
     player_week_scores_upserted: int
 
 
-class CreateInvitationRequest(BaseModel):
-    team_id: int
-    intended_display_name: str | None = None
+class SpectatorAccountResponse(BaseModel):
+    """Safe shared spectator account metadata."""
+
+    configured: bool
+    id: int | None = None
+    username: str | None = None
+    display_name: str | None = None
+    email: str | None = None
+    is_active: bool | None = None
 
 
-class CreatedInvitationResponse(BaseModel):
-    id: int
-    team_id: int
-    team_name: str
-    season: int
-    intended_display_name: str | None
-    expires_at: datetime
-    registration_url: str
+class CreateSpectatorRequest(BaseModel):
+    """Create the installation's shared spectator."""
+
+    username: str
+    display_name: str
+    email: str | None = None
+    password: str
 
 
-class InvitationListItemResponse(BaseModel):
-    id: int
-    team_id: int
-    team_name: str
-    season: int
-    intended_display_name: str | None
-    status: str
-    created_at: datetime
-    expires_at: datetime
-    used_at: datetime | None
-    revoked_at: datetime | None
+class UpdateSpectatorProfileRequest(BaseModel):
+    """Update spectator profile metadata."""
+
+    display_name: str
+    email: str | None = None
 
 
-class InvitationListResponse(BaseModel):
-    invitations: tuple[
-        InvitationListItemResponse,
-        ...,
-    ]
+class ResetSpectatorPasswordRequest(BaseModel):
+    """Replace the shared spectator password."""
+
+    password: str
 
 
-class RevokeInvitationResponse(BaseModel):
-    id: int
-    status: str
-    revoked_at: datetime
+class SetSpectatorAccessRequest(BaseModel):
+    """Enable or disable shared spectator access."""
+
+    is_active: bool
+
+
+class SpectatorAccountMutationResponse(SpectatorAccountResponse):
+    """Spectator metadata plus revoked-session count."""
+
+    revoked_sessions: int = 0

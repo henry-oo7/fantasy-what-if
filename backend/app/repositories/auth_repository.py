@@ -10,7 +10,6 @@ from app.auth.security import (
 from app.db.auth_models import (
     User,
     UserRole,
-    UserTeamMembership,
 )
 
 
@@ -19,10 +18,6 @@ class DuplicateUsernameError(ValueError):
 
 
 class DuplicateEmailError(ValueError):
-    pass
-
-
-class DuplicateTeamMembershipError(ValueError):
     pass
 
 
@@ -81,7 +76,7 @@ class AuthenticationRepository:
         display_name: str,
         password: str,
         email: str | None = None,
-        role: UserRole = UserRole.MEMBER,
+        role: UserRole = UserRole.SPECTATOR,
         is_active: bool = True,
     ) -> User:
         normalized_username = normalize_username(username)
@@ -144,34 +139,3 @@ def normalize_display_name(
         raise ValueError("Display name cannot exceed 100 characters.")
 
     return normalized
-
-
-def create_team_membership(
-    session: Session,
-    *,
-    user: User,
-    season_id: int,
-    team_id: int,
-) -> UserTeamMembership:
-    existing_membership = session.scalar(
-        select(UserTeamMembership).where(
-            UserTeamMembership.user_id == user.id,
-            UserTeamMembership.season_id == season_id,
-        )
-    )
-
-    if existing_membership is not None:
-        raise DuplicateTeamMembershipError(
-            "The user already has a team membership for this season."
-        )
-
-    membership = UserTeamMembership(
-        user_id=user.id,
-        season_id=season_id,
-        team_id=team_id,
-    )
-
-    session.add(membership)
-    session.flush()
-
-    return membership

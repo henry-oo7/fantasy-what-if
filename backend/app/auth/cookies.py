@@ -1,5 +1,8 @@
 from fastapi import Request, Response
 
+from app.auth.login_identity import (
+    generate_login_browser_id,
+)
 from app.core.settings import Settings
 
 
@@ -115,3 +118,43 @@ def get_pre_auth_csrf_cookie(
     request: Request,
 ) -> str | None:
     return request.cookies.get("fantasy_preauth_csrf")
+
+
+LOGIN_BROWSER_COOKIE_NAME = "fantasy_login_browser"
+LOGIN_BROWSER_COOKIE_MAX_AGE = 60 * 60 * 24 * 180
+
+
+def get_login_browser_id(
+    request: Request,
+) -> str | None:
+    """Read the opaque login browser identifier."""
+
+    return request.cookies.get(LOGIN_BROWSER_COOKIE_NAME)
+
+
+def ensure_login_browser_cookie(
+    request: Request,
+    response: Response,
+    *,
+    settings: Settings,
+) -> str:
+    """Return the existing browser identifier or issue one."""
+
+    existing = get_login_browser_id(request)
+
+    if existing is not None and existing.strip():
+        return existing
+
+    browser_id = generate_login_browser_id()
+
+    response.set_cookie(
+        key=LOGIN_BROWSER_COOKIE_NAME,
+        value=browser_id,
+        max_age=LOGIN_BROWSER_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite=settings.session_cookie_samesite,
+        path="/",
+    )
+
+    return browser_id

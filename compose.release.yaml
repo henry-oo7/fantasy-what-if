@@ -1,0 +1,123 @@
+name: fantasy-what-if
+
+services:
+  database:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - fantasy_what_if_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      fantasy_internal:
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    image: ghcr.io/henry-oo7/fantasy-what-if-backend:${APP_VERSION:-latest}
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+    command:
+      - alembic
+      - upgrade
+      - head
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      fantasy_internal:
+    security_opt:
+      - no-new-privileges:true
+
+  backend:
+    image: ghcr.io/henry-oo7/fantasy-what-if-backend:${APP_VERSION:-latest}
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      FORWARDED_ALLOW_IPS: ${FRONTEND_PROXY_IP:-172.31.100.10}
+      SYNC_SCHEDULER_ENABLED: "false"
+    expose:
+      - "8000"
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      fantasy_internal:
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    image: ghcr.io/henry-oo7/fantasy-what-if-frontend:${APP_VERSION:-latest}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    networks:
+      fantasy_internal:
+        ipv4_address: ${FRONTEND_PROXY_IP:-172.31.100.10}
+    security_opt:
+      - no-new-privileges:true
+
+  sync-scheduler:
+    image: ghcr.io/henry-oo7/fantasy-what-if-backend:${APP_VERSION:-latest}
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      SYNC_SCHEDULER_ENABLED: "true"
+    command:
+      - python
+      - -m
+      - app.scripts.sync_scheduler
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      fantasy_internal:
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      disable: true
+
+volumes:
+  fantasy_what_if_postgres_data:
+
+networks:
+  fantasy_internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${PRODUCTION_SUBNET:-172.31.100.0/24}

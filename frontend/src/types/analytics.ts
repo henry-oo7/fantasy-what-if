@@ -1,7 +1,4 @@
-export type MatchupResult =
-  | "win"
-  | "loss"
-  | "tie";
+export type MatchupResult = "win" | "loss" | "tie";
 
 export interface AnalyticsRecord {
   wins: number;
@@ -40,7 +37,6 @@ export interface ScheduleSwapResult {
   completed_weeks: number[];
 }
 
-
 export interface LeagueAverageWeek {
   week: number;
   team_score: number;
@@ -64,7 +60,6 @@ export interface LeagueAverageStanding {
   weeks_played: number;
   weekly_results: LeagueAverageWeek[];
 }
-
 
 export interface LineupPlayer {
   lineup_slot: string;
@@ -112,4 +107,49 @@ export interface TeamOptimalLineupSummary {
   missed_points: number;
   efficiency_percentage: number;
   weekly_results: TeamWeekOptimalLineup[];
+}
+
+export interface OptimalLineupPlayerChange {
+  player_id: number;
+  player_name: string;
+  lineup_slot: string;
+  points: number;
+  default_position: string | null;
+  pro_team: string | null;
+}
+
+export interface OptimalLineupPlayerMove {
+  player_id: number;
+  player_name: string;
+  from_slot: string;
+  to_slot: string;
+  points: number;
+}
+
+export interface TeamWeekOptimalLineupBreakdown extends TeamWeekOptimalLineup {
+  opponent_team_id: number;
+  opponent_team_name: string;
+  opponent_points: number;
+  actual_result: MatchupResult;
+  optimal_result: MatchupResult;
+  result_flipped: boolean;
+  players_out: OptimalLineupPlayerChange[];
+  players_in: OptimalLineupPlayerChange[];
+  retained_player_moves: OptimalLineupPlayerMove[];
+  net_point_gain: number;
+}
+
+export interface TeamOptimalLineupBreakdown {
+  team_id: number;
+  team_name: string;
+  weeks_played: number;
+  actual_points: number;
+  optimal_points: number;
+  missed_points: number;
+  efficiency_percentage: number;
+  actual_record: AnalyticsRecord;
+  optimal_record: AnalyticsRecord;
+  equivalent_wins_gained: number;
+  results_flipped: number;
+  weekly_results: TeamWeekOptimalLineupBreakdown[];
 }

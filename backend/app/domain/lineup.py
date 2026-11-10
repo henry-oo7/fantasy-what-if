@@ -1,5 +1,17 @@
 from dataclasses import dataclass
 
+DEFAULT_FOOTBALL_STARTING_SLOTS = (
+    "QB",
+    "RB",
+    "RB",
+    "WR",
+    "WR",
+    "TE",
+    "FLEX",
+    "K",
+    "DST",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class PlayerWeekSnapshot:
@@ -23,3 +35,18 @@ class TeamWeekRoster:
     team_name: str
     week: int
     players: tuple[PlayerWeekSnapshot, ...]
+    starting_slots: tuple[str, ...] = DEFAULT_FOOTBALL_STARTING_SLOTS
+
+    def __post_init__(self) -> None:
+        normalized_slots = tuple(
+            str(slot).strip() for slot in self.starting_slots if str(slot).strip()
+        )
+
+        if not normalized_slots:
+            raise ValueError("starting_slots must contain at least one configured lineup slot.")
+
+        object.__setattr__(
+            self,
+            "starting_slots",
+            normalized_slots,
+        )

@@ -1,42 +1,46 @@
-export type InvitationStatus =
-  | "active"
-  | "used"
-  | "revoked";
+export interface SpectatorAccount {
+  configured: boolean;
+  id: number | null;
+  username: string | null;
+  display_name: string | null;
+  email: string | null;
+  is_active: boolean | null;
+  revoked_sessions?: number;
+}
 
-export interface InvitationListItem {
+export interface SyncRun {
   id: number;
-  team_id: number;
-  team_name: string;
-  season: number;
-  intended_display_name: string | null;
-  status: InvitationStatus;
-  created_at: string;
-  expires_at: string;
-  used_at: string | null;
-  revoked_at: string | null;
+  status: string;
+  is_full_sync: boolean;
+  started_at: string;
+  completed_at: string | null;
+  requested_from_week: number | null;
+  requested_through_week: number | null;
+  teams_upserted: number;
+  matchups_upserted: number;
+  player_week_scores_upserted: number;
+  safe_error_message: string | null;
 }
 
-export interface InvitationListResponse {
-  invitations: InvitationListItem[];
+export interface SyncStatus {
+  provider: string;
+  season_id: number;
+  provider_league_id: string;
+  provider_season_id: string;
+  last_synced_at: string | null;
+  latest_run: SyncRun | null;
 }
 
-export interface CreateInvitationRequest {
-  team_id: number;
-  intended_display_name: string | null;
-}
-
-export interface CreatedInvitation {
-  id: number;
-  team_id: number;
-  team_name: string;
-  season: number;
-  intended_display_name: string | null;
-  expires_at: string;
-  registration_url: string;
-}
-
-export interface RevokedInvitation {
-  id: number;
-  status: "revoked";
-  revoked_at: string;
+export interface SyncResult {
+  provider: string;
+  season_id: number;
+  provider_league_id: string;
+  provider_season_id: string;
+  current_week: number;
+  full_sync: boolean;
+  player_weeks: number[];
+  teams_upserted: number;
+  matchups_upserted: number;
+  fantasy_byes_upserted: number;
+  player_week_scores_upserted: number;
 }

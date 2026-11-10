@@ -98,8 +98,7 @@
   text-transform: uppercase;
 }
 
-.sidebar-link,
-.disabled-navigation-item {
+.sidebar-link {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -131,22 +130,10 @@
 }
 
 .sidebar-link svg,
-.disabled-navigation-item svg,
 .sidebar-logout svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
-}
-
-.sidebar-coming-soon {
-  display: grid;
-  gap: 5px;
-  margin-top: 14px;
-}
-
-.disabled-navigation-item {
-  color: #657b6d;
-  cursor: default;
 }
 
 .sidebar-account {
@@ -356,10 +343,7 @@
 }
 
 .sidebar-league strong {
-  font-family:
-    "Barlow Condensed",
-    "Arial Narrow",
-    sans-serif;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
   font-size: 1rem;
   font-weight: 800;
   letter-spacing: 0.01em;
@@ -385,4 +369,456 @@
 
 .sidebar-admin-navigation .navigation-section-label {
   margin-top: 0;
+}
+
+.sidebar-user-link {
+  padding: 0.45rem;
+  color: inherit;
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+
+.sidebar-user-link:hover,
+.sidebar-user-link-active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.11);
+}
+
+.sidebar-user-link:focus-visible {
+  outline: 3px solid #719b80;
+  outline-offset: 2px;
+}
+
+.season-menu {
+  position: relative;
+  margin: 4px 16px 24px;
+}
+
+.season-menu .sidebar-league {
+  margin: 0;
+}
+
+.season-menu-trigger {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  color: #ffffff;
+  border: 0;
+  border-left: 3px solid var(--color-green-500);
+  border-radius: 0 3px 3px 0;
+  background: rgba(255, 255, 255, 0.07);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.season-menu-trigger:hover,
+.season-menu-trigger[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.season-menu-trigger:focus-visible {
+  outline: 3px solid #719b80;
+  outline-offset: 2px;
+}
+
+.season-menu-current {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.season-menu-current strong,
+.season-menu-current small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.season-menu-chevron {
+  width: 1rem;
+  height: 1rem;
+  color: #9ebaaa;
+  transition: transform 180ms ease;
+}
+
+.season-menu-chevron-open {
+  transform: rotate(180deg);
+}
+
+.season-menu-popover {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  width: min(22rem, calc(100vw - 2rem));
+  overflow: hidden;
+  border: 1px solid #698071;
+  color: #172019;
+  background: #ffffff;
+}
+
+.season-menu-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border-bottom: 3px solid var(--color-green-700);
+}
+
+.season-menu-heading > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.season-menu-heading strong {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.05rem;
+  text-transform: uppercase;
+}
+
+.season-menu-heading span {
+  color: #617067;
+  font-size: 0.75rem;
+}
+
+.season-menu-heading svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  color: var(--color-green-700);
+}
+
+.season-menu-option {
+  display: flex;
+  width: 100%;
+  min-height: 4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border: 0;
+  border-bottom: 1px solid #d2d9d4;
+  color: #25342b;
+  background: #ffffff;
+  font: inherit;
+  text-align: left;
+}
+
+.season-menu-option > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.season-menu-option strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.season-menu-option small {
+  color: #68736c;
+}
+
+.season-menu-option-active {
+  cursor: pointer;
+  background: #edf4ef;
+}
+
+.season-menu-option-active:hover {
+  background: #e2eee6;
+}
+
+.season-menu-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.season-active-label,
+.season-history-label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+  color: #27663f;
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.season-active-label svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.season-history-label {
+  color: #68736c;
+}
+
+.season-menu-state {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 1rem;
+  color: #526057;
+  font-size: 0.8rem;
+}
+
+.season-menu-state svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.season-menu-error {
+  display: grid;
+  color: #7d1d19;
+  background: #f9e8e7;
+}
+
+.season-menu-error button {
+  justify-self: start;
+  min-height: 2.25rem;
+  padding-inline: 0.7rem;
+  border: 1px solid currentColor;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 750;
+}
+
+.season-menu-note {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  color: #68736c;
+  background: #f7f9f7;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 820px) {
+  .season-menu-popover {
+    position: static;
+    width: 100%;
+    margin-top: 0.45rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .season-menu-chevron {
+    transition: none;
+  }
+}
+
+.season-import-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 14px;
+  border-top: 1px solid #cbd5ce;
+  background: #f7faf8;
+}
+
+.season-import-trigger {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  color: var(--color-green-800);
+  background: #ffffff;
+  border: 1px solid #789082;
+  border-radius: 3px;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.season-import-trigger:hover:not(:disabled) {
+  color: #ffffff;
+  background: var(--color-green-800);
+  border-color: var(--color-green-800);
+}
+
+.season-import-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.season-import-form {
+  display: grid;
+  gap: 12px;
+}
+
+.season-import-form label {
+  display: grid;
+  gap: 6px;
+  color: #26382d;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.season-import-form select {
+  min-height: 40px;
+  padding: 0 10px;
+  color: #ffffff;
+  background: var(--color-green-950);
+  border: 1px solid #496455;
+  border-radius: 3px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.season-import-form select:focus-visible,
+.season-import-actions button:focus-visible,
+.season-import-trigger:focus-visible {
+  outline: 3px solid #719b80;
+  outline-offset: 2px;
+}
+
+.season-import-form p {
+  margin: 0;
+  color: #52675a;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.season-import-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 8px;
+}
+
+.season-import-actions button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.season-import-actions button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.season-import-actions button[type="button"] {
+  color: #31483a;
+  background: #ffffff;
+  border: 1px solid #789082;
+}
+
+.season-import-actions button[type="button"]:hover:not(:disabled) {
+  background: #e7eee9;
+  border-color: #496455;
+}
+
+.season-import-actions button[type="submit"] {
+  color: #ffffff;
+  background: var(--color-green-800);
+  border: 1px solid var(--color-green-800);
+}
+
+.season-import-actions button[type="submit"]:hover:not(:disabled) {
+  background: var(--color-green-950);
+  border-color: var(--color-green-950);
+}
+
+.season-import-actions button:disabled,
+.season-import-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.season-import-progress-panel {
+  display: grid;
+  gap: 7px;
+  padding-top: 2px;
+}
+
+.season-import-progress-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.season-import-progress-heading > div {
+  display: grid;
+  gap: 1px;
+}
+
+.season-import-progress-heading small {
+  color: #52675a;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.season-import-progress-heading strong {
+  color: #26382d;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.season-import-progress-heading > span {
+  color: var(--color-green-800);
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.season-import-progress {
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid #789082;
+  border-radius: 1px;
+  background: #dce5df;
+}
+
+.season-import-progress span {
+  display: block;
+  height: 100%;
+  background: var(--color-green-700);
+  transition: width 250ms linear;
+}
+
+.season-import-progress-detail {
+  color: #52675a;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.season-import-message {
+  margin: 0;
+  padding: 10px 11px;
+  border-left: 3px solid;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.season-import-error {
+  color: #741b18;
+  background: #f5dddd;
+  border-left-color: #b42318;
+}
+
+.season-import-success {
+  color: #174f2d;
+  background: #dcefe3;
+  border-left-color: #237a43;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .season-import-progress span {
+    transition: none;
+  }
 }

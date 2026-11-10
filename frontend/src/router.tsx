@@ -5,29 +5,35 @@ import {
 } from "react-router-dom";
 
 import App from "./App";
-import { AllPlayPage } from "./pages/AllPlayPage";
-import { LeagueAveragePage } from "./pages/LeagueAveragePage";
-import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
-import { AdminInvitationsPage } from "./pages/AdminInvitationsPage";
+import { AdminRoute } from "./auth/AdminRoute";
+import { InstallationRouteGuard } from "./auth/InstallationRouteGuard";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
+import { AdminPage } from "./pages/AdminPage";
+import { AllPlayPage } from "./pages/AllPlayPage";
+import { LeagueAveragePage } from "./pages/LeagueAveragePage";
 import { LoginPage } from "./pages/LoginPage";
-import { RegisterPage } from "./pages/RegisterPage";
+import {
+  OptimalLineupBreakdownPage,
+} from "./pages/OptimalLineupBreakdownPage";
+import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
 import {
   ScheduleSwapPage,
 } from "./pages/ScheduleSwapPage";
+import { SetupPage } from "./pages/SetupPage";
 
-export function AppRouter() {
+
+function ApplicationRoutes() {
   return (
     <Routes>
       <Route
-        path="/login"
-        element={<LoginPage />}
+        path="/setup"
+        element={<SetupPage />}
       />
 
       <Route
-        path="/register"
-        element={<RegisterPage />}
+        path="/login"
+        element={<LoginPage />}
       />
 
       <Route
@@ -40,6 +46,15 @@ export function AppRouter() {
         <Route
           index
           element={<App />}
+        />
+
+        <Route
+          path="admin"
+          element={
+            <AdminRoute>
+              <AdminPage />
+            </AdminRoute>
+          }
         />
 
         <Route
@@ -64,17 +79,7 @@ export function AppRouter() {
 
         <Route
           path="optimal-lineups/:teamId"
-          element={
-            <Navigate
-              to="/optimal-lineups"
-              replace
-            />
-          }
-        />
-
-        <Route
-          path="admin/invitations"
-          element={<AdminInvitationsPage />}
+          element={<OptimalLineupBreakdownPage />}
         />
       </Route>
 
@@ -88,5 +93,14 @@ export function AppRouter() {
         }
       />
     </Routes>
+  );
+}
+
+
+export function AppRouter() {
+  return (
+    <InstallationRouteGuard>
+      <ApplicationRoutes />
+    </InstallationRouteGuard>
   );
 }

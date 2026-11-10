@@ -2,9 +2,11 @@
 name = "fantasy-what-if-backend"
 version = "0.1.0"
 description = "Backend API and analytics engine for ESPN fantasy football what-if analysis."
+license = "AGPL-3.0-only"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "alembic>=1.17,<2",
+    "cryptography>=50.0.2",
     "email-validator>=2.2,<3",
     "espn-api==1.0.1",
     "fastapi>=0.162.0",

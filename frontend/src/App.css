@@ -63,6 +63,115 @@
   font-size: 1.2rem;
 }
 
+.scoreboard-hero {
+  display: grid;
+  gap: 22px;
+  padding: clamp(22px, 3.5vw, 34px);
+  color: #ffffff;
+  background: var(--color-green-800);
+  border: 1px solid var(--color-green-800);
+  border-radius: 4px;
+}
+
+.scoreboard-heading {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.scoreboard-heading h2 {
+  margin: 0;
+  font-size: clamp(1.65rem, 3vw, 2.35rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+
+.scoreboard-status {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  color: #d8eee0;
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.scoreboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.scoreboard-matchup {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 13px 15px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+}
+
+.scoreboard-team {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: baseline;
+  color: #c1d8ca;
+}
+
+.scoreboard-team + .scoreboard-team {
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.scoreboard-team span {
+  overflow: hidden;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-size: 0.94rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scoreboard-team strong {
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreboard-winner {
+  color: #ffffff;
+}
+
+.scoreboard-winner span,
+.scoreboard-winner strong {
+  font-weight: 800;
+}
+
+.scoreboard-empty {
+  margin: 0;
+  padding: 20px;
+  color: #c1d8ca;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+}
+
+.scoreboard-footer {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 2px;
+  color: #b8d9c5;
+  font-size: 0.7rem;
+}
+
+.scoreboard-footer strong {
+  color: #ffffff;
+  font-size: 0.7rem;
+}
+
 .team-hero {
   display: grid;
   grid-template-columns:
@@ -107,8 +216,7 @@
 
 .team-stat-grid {
   display: grid;
-  grid-template-columns:
-    repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   background: rgba(255, 255, 255, 0.09);
   border-radius: var(--radius-medium);
 }
@@ -133,19 +241,9 @@
   font-size: 1.05rem;
 }
 
-.team-hero-admin {
-  grid-template-columns: 1fr;
-}
-
-.team-hero-admin p:last-child {
-  margin: 12px 0 0;
-  color: #b8d9c5;
-}
-
 .dashboard-summary-grid {
   display: grid;
-  grid-template-columns:
-    repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -190,6 +288,13 @@
   font-size: 0.95rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.summary-detail {
+  display: block;
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 0.66rem;
 }
 
 .dashboard-content-grid {
@@ -241,8 +346,7 @@
 
 .standing-row {
   display: grid;
-  grid-template-columns:
-    32px minmax(0, 1fr) auto auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: center;
   min-height: 57px;
@@ -252,12 +356,6 @@
 
 .standing-row:last-child {
   border-bottom: 0;
-}
-
-.standing-row-current {
-  background: var(--color-green-50);
-  box-shadow:
-    inset 3px 0 0 var(--color-green-600);
 }
 
 .standing-rank {
@@ -278,15 +376,32 @@
   white-space: nowrap;
 }
 
-.standing-team small {
-  color: var(--color-green-700);
-  font-size: 0.64rem;
-  font-weight: 750;
+.standing-scoring {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  gap: 8px;
+  min-width: 168px;
 }
 
-.standing-points {
+.standing-scoring > span {
+  display: grid;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 1px solid var(--color-border);
+}
+
+.standing-scoring small {
   color: var(--color-text-muted);
-  font-size: 0.7rem;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.standing-scoring strong {
+  color: var(--color-text);
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-size: 0.88rem;
+  font-weight: 700;
 }
 
 .standing-record {
@@ -387,6 +502,10 @@
 }
 
 @media (max-width: 1080px) {
+  .scoreboard-grid {
+    grid-template-columns: 1fr;
+  }
+
   .team-hero {
     grid-template-columns: 1fr;
   }
@@ -419,6 +538,31 @@
     flex: 0 0 auto;
   }
 
+  .scoreboard-hero {
+    gap: 18px;
+    padding: 22px 18px;
+  }
+
+  .scoreboard-heading {
+    align-items: center;
+  }
+
+  .scoreboard-heading h2 {
+    font-size: 1.65rem;
+  }
+
+  .scoreboard-matchup {
+    padding: 12px 13px;
+  }
+
+  .scoreboard-footer {
+    align-items: flex-start;
+  }
+
+  .scoreboard-footer span {
+    max-width: 190px;
+  }
+
   .team-hero {
     gap: 22px;
     padding: 24px 20px;
@@ -436,8 +580,7 @@
   .team-stat {
     grid-template-columns: 1fr auto;
     border-right: 0;
-    border-bottom:
-      1px solid rgba(255, 255, 255, 0.12);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   }
 
   .team-stat:last-child {
@@ -457,17 +600,57 @@
   }
 
   .standing-row {
-    grid-template-columns:
-      26px minmax(0, 1fr) auto;
-    padding: 8px 14px;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    gap: 8px 10px;
+    padding: 10px 14px;
   }
 
-  .standing-points {
-    display: none;
+  .standing-team {
+    align-self: end;
+  }
+
+  .standing-scoring {
+    grid-column: 2;
+    grid-template-columns: repeat(2, auto);
+    justify-content: start;
+    min-width: 0;
+  }
+
+  .standing-scoring > span {
+    display: flex;
+    gap: 5px;
+    align-items: baseline;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .standing-scoring > span + span::before {
+    margin-right: 3px;
+    color: var(--color-border-strong);
+    content: "·";
+  }
+
+  .standing-record {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    align-self: center;
   }
 }
 
 @media (max-width: 420px) {
+  .scoreboard-heading {
+    align-items: flex-start;
+  }
+
+  .scoreboard-status {
+    padding: 4px 7px;
+  }
+
+  .scoreboard-footer {
+    display: grid;
+    gap: 5px;
+  }
+
   .dashboard-header {
     align-items: flex-start;
   }
@@ -492,10 +675,7 @@
 }
 
 .standing-team strong {
-  font-family:
-    "Barlow Condensed",
-    "Arial Narrow",
-    sans-serif;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.01em;

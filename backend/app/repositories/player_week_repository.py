@@ -5,12 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    League,
+    LineupSlotDefinition,
     PlayerWeekScore,
-    Season,
     Team,
 )
 from app.domain.lineup import (
+    DEFAULT_FOOTBALL_STARTING_SLOTS,
     PlayerWeekSnapshot,
     TeamWeekRoster,
 )
@@ -19,39 +19,67 @@ from app.domain.lineup import (
 def load_team_week_rosters(
     session: Session,
     *,
-    espn_league_id: int,
-    year: int,
+    season_id: int,
     through_week: int | None = None,
+    weeks: tuple[int, ...] | None = None,
 ) -> tuple[TeamWeekRoster, ...]:
+    """Load stored rosters using canonical internal identities."""
+
     statement = (
-        select(PlayerWeekScore, Team)
+        select(
+            PlayerWeekScore,
+            Team,
+        )
         .join(
             Team,
             PlayerWeekScore.team_id == Team.id,
         )
-        .join(
-            Season,
-            PlayerWeekScore.season_id == Season.id,
-        )
-        .join(
-            League,
-            Season.league_id == League.id,
-        )
         .where(
-            League.espn_league_id == espn_league_id,
-            Season.year == year,
+            PlayerWeekScore.season_id == season_id,
+            Team.season_id == season_id,
         )
         .order_by(
             PlayerWeekScore.week,
-            Team.espn_team_id,
-            PlayerWeekScore.espn_player_id,
+            Team.id,
+            PlayerWeekScore.id,
         )
     )
 
     if through_week is not None:
         statement = statement.where(PlayerWeekScore.week <= through_week)
 
+    if weeks is not None:
+        normalized_weeks = tuple(sorted(set(weeks)))
+
+        if any(not isinstance(week, int) or week < 1 for week in normalized_weeks):
+            raise ValueError("weeks must contain positive integers.")
+
+        statement = statement.where(PlayerWeekScore.week.in_(normalized_weeks))
+
     rows = session.execute(statement).all()
+
+    lineup_definitions = session.scalars(
+        select(LineupSlotDefinition)
+        .where(
+            LineupSlotDefinition.season_id == season_id,
+            LineupSlotDefinition.is_starter.is_(True),
+            LineupSlotDefinition.starter_count > 0,
+        )
+        .order_by(
+            LineupSlotDefinition.slot_order,
+            LineupSlotDefinition.id,
+        )
+    ).all()
+
+    configured_starting_slots = tuple(
+        definition.canonical_slot_code
+        for definition in lineup_definitions
+        for _ in range(definition.starter_count)
+    )
+
+    starting_slots = (
+        configured_starting_slots if configured_starting_slots else DEFAULT_FOOTBALL_STARTING_SLOTS
+    )
 
     grouped_players: dict[
         tuple[int, str, int],
@@ -63,13 +91,13 @@ def load_team_week_rosters(
 
         grouped_players[
             (
-                team.espn_team_id,
+                team.id,
                 team.name,
                 player_score.week,
             )
         ].append(
             PlayerWeekSnapshot(
-                player_id=player_score.espn_player_id,
+                player_id=player_score.id,
                 player_name=player_score.player_name,
                 pro_team=player_score.pro_team,
                 default_position=(player_score.default_position),
@@ -86,7 +114,12 @@ def load_team_week_rosters(
                 is_starter=player_score.is_starter,
                 is_bench=player_score.is_bench,
                 is_injured_reserve=(player_score.is_injured_reserve),
-                is_nfl_bye=bool(metadata.get("on_bye_week", False)),
+                is_nfl_bye=bool(
+                    metadata.get(
+                        "on_bye_week",
+                        False,
+                    )
+                ),
             )
         )
 
@@ -96,6 +129,7 @@ def load_team_week_rosters(
             team_name=team_name,
             week=week,
             players=tuple(players),
+            starting_slots=starting_slots,
         )
         for (
             team_id,

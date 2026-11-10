@@ -4,44 +4,67 @@ import {
 
 import {
   getJson,
+  patchJson,
   postJson,
 } from "./client";
 import type {
-  CreateInvitationRequest,
-  CreatedInvitation,
-  InvitationListResponse,
-  RevokedInvitation,
+  CreateSpectatorRequest,
+} from "../types/setup";
+import type {
+  SpectatorAccount,
+  SyncResult,
+  SyncStatus,
 } from "../types/admin";
 
 
 export const adminQueryKeys = {
   all: ["admin"] as const,
 
-  invitations: () =>
+  spectator: () =>
     [
       ...adminQueryKeys.all,
-      "invitations",
+      "spectator",
+    ] as const,
+
+  syncStatus: () =>
+    [
+      ...adminQueryKeys.all,
+      "sync-status",
     ] as const,
 };
 
-export function invitationListQueryOptions() {
+
+export function spectatorQueryOptions() {
   return queryOptions({
-    queryKey: adminQueryKeys.invitations(),
+    queryKey: adminQueryKeys.spectator(),
     queryFn: ({ signal }) =>
-      getJson<InvitationListResponse>(
-        "/admin/invitations",
+      getJson<SpectatorAccount>(
+        "/admin/spectator",
+        signal,
+      ),
+  });
+}
+
+
+export function syncStatusQueryOptions() {
+  return queryOptions({
+    queryKey: adminQueryKeys.syncStatus(),
+    queryFn: ({ signal }) =>
+      getJson<SyncStatus>(
+        "/admin/sync-status",
         signal,
       ),
     staleTime: 30_000,
   });
 }
 
-export function createInvitation(
-  request: CreateInvitationRequest,
+
+export function createSpectatorAccount(
+  request: CreateSpectatorRequest,
   csrfToken: string,
-): Promise<CreatedInvitation> {
-  return postJson<CreatedInvitation>(
-    "/admin/invitations",
+): Promise<SpectatorAccount> {
+  return postJson<SpectatorAccount>(
+    "/admin/spectator",
     request,
     {
       csrfToken,
@@ -49,13 +72,48 @@ export function createInvitation(
   );
 }
 
-export function revokeInvitation(
-  invitationId: number,
+
+export function resetSpectatorPassword(
+  password: string,
   csrfToken: string,
-): Promise<RevokedInvitation> {
-  return postJson<RevokedInvitation>(
-    `/admin/invitations/${invitationId}/revoke`,
-    {},
+): Promise<SpectatorAccount> {
+  return postJson<SpectatorAccount>(
+    "/admin/spectator/reset-password",
+    {
+      password,
+    },
+    {
+      csrfToken,
+    },
+  );
+}
+
+
+export function setSpectatorAccess(
+  isActive: boolean,
+  csrfToken: string,
+): Promise<SpectatorAccount> {
+  return patchJson<SpectatorAccount>(
+    "/admin/spectator/access",
+    {
+      is_active: isActive,
+    },
+    {
+      csrfToken,
+    },
+  );
+}
+
+
+export function runSynchronization(
+  fullSync: boolean,
+  csrfToken: string,
+): Promise<SyncResult> {
+  return postJson<SyncResult>(
+    "/admin/sync",
+    {
+      full_sync: fullSync,
+    },
     {
       csrfToken,
     },
