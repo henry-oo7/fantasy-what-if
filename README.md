@@ -133,7 +133,7 @@ Do not commit, email, or publicly share the generated `.env` file.
 Edit `.env` and replace the example hostname:
 
 ```text
-APP_VERSION=v1
+APP_VERSION=1
 FRONTEND_ORIGIN=https://fantasy.example.com
 TRUSTED_ORIGINS=https://fantasy.example.com
 ```
@@ -365,7 +365,7 @@ scripts/backup.sh backups/before-upgrade.dump
 Change the version in `.env`:
 
 ```text
-APP_VERSION=v1.1.0
+APP_VERSION=1.1.0
 ```
 
 Pull the new images:
@@ -395,7 +395,7 @@ Application rollback and database rollback are separate operations.
 If the newer release did not apply an incompatible database migration, set `APP_VERSION` to the previous version:
 
 ```text
-APP_VERSION=v1.0.0
+APP_VERSION=1.0.0
 ```
 
 Then pull and restart:
