@@ -227,4 +227,14 @@ def downgrade() -> None:
     op.drop_table("seasons")
     op.drop_index(op.f("ix_leagues_espn_league_id"), table_name="leagues")
     op.drop_table("leagues")
+
+    sa.Enum(
+        "running",
+        "succeeded",
+        "failed",
+        name="sync_status",
+    ).drop(
+        op.get_bind(),
+        checkfirst=True,
+    )
     # ### end Alembic commands ###
