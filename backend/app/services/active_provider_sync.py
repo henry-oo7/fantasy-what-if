@@ -12,6 +12,9 @@ from app.services.provider_sync import (
     ProviderSyncResult,
     synchronize_provider,
 )
+from app.services.season_lifecycle_reconciliation import (
+    reconcile_stale_active_season,
+)
 
 
 def synchronize_active_season(
@@ -21,6 +24,8 @@ def synchronize_active_season(
     full_sync: bool,
 ) -> ProviderSyncResult:
     """Synchronize the active season through its resolved adapter."""
+
+    reconcile_stale_active_season(session)
 
     context, provider = resolve_active_provider_adapter(
         session=session,

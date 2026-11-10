@@ -35,6 +35,7 @@ def setup_session(
     user_count: int,
     provider_count: int = 0,
     spectator_count: int = 0,
+    imported_season_count: int = 0,
 ) -> MagicMock:
     session = MagicMock()
 
@@ -44,6 +45,7 @@ def setup_session(
         user_count,
         provider_count,
         spectator_count,
+        imported_season_count,
     ]
 
     return session
@@ -139,6 +141,7 @@ def test_active_installation_reports_complete_progress() -> None:
             user_count=2,
             provider_count=1,
             spectator_count=1,
+            imported_season_count=1,
         )
     )
 
@@ -166,11 +169,35 @@ def test_active_installation_can_exist_without_spectator() -> None:
             user_count=1,
             provider_count=1,
             spectator_count=0,
+            imported_season_count=1,
         )
     )
 
     assert state.active_league_configured is True
     assert state.spectator_configured is False
+
+
+def test_historical_only_installation_reports_complete_progress() -> None:
+    state = resolve_setup_state(
+        setup_session(
+            installations=[
+                installation(
+                    status=InstallationStatus.ACTIVE,
+                    active_league_id=1,
+                    active_season_id=None,
+                )
+            ],
+            user_count=2,
+            provider_count=1,
+            spectator_count=1,
+            imported_season_count=1,
+        )
+    )
+
+    assert state.status is InstallationStatus.ACTIVE
+    assert state.active_league_configured is True
+    assert state.provider_configured is True
+    assert state.spectator_configured is True
 
 
 def test_multiple_spectators_are_rejected() -> None:

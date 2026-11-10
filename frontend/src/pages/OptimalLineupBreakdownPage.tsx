@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, RefreshCw } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
 import { teamOptimalLineupQueryOptions } from "../api/analytics";
 import { ApiError } from "../api/client";
@@ -471,7 +471,13 @@ function WeekPanel({ week, expanded, onToggle }: WeekPanelProps) {
 }
 
 export function OptimalLineupBreakdownPage() {
+  const location = useLocation();
   const { teamId: teamIdParameter } = useParams();
+
+  const optimalLineupsLocation = {
+    pathname: "/optimal-lineups",
+    search: location.search,
+  };
 
   const parsedTeamId = Number(teamIdParameter);
 
@@ -489,7 +495,7 @@ export function OptimalLineupBreakdownPage() {
 
         <p>The optimal-lineup detail link does not contain a valid team ID.</p>
 
-        <Link to="/optimal-lineups">Return to optimal lineups</Link>
+        <Link to={optimalLineupsLocation}>Return to optimal lineups</Link>
       </section>
     );
   }
@@ -525,7 +531,7 @@ export function OptimalLineupBreakdownPage() {
           Try again
         </button>
 
-        <Link to="/optimal-lineups">Return to optimal lineups</Link>
+        <Link to={optimalLineupsLocation}>Return to optimal lineups</Link>
       </section>
     );
   }
@@ -534,7 +540,7 @@ export function OptimalLineupBreakdownPage() {
 
   return (
     <div className="optimal-breakdown-page">
-      <Link className="optimal-breakdown-back" to="/optimal-lineups">
+      <Link className="optimal-breakdown-back" to={optimalLineupsLocation}>
         <ArrowLeft aria-hidden="true" />
         <span>All optimal lineups</span>
       </Link>

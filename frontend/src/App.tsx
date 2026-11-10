@@ -15,6 +15,7 @@ import {
   importedSeasonsQueryOptions,
 } from "./api/league";
 import { useAuth } from "./auth/AuthProvider";
+import { seasonPresentation } from "./utils/seasonPresentation";
 import "./App.css";
 
 function errorMessage(error: unknown): string {
@@ -76,11 +77,6 @@ export default function App() {
 
   const league = leagueQuery.data;
 
-  const completedWeeks = Math.max(
-    Math.min(league.current_week - 1, league.regular_season_weeks),
-    0,
-  );
-
   const teamNames = new Map(
     league.teams.map((team) => [team.team_id, team.name]),
   );
@@ -94,12 +90,14 @@ export default function App() {
     (matchup) => matchup.week === latestCompletedWeek,
   );
 
-  const activeSeason = importedSeasonsQuery.data?.seasons.find(
-    (season) => season.is_active,
+  const viewedSeason = importedSeasonsQuery.data?.seasons.find(
+    (season) => season.year === league.season,
   );
 
+  const seasonView = seasonPresentation(league, viewedSeason);
+
   const lastSyncedLabel = (() => {
-    if (!activeSeason?.last_synced_at) {
+    if (!viewedSeason?.last_synced_at) {
       if (importedSeasonsQuery.isPending) {
         return "Checking last sync";
       }
@@ -107,7 +105,7 @@ export default function App() {
       return "Last sync unavailable";
     }
 
-    const timestamp = new Date(activeSeason.last_synced_at);
+    const timestamp = new Date(viewedSeason.last_synced_at);
 
     if (Number.isNaN(timestamp.getTime())) {
       return "Last sync unavailable";
@@ -144,7 +142,7 @@ export default function App() {
     <div className="dashboard-page">
       <header className="dashboard-header">
         <div>
-          <p className="page-kicker">Week {league.current_week}</p>
+          <p className="page-kicker">{seasonView.pageKicker}</p>
 
           <h1>Welcome back, {auth.user?.display_name.split(" ")[0]}</h1>
 
@@ -156,7 +154,7 @@ export default function App() {
         <div className="season-status">
           <span className="live-indicator">
             <CircleDot aria-hidden="true" />
-            Season active
+            {seasonView.statusLabel}
           </span>
 
           <strong>{league.season}</strong>
@@ -226,8 +224,8 @@ export default function App() {
 
         <div className="scoreboard-footer">
           <span>
-            {completedWeeks} of {league.regular_season_weeks} regular-season
-            weeks complete
+            {seasonView.completedWeeks} of {league.regular_season_weeks}{" "}
+            regular-season weeks complete
           </span>
 
           <strong>{lastSyncedLabel}</strong>
@@ -241,8 +239,8 @@ export default function App() {
           </span>
 
           <div>
-            <p>Current week</p>
-            <strong>Week {league.current_week}</strong>
+            <p>{seasonView.periodLabel}</p>
+            <strong>{seasonView.periodValue}</strong>
           </div>
         </article>
 
@@ -292,7 +290,11 @@ export default function App() {
             <h2 id="standings-heading">League standings</h2>
           </div>
 
-          <span>Through week {completedWeeks}</span>
+          <span>
+            {seasonView.isActive
+              ? `Through week ${seasonView.completedWeeks}`
+              : seasonView.statusLabel}
+          </span>
         </div>
 
         <div className="standings-list">

@@ -60,7 +60,6 @@ class SetupProviderConnectionRequest(BaseModel):
     """Provider configuration submitted during setup."""
 
     provider: Literal["espn", "sleeper", "yahoo"]
-    display_name: str
     league_id: str
     season: str
     espn_s2: str | None = None

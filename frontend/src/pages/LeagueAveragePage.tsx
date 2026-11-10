@@ -1,20 +1,15 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  RefreshCw,
-  Trophy,
-} from "lucide-react";
+import { RefreshCw, Trophy } from "lucide-react";
 
-import {
-  leagueAverageQueryOptions,
-} from "../api/analytics";
+import { leagueAverageQueryOptions } from "../api/analytics";
 import { ApiError } from "../api/client";
 import {
   currentLeagueQueryOptions,
+  importedSeasonsQueryOptions,
 } from "../api/league";
-import type {
-  AnalyticsRecord,
-} from "../types/analytics";
+import type { AnalyticsRecord } from "../types/analytics";
+import { seasonPresentation } from "../utils/seasonPresentation";
 import "./LeagueAveragePage.css";
 
 function errorMessage(error: unknown): string {
@@ -29,33 +24,21 @@ function errorMessage(error: unknown): string {
   return "Unable to load league-average standings.";
 }
 
-function recordLabel(
-  record: AnalyticsRecord,
-): string {
+function recordLabel(record: AnalyticsRecord): string {
   return `${record.wins}-${record.losses}-${record.ties}`;
 }
 
 export function LeagueAveragePage() {
+  const leagueQuery = useQuery(currentLeagueQueryOptions());
 
-  const leagueQuery = useQuery(
-    currentLeagueQueryOptions(),
-  );
+  const standingsQuery = useQuery(leagueAverageQueryOptions());
 
-  const standingsQuery = useQuery(
-    leagueAverageQueryOptions(),
-  );
+  const importedSeasonsQuery = useQuery(importedSeasonsQueryOptions());
 
   const latestLeagueAverage = useMemo(() => {
-    const latestWeeklyResult =
-      standingsQuery.data
-        ?.flatMap(
-          (standing) =>
-            standing.weekly_results,
-        )
-        .sort(
-          (first, second) =>
-            second.week - first.week,
-        )[0];
+    const latestWeeklyResult = standingsQuery.data
+      ?.flatMap((standing) => standing.weekly_results)
+      .sort((first, second) => second.week - first.week)[0];
 
     if (latestWeeklyResult === undefined) {
       return null;
@@ -63,79 +46,50 @@ export function LeagueAveragePage() {
 
     return {
       week: latestWeeklyResult.week,
-      average:
-        latestWeeklyResult.league_average,
+      average: latestWeeklyResult.league_average,
     };
   }, [standingsQuery.data]);
 
   const seasonLeagueAverage = useMemo(() => {
-    const weeklyResults =
-      standingsQuery.data?.[0]?.weekly_results ??
-      [];
+    const weeklyResults = standingsQuery.data?.[0]?.weekly_results ?? [];
 
     if (weeklyResults.length === 0) {
       return null;
     }
 
     const total = weeklyResults.reduce(
-      (sum, weeklyResult) =>
-        sum + weeklyResult.league_average,
+      (sum, weeklyResult) => sum + weeklyResult.league_average,
       0,
     );
 
     return total / weeklyResults.length;
   }, [standingsQuery.data]);
 
-  if (
-    leagueQuery.isPending ||
-    standingsQuery.isPending
-  ) {
+  if (leagueQuery.isPending || standingsQuery.isPending) {
     return (
-      <section
-        className="app-state"
-        aria-live="polite"
-      >
-        <RefreshCw
-          className="spinner"
-          aria-hidden="true"
-        />
+      <section className="app-state" aria-live="polite">
+        <RefreshCw className="spinner" aria-hidden="true" />
 
         <h1>Calculating league-average records</h1>
 
-        <p>
-          Comparing each weekly score against the
-          full league average.
-        </p>
+        <p>Comparing each weekly score against the full league average.</p>
       </section>
     );
   }
 
-  if (
-    leagueQuery.isError ||
-    standingsQuery.isError
-  ) {
-    const currentError =
-      leagueQuery.error ??
-      standingsQuery.error;
+  if (leagueQuery.isError || standingsQuery.isError) {
+    const currentError = leagueQuery.error ?? standingsQuery.error;
 
     return (
-      <section
-        className="app-state"
-        aria-live="assertive"
-      >
-        <h1>
-          Unable to load league-average standings
-        </h1>
+      <section className="app-state" aria-live="assertive">
+        <h1>Unable to load league-average standings</h1>
 
         <p>{errorMessage(currentError)}</p>
 
         <button
           type="button"
           onClick={() => {
-            void Promise.all([
-              leagueQuery.refetch(),
-              standingsQuery.refetch(),
-            ]);
+            void Promise.all([leagueQuery.refetch(), standingsQuery.refetch()]);
           }}
         >
           Try again
@@ -147,21 +101,23 @@ export function LeagueAveragePage() {
   const league = leagueQuery.data;
   const standings = standingsQuery.data;
 
+  const viewedSeason = importedSeasonsQuery.data?.seasons.find(
+    (season) => season.year === league.season,
+  );
+
+  const seasonView = seasonPresentation(league, viewedSeason);
+
   return (
     <div className="league-average-page">
       <header className="league-average-header">
-        <p className="page-kicker">
-          Weekly scoring benchmark
-        </p>
+        <p className="page-kicker">Weekly scoring benchmark</p>
 
         <h1>League Average</h1>
 
         <p>
-          Each team keeps its scheduled result and
-          also earns a second weekly decision against
-          the league&apos;s average score. This
-          rewards teams that consistently outperform
-          the weekly field, even when the scheduled
+          Each team keeps its scheduled result and also earns a second weekly
+          decision against the league&apos;s average score. This rewards teams
+          that consistently outperform the weekly field, even when the scheduled
           matchup goes against them.
         </p>
       </header>
@@ -172,29 +128,18 @@ export function LeagueAveragePage() {
       >
         <article>
           <span>Current leader</span>
-          <strong>
-            {standings[0]?.team_name ??
-              "Unavailable"}
-          </strong>
+          <strong>{standings[0]?.team_name ?? "Unavailable"}</strong>
           <small>
             {standings[0]
-              ? recordLabel(
-                  standings[0].combined_record,
-                )
+              ? recordLabel(standings[0].combined_record)
               : "No completed results"}
           </small>
         </article>
 
         <article>
-          <span>Current week</span>
-          <strong>
-            Week {league.current_week}
-          </strong>
-          <small>
-            Through week{" "}
-            {Math.max(league.current_week - 1, 0)}{" "}
-            results included
-          </small>
+          <span>{seasonView.periodLabel}</span>
+          <strong>{seasonView.periodValue}</strong>
+          <small>{seasonView.periodDetail}</small>
         </article>
 
         <article>
@@ -202,9 +147,7 @@ export function LeagueAveragePage() {
 
           <strong>
             {latestLeagueAverage
-              ? `${latestLeagueAverage.average.toFixed(
-                  2,
-                )} points`
+              ? `${latestLeagueAverage.average.toFixed(2)} points`
               : "Unavailable"}
           </strong>
 
@@ -220,16 +163,11 @@ export function LeagueAveragePage() {
 
           <strong>
             {seasonLeagueAverage !== null
-              ? `${seasonLeagueAverage.toFixed(
-                  2,
-                )} points`
+              ? `${seasonLeagueAverage.toFixed(2)} points`
               : "Unavailable"}
           </strong>
 
-          <small>
-            Average league score across all completed
-            weeks
-          </small>
+          <small>Average league score across all completed weeks</small>
         </article>
       </section>
 
@@ -239,13 +177,9 @@ export function LeagueAveragePage() {
       >
         <div className="league-average-panel-heading">
           <div>
-            <p className="panel-kicker">
-              Combined weekly record
-            </p>
+            <p className="panel-kicker">Combined weekly record</p>
 
-            <h2 id="league-average-heading">
-              Adjusted standings
-            </h2>
+            <h2 id="league-average-heading">Adjusted standings</h2>
           </div>
 
           <span>{league.season} season</span>
@@ -262,76 +196,42 @@ export function LeagueAveragePage() {
 
         <div className="league-average-standings">
           {standings.map((standing) => {
-
             return (
-              <article
-              key={standing.team_id}
-              className="league-average-row"
-            >
+              <article key={standing.team_id} className="league-average-row">
                 <div className="league-average-rank">
-                  {standing.rank === 1 ? (
-                    <Trophy aria-hidden="true" />
-                  ) : null}
+                  {standing.rank === 1 ? <Trophy aria-hidden="true" /> : null}
 
                   <strong>{standing.rank}</strong>
                 </div>
 
                 <div className="league-average-team">
-                  <strong>
-                    {standing.team_name}
-                  </strong>
+                  <strong>{standing.team_name}</strong>
 
-                  <small>
-                  {standing.points_for.toFixed(1)} total points
-                </small>
+                  <small>{standing.points_for.toFixed(1)} total points</small>
                 </div>
 
                 <div className="league-average-record league-average-actual">
-                  <span className="mobile-field-label">
-                    Actual
-                  </span>
+                  <span className="mobile-field-label">Actual</span>
 
-                  <strong>
-                    {recordLabel(
-                      standing.actual_record,
-                    )}
-                  </strong>
+                  <strong>{recordLabel(standing.actual_record)}</strong>
                 </div>
 
                 <div className="league-average-record league-average-versus-average">
-                  <span className="mobile-field-label">
-                    Vs. average
-                  </span>
+                  <span className="mobile-field-label">Vs. average</span>
 
-                  <strong>
-                    {recordLabel(
-                      standing.average_record,
-                    )}
-                  </strong>
+                  <strong>{recordLabel(standing.average_record)}</strong>
                 </div>
 
                 <div className="league-average-record league-average-combined">
-                  <span className="mobile-field-label">
-                    Combined
-                  </span>
+                  <span className="mobile-field-label">Combined</span>
 
-                  <strong>
-                    {recordLabel(
-                      standing.combined_record,
-                    )}
-                  </strong>
+                  <strong>{recordLabel(standing.combined_record)}</strong>
                 </div>
 
                 <div className="league-average-points">
-                  <span className="mobile-field-label">
-                    Weekly average
-                  </span>
+                  <span className="mobile-field-label">Weekly average</span>
 
-                  <strong>
-                    {standing.average_points_per_week.toFixed(
-                      2,
-                    )}
-                  </strong>
+                  <strong>{standing.average_points_per_week.toFixed(2)}</strong>
                 </div>
               </article>
             );
@@ -343,11 +243,10 @@ export function LeagueAveragePage() {
         <h2>How the combined record works</h2>
 
         <p>
-          Each completed week counts twice. The first
-          decision comes from the scheduled matchup.
-          The second comes from scoring above or below
-          the league average. A team therefore has two
-          possible wins, losses, or ties per week.
+          Each completed week counts twice. The first decision comes from the
+          scheduled matchup. The second comes from scoring above or below the
+          league average. A team therefore has two possible wins, losses, or
+          ties per week.
         </p>
       </section>
     </div>

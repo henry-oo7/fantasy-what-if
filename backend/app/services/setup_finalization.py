@@ -28,6 +28,10 @@ from app.services.provider_sync import (
     ProviderSyncResult,
     synchronize_provider,
 )
+from app.services.season_lifecycle import (
+    FutureSeasonImportError,
+    classify_imported_season,
+)
 
 SETUP_FINALIZATION_LOCK_KEY = 1_179_921_930
 
@@ -186,6 +190,14 @@ def finalize_installation_setup(
 
     timestamp = now or datetime.now(UTC)
 
+    try:
+        lifecycle = classify_imported_season(
+            season_year=provider_league.season_year,
+            now=timestamp,
+        )
+    except FutureSeasonImportError as exc:
+        raise SetupFinalizationValidationError(str(exc)) from exc
+
     league = League(
         installation_id=installation.id,
         provider=connection.provider,
@@ -223,11 +235,12 @@ def finalize_installation_setup(
         commit_transaction=False,
     )
 
-    season.status = SeasonStatus.ACTIVE
-    season.activated_at = timestamp
+    season.status = lifecycle.status
+    season.activated_at = lifecycle.activated_at
+    season.completed_at = lifecycle.completed_at
 
     installation.active_league_id = league.id
-    installation.active_season_id = season.id
+    installation.active_season_id = season.id if lifecycle.synchronization_enabled else None
     installation.status = InstallationStatus.ACTIVE
     installation.setup_completed_at = timestamp
 

@@ -9,7 +9,7 @@ import {
   Target,
   X,
 } from "lucide-react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../auth/AuthProvider";
 import { SeasonMenu } from "./SeasonMenu";
@@ -85,6 +85,7 @@ const navigationItems: NavigationItem[] = [
 
 export function AppShell() {
   const auth = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -222,7 +223,10 @@ export function AppShell() {
             return (
               <NavLink
                 key={item.path}
-                to={item.path}
+                to={{
+                  pathname: item.path,
+                  search: location.search,
+                }}
                 end={item.end}
                 onClick={() => {
                   setDrawerOpen(false);
@@ -241,7 +245,10 @@ export function AppShell() {
         <div className="sidebar-account">
           {auth.user.role === "admin" ? (
             <NavLink
-              to="/admin"
+              to={{
+                pathname: "/admin",
+                search: location.search,
+              }}
               className={({ isActive }) =>
                 isActive
                   ? "sidebar-user sidebar-user-link sidebar-user-link-active"

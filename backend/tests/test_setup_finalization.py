@@ -38,6 +38,13 @@ from app.services.setup_finalization import (
 class FakeProvider:
     provider = FantasyProvider.ESPN
 
+    def __init__(
+        self,
+        *,
+        season_year: int = 2026,
+    ) -> None:
+        self.season_year = season_year
+
     def validate_configuration(
         self,
     ) -> ProviderValidationResult:
@@ -53,10 +60,10 @@ class FakeProvider:
         return (
             ProviderLeagueReference(
                 provider_league_id="529250970",
-                provider_season_id="2026",
+                provider_season_id=str(self.season_year),
                 name="Jimmy and Friends",
                 sport=FantasySport.FOOTBALL,
-                season_year=2026,
+                season_year=self.season_year,
                 logo_url=None,
             ),
         )
@@ -68,14 +75,14 @@ class FakeProvider:
         provider_season_id: str,
     ) -> ProviderLeague:
         assert provider_league_id == "529250970"
-        assert provider_season_id == "2026"
+        assert provider_season_id == str(self.season_year)
 
         return ProviderLeague(
             provider_league_id="529250970",
-            provider_season_id="2026",
+            provider_season_id=str(self.season_year),
             name="Jimmy and Friends",
             sport=FantasySport.FOOTBALL,
-            season_year=2026,
+            season_year=self.season_year,
             current_week=9,
             regular_season_weeks=12,
             playoff_week_start=None,
@@ -113,12 +120,17 @@ class FakeProvider:
         raise AssertionError("Synchronization is mocked in this unit test.")
 
 
-def registry() -> ProviderRegistry:
+def registry(
+    *,
+    season_year: int = 2026,
+) -> ProviderRegistry:
     result = ProviderRegistry()
 
     result.register(
         FantasyProvider.ESPN,
-        lambda _: FakeProvider(),
+        lambda _: FakeProvider(
+            season_year=season_year,
+        ),
     )
 
     return result
@@ -295,4 +307,73 @@ def test_existing_league_blocks_finalization() -> None:
             registry=registry(),
         )
 
+    session.commit.assert_not_called()
+
+
+def test_historical_finalization_completes_without_active_sync_season() -> None:
+    key, installation, connection = setup_objects()
+    session = setup_session(
+        installation,
+        connection,
+    )
+    timestamp = datetime(
+        2026,
+        11,
+        10,
+        tzinfo=UTC,
+    )
+
+    with patch(
+        "app.services.setup_finalization.synchronize_provider",
+        return_value=SimpleNamespace(
+            season_id=9,
+        ),
+    ):
+        finalize_installation_setup(
+            session,
+            credential_key=key,
+            registry=registry(
+                season_year=2025,
+            ),
+            now=timestamp,
+        )
+
+    added = [call.args[0] for call in session.add.call_args_list]
+    season = next(value for value in added if isinstance(value, Season))
+
+    assert installation.status is InstallationStatus.ACTIVE
+    assert installation.active_league_id == 8
+    assert installation.active_season_id is None
+    assert season.status is SeasonStatus.COMPLETED
+    assert season.activated_at is None
+    assert season.completed_at == timestamp
+
+
+def test_future_finalization_is_rejected_before_database_inserts() -> None:
+    key, installation, connection = setup_objects()
+    session = setup_session(
+        installation,
+        connection,
+    )
+    timestamp = datetime(
+        2026,
+        11,
+        10,
+        tzinfo=UTC,
+    )
+
+    with pytest.raises(
+        Exception,
+        match=("Season 2027 cannot be imported before the 2027 calendar year"),
+    ):
+        finalize_installation_setup(
+            session,
+            credential_key=key,
+            registry=registry(
+                season_year=2027,
+            ),
+            now=timestamp,
+        )
+
+    session.add.assert_not_called()
     session.commit.assert_not_called()

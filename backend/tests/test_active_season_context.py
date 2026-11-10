@@ -3,7 +3,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.db.models import League, Season
-from app.db.platform_enums import InstallationStatus
+from app.db.platform_enums import (
+    InstallationStatus,
+    SeasonStatus,
+)
 from app.db.platform_models import Installation
 from app.services.active_season_context import (
     ActiveSeasonContext,
@@ -66,6 +69,7 @@ def test_resolves_active_internal_identities() -> None:
         year=2026,
         current_week=9,
         regular_season_weeks=12,
+        status=SeasonStatus.ACTIVE,
     )
 
     context = resolve_active_season_context(

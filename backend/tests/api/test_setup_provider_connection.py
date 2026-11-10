@@ -145,7 +145,7 @@ def test_admin_can_store_valid_provider_metadata() -> None:
 
     assert captured == {
         "provider": FantasyProvider.ESPN,
-        "display_name": "ESPN League",
+        "display_name": "ESPN Fantasy Football",
         "credentials": {
             "league_id": "529250970",
             "season": "2026",

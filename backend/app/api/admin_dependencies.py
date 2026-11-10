@@ -32,3 +32,48 @@ def run_synchronization(
 
 def get_synchronization_runner() -> SynchronizationRunner:
     return run_synchronization
+
+
+class SeasonImporter(Protocol):
+    """Callable that imports another provider season."""
+
+    def __call__(
+        self,
+        *,
+        season_year: int,
+    ): ...
+
+
+def import_season(
+    *,
+    season_year: int,
+):
+    """Import another season using configured credentials."""
+
+    from app.providers.credential_vault import (
+        ProviderCredentialConfigurationError,
+    )
+    from app.services.season_import import (
+        import_provider_season,
+    )
+
+    settings = get_settings()
+    key_setting = settings.provider_credential_key
+
+    if key_setting is None:
+        raise ProviderCredentialConfigurationError(
+            "Provider credential encryption is not configured."
+        )
+
+    with SessionFactory() as session:
+        return import_provider_season(
+            session,
+            season_year=season_year,
+            credential_key=(key_setting.get_secret_value()),
+        )
+
+
+def get_season_importer() -> SeasonImporter:
+    """Return the production season importer."""
+
+    return import_season

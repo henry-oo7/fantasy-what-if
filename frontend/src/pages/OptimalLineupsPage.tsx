@@ -1,18 +1,15 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowRight,
-  RefreshCw,
-} from "lucide-react";
-import { Link } from "react-router-dom";
+import { ArrowRight, RefreshCw } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
 
-import {
-  optimalLineupsQueryOptions,
-} from "../api/analytics";
+import { optimalLineupsQueryOptions } from "../api/analytics";
 import { ApiError } from "../api/client";
 import {
   currentLeagueQueryOptions,
+  importedSeasonsQueryOptions,
 } from "../api/league";
+import { seasonPresentation } from "../utils/seasonPresentation";
 import "./OptimalLineupsPage.css";
 
 function errorMessage(error: unknown): string {
@@ -27,9 +24,7 @@ function errorMessage(error: unknown): string {
   return "Unable to load optimal-lineup analysis.";
 }
 
-function efficiencyClass(
-  efficiency: number,
-): string {
+function efficiencyClass(efficiency: number): string {
   if (efficiency >= 90) {
     return "efficiency-value efficiency-elite";
   }
@@ -42,14 +37,13 @@ function efficiencyClass(
 }
 
 export function OptimalLineupsPage() {
+  const location = useLocation();
 
-  const leagueQuery = useQuery(
-    currentLeagueQueryOptions(),
-  );
+  const leagueQuery = useQuery(currentLeagueQueryOptions());
 
-  const lineupsQuery = useQuery(
-    optimalLineupsQueryOptions(),
-  );
+  const lineupsQuery = useQuery(optimalLineupsQueryOptions());
+
+  const importedSeasonsQuery = useQuery(importedSeasonsQueryOptions());
 
   const mostMissedPoints = useMemo(() => {
     if (!lineupsQuery.data?.length) {
@@ -58,65 +52,39 @@ export function OptimalLineupsPage() {
 
     return [...lineupsQuery.data].sort(
       (first, second) =>
-        second.missed_points -
-          first.missed_points ||
-        first.team_name.localeCompare(
-          second.team_name,
-        ),
+        second.missed_points - first.missed_points ||
+        first.team_name.localeCompare(second.team_name),
     )[0];
   }, [lineupsQuery.data]);
 
-  if (
-    leagueQuery.isPending ||
-    lineupsQuery.isPending
-  ) {
+  if (leagueQuery.isPending || lineupsQuery.isPending) {
     return (
-      <section
-        className="app-state"
-        aria-live="polite"
-      >
-        <RefreshCw
-          className="spinner"
-          aria-hidden="true"
-        />
+      <section className="app-state" aria-live="polite">
+        <RefreshCw className="spinner" aria-hidden="true" />
 
         <h1>Calculating optimal lineups</h1>
 
         <p>
-          Comparing actual starters with the
-          highest-scoring legal lineup from each
-          weekly roster.
+          Comparing actual starters with the highest-scoring legal lineup from
+          each weekly roster.
         </p>
       </section>
     );
   }
 
-  if (
-    leagueQuery.isError ||
-    lineupsQuery.isError
-  ) {
-    const currentError =
-      leagueQuery.error ??
-      lineupsQuery.error;
+  if (leagueQuery.isError || lineupsQuery.isError) {
+    const currentError = leagueQuery.error ?? lineupsQuery.error;
 
     return (
-      <section
-        className="app-state"
-        aria-live="assertive"
-      >
-        <h1>
-          Unable to load optimal-lineup analysis
-        </h1>
+      <section className="app-state" aria-live="assertive">
+        <h1>Unable to load optimal-lineup analysis</h1>
 
         <p>{errorMessage(currentError)}</p>
 
         <button
           type="button"
           onClick={() => {
-            void Promise.all([
-              leagueQuery.refetch(),
-              lineupsQuery.refetch(),
-            ]);
+            void Promise.all([leagueQuery.refetch(), lineupsQuery.refetch()]);
           }}
         >
           Try again
@@ -128,24 +96,26 @@ export function OptimalLineupsPage() {
   const league = leagueQuery.data;
   const summaries = lineupsQuery.data;
 
+  const viewedSeason = importedSeasonsQuery.data?.seasons.find(
+    (season) => season.year === league.season,
+  );
+
+  const seasonView = seasonPresentation(league, viewedSeason);
+
   const leader = summaries[0];
 
   return (
     <div className="optimal-lineups-page">
       <header className="optimal-lineups-header">
-        <p className="page-kicker">
-          Manager decision analysis
-        </p>
+        <p className="page-kicker">Manager decision analysis</p>
 
         <h1>Optimal Lineups</h1>
 
         <p>
-          Optimal Lineups compares the players each
-          manager started with the highest-scoring
-          legal lineup available from that
-          manager&apos;s actual weekly roster. A
-          higher efficiency percentage means fewer
-          points were left on the bench.
+          Optimal Lineups compares the players each manager started with the
+          highest-scoring legal lineup available from that manager&apos;s actual
+          weekly roster. A higher efficiency percentage means fewer points were
+          left on the bench.
         </p>
       </header>
 
@@ -156,56 +126,39 @@ export function OptimalLineupsPage() {
         <article>
           <span>Efficiency leader</span>
 
-          <strong>
-            {leader?.team_name ?? "Unavailable"}
-          </strong>
+          <strong>{leader?.team_name ?? "Unavailable"}</strong>
 
           <small>
             {leader
-              ? `${leader.efficiency_percentage.toFixed(
-                  2,
-                )}% efficient`
+              ? `${leader.efficiency_percentage.toFixed(2)}% efficient`
               : "No completed results"}
           </small>
         </article>
 
         <article>
-          <span>Current week</span>
+          <span>{seasonView.periodLabel}</span>
 
-          <strong>
-            Week {league.current_week}
-          </strong>
+          <strong>{seasonView.periodValue}</strong>
 
-          <small>
-            Through week{" "}
-            {Math.max(league.current_week - 1, 0)}{" "}
-            results included
-          </small>
+          <small>{seasonView.periodDetail}</small>
         </article>
 
         <article>
-        <span>Teams analyzed</span>
+          <span>Teams analyzed</span>
 
-        <strong>{summaries.length}</strong>
+          <strong>{summaries.length}</strong>
 
-        <small>
-          Every available weekly roster is included
-        </small>
-      </article>
+          <small>Every available weekly roster is included</small>
+        </article>
 
         <article>
           <span>Most missed points</span>
 
-          <strong>
-            {mostMissedPoints?.team_name ??
-              "Unavailable"}
-          </strong>
+          <strong>{mostMissedPoints?.team_name ?? "Unavailable"}</strong>
 
           <small>
             {mostMissedPoints
-              ? `${mostMissedPoints.missed_points.toFixed(
-                  2,
-                )} points`
+              ? `${mostMissedPoints.missed_points.toFixed(2)} points`
               : "No completed results"}
           </small>
         </article>
@@ -217,13 +170,9 @@ export function OptimalLineupsPage() {
       >
         <div className="optimal-lineups-panel-heading">
           <div>
-            <p className="panel-kicker">
-              Season manager ranking
-            </p>
+            <p className="panel-kicker">Season manager ranking</p>
 
-            <h2 id="efficiency-heading">
-              Lineup efficiency
-            </h2>
+            <h2 id="efficiency-heading">Lineup efficiency</h2>
           </div>
 
           <span>{league.season} season</span>
@@ -240,118 +189,83 @@ export function OptimalLineupsPage() {
         </div>
 
         <div className="optimal-lineups-ranking">
-          {summaries.map(
-            (summary, index) => {
-              const rank = index + 1;
+          {summaries.map((summary, index) => {
+            const rank = index + 1;
 
-              return (
-                <article
-                key={summary.team_id}
-                className="optimal-lineups-row"
-              >
-                  <div className="optimal-rank">
-                    <strong>{rank}</strong>
-                  </div>
+            return (
+              <article key={summary.team_id} className="optimal-lineups-row">
+                <div className="optimal-rank">
+                  <strong>{rank}</strong>
+                </div>
 
-                  <div className="optimal-team">
-                  <strong>
-                    {summary.team_name}
-                  </strong>
+                <div className="optimal-team">
+                  <strong>{summary.team_name}</strong>
 
                   <small>
-                    {summary.efficiency_percentage.toFixed(2)}%
-                    efficient
+                    {summary.efficiency_percentage.toFixed(2)}% efficient
                   </small>
                 </div>
 
-                  <div className="optimal-stat">
-                    <span className="mobile-field-label">
-                      Actual
-                    </span>
+                <div className="optimal-stat">
+                  <span className="mobile-field-label">Actual</span>
 
-                    <strong>
-                      {summary.actual_points.toFixed(
-                        2,
-                      )}
-                    </strong>
-                  </div>
+                  <strong>{summary.actual_points.toFixed(2)}</strong>
+                </div>
 
-                  <div className="optimal-stat">
-                    <span className="mobile-field-label">
-                      Optimal
-                    </span>
+                <div className="optimal-stat">
+                  <span className="mobile-field-label">Optimal</span>
 
-                    <strong>
-                      {summary.optimal_points.toFixed(
-                        2,
-                      )}
-                    </strong>
-                  </div>
+                  <strong>{summary.optimal_points.toFixed(2)}</strong>
+                </div>
 
-                  <div className="optimal-stat optimal-missed">
-                    <span className="mobile-field-label">
-                      Missed
-                    </span>
+                <div className="optimal-stat optimal-missed">
+                  <span className="mobile-field-label">Missed</span>
 
-                    <strong>
-                      {summary.missed_points.toFixed(
-                        2,
-                      )}
-                    </strong>
-                  </div>
+                  <strong>{summary.missed_points.toFixed(2)}</strong>
+                </div>
 
-                  <div className="optimal-efficiency">
-                    <span className="mobile-field-label">
-                      Efficiency
-                    </span>
+                <div className="optimal-efficiency">
+                  <span className="mobile-field-label">Efficiency</span>
 
-                    <strong
-                      className={efficiencyClass(
-                        summary.efficiency_percentage,
-                      )}
-                    >
-                      {summary.efficiency_percentage.toFixed(
-                        2,
-                      )}
-                      %
-                    </strong>
-
-                    <div
-                      className="efficiency-track"
-                      role="progressbar"
-                      aria-label={`${summary.team_name} lineup efficiency`}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={
-                        summary.efficiency_percentage
-                      }
-                    >
-                      <span
-                        style={{
-                          width: `${Math.min(
-                            Math.max(
-                              summary.efficiency_percentage,
-                              0,
-                            ),
-                            100,
-                          )}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <Link
-                    className="optimal-detail-link"
-                    to={`/optimal-lineups/${summary.team_id}`}
-                    aria-label={`View weekly lineup details for ${summary.team_name}`}
+                  <strong
+                    className={efficiencyClass(summary.efficiency_percentage)}
                   >
-                    <span>View details</span>
-                    <ArrowRight aria-hidden="true" />
-                  </Link>
-                </article>
-              );
-            },
-          )}
+                    {summary.efficiency_percentage.toFixed(2)}%
+                  </strong>
+
+                  <div
+                    className="efficiency-track"
+                    role="progressbar"
+                    aria-label={`${summary.team_name} lineup efficiency`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={summary.efficiency_percentage}
+                  >
+                    <span
+                      style={{
+                        width: `${Math.min(
+                          Math.max(summary.efficiency_percentage, 0),
+                          100,
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <Link
+                  className="optimal-detail-link"
+                  to={{
+                    pathname: `/optimal-lineups/${summary.team_id}`,
+                    search: location.search,
+                  }}
+                  aria-label={`View weekly lineup details for ${summary.team_name}`}
+                >
+                  <span>View details</span>
+                  <ArrowRight aria-hidden="true" />
+                </Link>
+              </article>
+            );
+          })}
         </div>
       </section>
 
@@ -359,14 +273,11 @@ export function OptimalLineupsPage() {
         <h2>What lineup efficiency measures</h2>
 
         <p>
-          Efficiency divides actual starter points
-          by the best legal lineup available from the
-          players rostered that week. Injured-reserve
-          players are excluded, players are never
-          added from waivers, and an unavailable
-          position remains unfilled. The analysis
-          measures lineup decisions, not roster
-          construction.
+          Efficiency divides actual starter points by the best legal lineup
+          available from the players rostered that week. Injured-reserve players
+          are excluded, players are never added from waivers, and an unavailable
+          position remains unfilled. The analysis measures lineup decisions, not
+          roster construction.
         </p>
       </section>
     </div>

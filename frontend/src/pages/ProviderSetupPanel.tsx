@@ -47,7 +47,6 @@ export function ProviderSetupPanel() {
   const queryClient = useQueryClient();
   const providersQuery = useQuery(setupProvidersQueryOptions());
 
-  const [displayName, setDisplayName] = useState("");
   const [leagueId, setLeagueId] = useState("");
   const [season, setSeason] = useState(DEFAULT_SEASON);
   const [espnS2, setEspnS2] = useState("");
@@ -77,7 +76,6 @@ export function ProviderSetupPanel() {
       await createProviderConnection(
         {
           provider: "espn",
-          display_name: displayName,
           league_id: leagueId,
           season,
           espn_s2: espnS2.trim().length > 0 ? espnS2 : null,
@@ -192,24 +190,6 @@ export function ProviderSetupPanel() {
               void handleSubmit(event);
             }}
           >
-            <label className="setup-field">
-              <span className="setup-field-label">League name</span>
-
-              <input
-                value={displayName}
-                onChange={(event) => {
-                  setDisplayName(event.target.value);
-                }}
-                maxLength={120}
-                autoComplete="off"
-                required
-              />
-
-              <small>
-                Use the ESPN league name or another recognizable name.
-              </small>
-            </label>
-
             <label className="setup-field">
               <span className="setup-field-label">ESPN league ID</span>
               <input

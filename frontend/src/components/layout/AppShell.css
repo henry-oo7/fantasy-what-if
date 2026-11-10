@@ -613,3 +613,212 @@
     transition: none;
   }
 }
+
+.season-import-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 14px;
+  border-top: 1px solid #cbd5ce;
+  background: #f7faf8;
+}
+
+.season-import-trigger {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  color: var(--color-green-800);
+  background: #ffffff;
+  border: 1px solid #789082;
+  border-radius: 3px;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.season-import-trigger:hover:not(:disabled) {
+  color: #ffffff;
+  background: var(--color-green-800);
+  border-color: var(--color-green-800);
+}
+
+.season-import-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.season-import-form {
+  display: grid;
+  gap: 12px;
+}
+
+.season-import-form label {
+  display: grid;
+  gap: 6px;
+  color: #26382d;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.season-import-form select {
+  min-height: 40px;
+  padding: 0 10px;
+  color: #ffffff;
+  background: var(--color-green-950);
+  border: 1px solid #496455;
+  border-radius: 3px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.season-import-form select:focus-visible,
+.season-import-actions button:focus-visible,
+.season-import-trigger:focus-visible {
+  outline: 3px solid #719b80;
+  outline-offset: 2px;
+}
+
+.season-import-form p {
+  margin: 0;
+  color: #52675a;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.season-import-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 8px;
+}
+
+.season-import-actions button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.season-import-actions button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.season-import-actions button[type="button"] {
+  color: #31483a;
+  background: #ffffff;
+  border: 1px solid #789082;
+}
+
+.season-import-actions button[type="button"]:hover:not(:disabled) {
+  background: #e7eee9;
+  border-color: #496455;
+}
+
+.season-import-actions button[type="submit"] {
+  color: #ffffff;
+  background: var(--color-green-800);
+  border: 1px solid var(--color-green-800);
+}
+
+.season-import-actions button[type="submit"]:hover:not(:disabled) {
+  background: var(--color-green-950);
+  border-color: var(--color-green-950);
+}
+
+.season-import-actions button:disabled,
+.season-import-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.season-import-progress-panel {
+  display: grid;
+  gap: 7px;
+  padding-top: 2px;
+}
+
+.season-import-progress-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.season-import-progress-heading > div {
+  display: grid;
+  gap: 1px;
+}
+
+.season-import-progress-heading small {
+  color: #52675a;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.season-import-progress-heading strong {
+  color: #26382d;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.season-import-progress-heading > span {
+  color: var(--color-green-800);
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.season-import-progress {
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid #789082;
+  border-radius: 1px;
+  background: #dce5df;
+}
+
+.season-import-progress span {
+  display: block;
+  height: 100%;
+  background: var(--color-green-700);
+  transition: width 250ms linear;
+}
+
+.season-import-progress-detail {
+  color: #52675a;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.season-import-message {
+  margin: 0;
+  padding: 10px 11px;
+  border-left: 3px solid;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.season-import-error {
+  color: #741b18;
+  background: #f5dddd;
+  border-left-color: #b42318;
+}
+
+.season-import-success {
+  color: #174f2d;
+  background: #dcefe3;
+  border-left-color: #237a43;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .season-import-progress span {
+    transition: none;
+  }
+}

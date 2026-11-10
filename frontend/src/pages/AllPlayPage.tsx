@@ -1,18 +1,14 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowDown,
-  ArrowUp,
-  Minus,
-  RefreshCw,
-  Trophy,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, Minus, RefreshCw, Trophy } from "lucide-react";
 
 import { ApiError } from "../api/client";
 import {
   allPlayQueryOptions,
   currentLeagueQueryOptions,
+  importedSeasonsQueryOptions,
 } from "../api/league";
+import { seasonPresentation } from "../utils/seasonPresentation";
 import "./AllPlayPage.css";
 
 function errorMessage(error: unknown): string {
@@ -27,21 +23,15 @@ function errorMessage(error: unknown): string {
   return "Unable to load all-play standings.";
 }
 
-
 export function AllPlayPage() {
+  const leagueQuery = useQuery(currentLeagueQueryOptions());
 
-  const leagueQuery = useQuery(
-    currentLeagueQueryOptions(),
-  );
+  const allPlayQuery = useQuery(allPlayQueryOptions());
 
-  const allPlayQuery = useQuery(
-    allPlayQueryOptions(),
-  );
+  const importedSeasonsQuery = useQuery(importedSeasonsQueryOptions());
 
   const actualRankByTeam = useMemo(() => {
-    const ordered = [
-      ...(leagueQuery.data?.teams ?? []),
-    ].sort(
+    const ordered = [...(leagueQuery.data?.teams ?? [])].sort(
       (first, second) =>
         second.wins - first.wins ||
         first.losses - second.losses ||
@@ -49,59 +39,33 @@ export function AllPlayPage() {
         first.name.localeCompare(second.name),
     );
 
-    return new Map(
-      ordered.map((team, index) => [
-        team.team_id,
-        index + 1,
-      ]),
-    );
+    return new Map(ordered.map((team, index) => [team.team_id, index + 1]));
   }, [leagueQuery.data?.teams]);
 
-  if (
-    leagueQuery.isPending ||
-    allPlayQuery.isPending
-  ) {
+  if (leagueQuery.isPending || allPlayQuery.isPending) {
     return (
-      <section
-        className="app-state"
-        aria-live="polite"
-      >
-        <RefreshCw
-          className="spinner"
-          aria-hidden="true"
-        />
+      <section className="app-state" aria-live="polite">
+        <RefreshCw className="spinner" aria-hidden="true" />
         <h1>Calculating all-play standings</h1>
         <p>
-          Comparing every team against every other
-          team for each completed week.
+          Comparing every team against every other team for each completed week.
         </p>
       </section>
     );
   }
 
-  if (
-    leagueQuery.isError ||
-    allPlayQuery.isError
-  ) {
-    const currentError =
-      leagueQuery.error ??
-      allPlayQuery.error;
+  if (leagueQuery.isError || allPlayQuery.isError) {
+    const currentError = leagueQuery.error ?? allPlayQuery.error;
 
     return (
-      <section
-        className="app-state"
-        aria-live="assertive"
-      >
+      <section className="app-state" aria-live="assertive">
         <h1>Unable to load all-play standings</h1>
         <p>{errorMessage(currentError)}</p>
 
         <button
           type="button"
           onClick={() => {
-            void Promise.all([
-              leagueQuery.refetch(),
-              allPlayQuery.refetch(),
-            ]);
+            void Promise.all([leagueQuery.refetch(), allPlayQuery.refetch()]);
           }}
         >
           Try again
@@ -113,34 +77,32 @@ export function AllPlayPage() {
   const league = leagueQuery.data;
   const standings = allPlayQuery.data;
 
+  const viewedSeason = importedSeasonsQuery.data?.seasons.find(
+    (season) => season.year === league.season,
+  );
+
+  const seasonView = seasonPresentation(league, viewedSeason);
+
   const leader = standings[0];
 
   return (
     <div className="all-play-page">
       <header className="all-play-header">
-        <p className="page-kicker">
-          Schedule-independent results
-        </p>
+        <p className="page-kicker">Schedule-independent results</p>
 
         <h1>All-Play Standings</h1>
 
         <p>
-          All-play shows what each team&apos;s record
-          would be if everyone played everyone each
-          week. It removes schedule luck and provides
-          a clearer measure of weekly team strength.
+          All-play shows what each team&apos;s record would be if everyone
+          played everyone each week. It removes schedule luck and provides a
+          clearer measure of weekly team strength.
         </p>
       </header>
 
-      <section
-        className="all-play-summary"
-        aria-label="All-play summary"
-      >
+      <section className="all-play-summary" aria-label="All-play summary">
         <article className="all-play-summary-item">
           <span>Current leader</span>
-          <strong>
-            {leader?.team_name ?? "Unavailable"}
-          </strong>
+          <strong>{leader?.team_name ?? "Unavailable"}</strong>
           <small>
             {leader
               ? `${leader.wins}-${leader.losses}-${leader.ties}`
@@ -149,24 +111,16 @@ export function AllPlayPage() {
         </article>
 
         <article className="all-play-summary-item">
-          <span>Current week</span>
-          <strong>
-            Week {league.current_week}
-          </strong>
-          <small>
-            Through week{" "}
-            {Math.max(league.current_week - 1, 0)}{" "}
-            results included
-          </small>
+          <span>{seasonView.periodLabel}</span>
+          <strong>{seasonView.periodValue}</strong>
+          <small>{seasonView.periodDetail}</small>
         </article>
 
         <article className="all-play-summary-item">
-        <span>League size</span>
-        <strong>{standings.length} teams</strong>
-        <small>
-          Every team is compared against the full field
-        </small>
-      </article>
+          <span>League size</span>
+          <strong>{standings.length} teams</strong>
+          <small>Every team is compared against the full field</small>
+        </article>
       </section>
 
       <section
@@ -175,13 +129,9 @@ export function AllPlayPage() {
       >
         <div className="all-play-panel-heading">
           <div>
-            <p className="panel-kicker">
-              Performance ranking
-            </p>
+            <p className="panel-kicker">Performance ranking</p>
 
-            <h2 id="all-play-table-heading">
-              League comparison
-            </h2>
+            <h2 id="all-play-table-heading">League comparison</h2>
           </div>
 
           <span>{league.season} season</span>
@@ -199,65 +149,40 @@ export function AllPlayPage() {
         <div className="all-play-standings">
           {standings.map((standing) => {
             const actualRank =
-              actualRankByTeam.get(
-                standing.team_id,
-              ) ?? standing.rank;
+              actualRankByTeam.get(standing.team_id) ?? standing.rank;
 
-            const difference =
-              actualRank - standing.rank;
+            const difference = actualRank - standing.rank;
 
             return (
-              <article
-              key={standing.team_id}
-              className="all-play-row"
-            >
+              <article key={standing.team_id} className="all-play-row">
                 <div className="all-play-rank">
-                  {standing.rank === 1 ? (
-                    <Trophy aria-hidden="true" />
-                  ) : null}
+                  {standing.rank === 1 ? <Trophy aria-hidden="true" /> : null}
 
                   <strong>{standing.rank}</strong>
                 </div>
 
                 <div className="all-play-team">
-                  <strong>
-                    {standing.team_name}
-                  </strong>
+                  <strong>{standing.team_name}</strong>
 
-                  <small>
-                  {standing.points_for.toFixed(1)} points
-                </small>
+                  <small>{standing.points_for.toFixed(1)} points</small>
                 </div>
 
                 <div className="all-play-record">
-                  <span className="mobile-field-label">
-                    Record
-                  </span>
+                  <span className="mobile-field-label">Record</span>
 
                   <strong>
-                    {standing.wins}-
-                    {standing.losses}-
-                    {standing.ties}
+                    {standing.wins}-{standing.losses}-{standing.ties}
                   </strong>
                 </div>
 
                 <div className="all-play-percentage">
-                  <span className="mobile-field-label">
-                    Win rate
-                  </span>
+                  <span className="mobile-field-label">Win rate</span>
 
-                  <strong>
-                    {(
-                      standing.win_percentage * 100
-                    ).toFixed(1)}
-                    %
-                  </strong>
+                  <strong>{(standing.win_percentage * 100).toFixed(1)}%</strong>
                 </div>
 
                 <div className="actual-rank">
-                  <span className="mobile-field-label">
-                    Actual
-                  </span>
+                  <span className="mobile-field-label">Actual</span>
 
                   <strong>#{actualRank}</strong>
                 </div>
@@ -271,9 +196,7 @@ export function AllPlayPage() {
                         : "rank-difference"
                   }
                 >
-                  <span className="rank-difference-label">
-                    Rank difference
-                  </span>
+                  <span className="rank-difference-label">Rank difference</span>
 
                   <span className="rank-difference-value">
                     {difference > 0 ? (
@@ -285,9 +208,7 @@ export function AllPlayPage() {
                     )}
 
                     <strong>
-                      {difference > 0
-                        ? `+${difference}`
-                        : difference}
+                      {difference > 0 ? `+${difference}` : difference}
                     </strong>
                   </span>
                 </div>
@@ -301,12 +222,10 @@ export function AllPlayPage() {
         <h2>How to read the difference</h2>
 
         <p>
-          A positive difference means the team ranks
-          higher in all-play than in the actual
-          standings, which may indicate difficult
-          scheduled opponents. A negative difference
-          means the actual record is stronger than
-          the weekly scoring comparison.
+          A positive difference means the team ranks higher in all-play than in
+          the actual standings, which may indicate difficult scheduled
+          opponents. A negative difference means the actual record is stronger
+          than the weekly scoring comparison.
         </p>
       </section>
     </div>

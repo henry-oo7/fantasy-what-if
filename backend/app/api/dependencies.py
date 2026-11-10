@@ -1,4 +1,6 @@
-from fastapi import HTTPException, status
+from typing import Annotated
+
+from fastapi import HTTPException, Query, status
 
 from app.analytics.optimal_lineup import (
     TeamOptimalLineupSummary,
@@ -16,25 +18,28 @@ from app.repositories.player_week_repository import (
     load_team_week_rosters,
 )
 from app.services.active_season_context import (
-    ActiveSeasonResolutionError,
-    resolve_active_season_context,
+    ViewSeasonResolutionError,
+    resolve_view_season_context,
 )
 
 _STORED_DATA_UNAVAILABLE = "League data has not been synchronized yet."
 
 
-def get_current_league_snapshot() -> LeagueSnapshot:
+def get_current_league_snapshot(
+    season_id: Annotated[int | None, Query(gt=0)] = None,
+) -> LeagueSnapshot:
     try:
         with SessionFactory() as session:
-            context = resolve_active_season_context(
+            context = resolve_view_season_context(
                 session=session,
+                requested_season_id=season_id,
             )
 
             snapshot = load_league_snapshot(
                 session,
                 season_id=context.season_id,
             )
-    except ActiveSeasonResolutionError as exc:
+    except ViewSeasonResolutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
@@ -54,11 +59,14 @@ def get_current_league_snapshot() -> LeagueSnapshot:
     return snapshot
 
 
-def get_completed_team_week_rosters() -> tuple[TeamWeekRoster, ...]:
+def get_completed_team_week_rosters(
+    season_id: Annotated[int | None, Query(gt=0)] = None,
+) -> tuple[TeamWeekRoster, ...]:
     try:
         with SessionFactory() as session:
-            context = resolve_active_season_context(
+            context = resolve_view_season_context(
                 session=session,
+                requested_season_id=season_id,
             )
 
             snapshot = load_league_snapshot(
@@ -79,7 +87,7 @@ def get_completed_team_week_rosters() -> tuple[TeamWeekRoster, ...]:
             )
     except HTTPException:
         raise
-    except ActiveSeasonResolutionError as exc:
+    except ViewSeasonResolutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
@@ -91,20 +99,23 @@ def get_completed_team_week_rosters() -> tuple[TeamWeekRoster, ...]:
         ) from exc
 
 
-def get_persisted_optimal_lineup_summaries() -> tuple[TeamOptimalLineupSummary, ...]:
-    """Load the active season's stored optimal lineups."""
+def get_persisted_optimal_lineup_summaries(
+    season_id: Annotated[int | None, Query(gt=0)] = None,
+) -> tuple[TeamOptimalLineupSummary, ...]:
+    """Load the selected season's stored optimal lineups."""
 
     try:
         with SessionFactory() as session:
-            context = resolve_active_season_context(
+            context = resolve_view_season_context(
                 session=session,
+                requested_season_id=season_id,
             )
 
             summaries = load_optimal_lineup_summaries(
                 session,
                 season_id=context.season_id,
             )
-    except ActiveSeasonResolutionError as exc:
+    except ViewSeasonResolutionError as exc:
         raise HTTPException(
             status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
             detail=str(exc),

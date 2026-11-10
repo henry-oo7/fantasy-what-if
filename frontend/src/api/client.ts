@@ -4,11 +4,7 @@ export class ApiError extends Error {
   readonly status: number;
   readonly detail: string;
 
-  constructor(
-    message: string,
-    status: number,
-    detail: string,
-  ) {
+  constructor(message: string, status: number, detail: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -16,8 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-interface ApiRequestOptions
-  extends Omit<RequestInit, "body"> {
+interface ApiRequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   csrfToken?: string | null;
 }
@@ -26,30 +21,20 @@ interface ErrorPayload {
   detail?: string;
 }
 
-async function parseError(
-  response: Response,
-): Promise<ApiError> {
+async function parseError(response: Response): Promise<ApiError> {
   let detail = `Request failed with status ${response.status}.`;
 
   try {
-    const payload =
-      (await response.json()) as ErrorPayload;
+    const payload = (await response.json()) as ErrorPayload;
 
-    if (
-      typeof payload.detail === "string" &&
-      payload.detail.trim()
-    ) {
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
       detail = payload.detail;
     }
   } catch {
     // Keep the status-based fallback for non-JSON errors.
   }
 
-  return new ApiError(
-    detail,
-    response.status,
-    detail,
-  );
+  return new ApiError(detail, response.status, detail);
 }
 
 export async function apiRequest<T>(
@@ -75,18 +60,12 @@ export async function apiRequest<T>(
     headers.set("X-CSRF-Token", csrfToken);
   }
 
-  const response = await fetch(
-    `${apiBasePath}${path}`,
-    {
-      ...requestOptions,
-      credentials: "include",
-      headers,
-      body:
-        body === undefined
-          ? undefined
-          : JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${apiBasePath}${path}`, {
+    ...requestOptions,
+    credentials: "include",
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 
   if (!response.ok) {
     throw await parseError(response);
@@ -99,11 +78,33 @@ export async function apiRequest<T>(
   return response.json() as Promise<T>;
 }
 
-export function getJson<T>(
-  path: string,
-  signal?: AbortSignal,
-): Promise<T> {
-  return apiRequest<T>(path, {
+function withViewedSeason(path: string): string {
+  if (typeof window === "undefined") {
+    return path;
+  }
+
+  const selectedSeasonId = new URLSearchParams(window.location.search).get(
+    "season_id",
+  );
+
+  if (selectedSeasonId === null || !/^\d+$/.test(selectedSeasonId)) {
+    return path;
+  }
+
+  const [pathname, existingQuery = ""] = path.split("?", 2);
+  const search = new URLSearchParams(existingQuery);
+
+  if (!search.has("season_id")) {
+    search.set("season_id", selectedSeasonId);
+  }
+
+  const query = search.toString();
+
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+export function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return apiRequest<T>(withViewedSeason(path), {
     method: "GET",
     signal,
   });
@@ -125,7 +126,6 @@ export function postJson<T>(
   });
 }
 
-
 export function patchJson<T>(
   path: string,
   body: unknown,
@@ -141,4 +141,3 @@ export function patchJson<T>(
     signal: options.signal,
   });
 }
-

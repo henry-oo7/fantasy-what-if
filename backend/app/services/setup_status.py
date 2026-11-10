@@ -10,6 +10,7 @@ from app.db.auth_models import (
     User,
     UserRole,
 )
+from app.db.models import League, Season
 from app.db.platform_enums import InstallationStatus
 from app.db.platform_models import (
     Installation,
@@ -84,8 +85,23 @@ def resolve_setup_state(
 
     spectator_configured = spectator_count == 1
 
+    imported_season_count = int(
+        session.scalar(
+            select(func.count())
+            .select_from(Season)
+            .join(
+                League,
+                League.id == Season.league_id,
+            )
+            .where(
+                League.installation_id == installation.id,
+            )
+        )
+        or 0
+    )
+
     active_league_configured = (
-        installation.active_league_id is not None and installation.active_season_id is not None
+        installation.active_league_id is not None and imported_season_count > 0
     )
 
     bootstrap_available = (

@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,13 +10,27 @@ from app.api.auth import router as auth_router
 from app.api.leagues import router as leagues_router
 from app.api.setup import router as setup_router
 from app.core.settings import get_settings
+from app.db.session import SessionFactory
+from app.services.season_lifecycle_reconciliation import (
+    reconcile_stale_active_season,
+)
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    with SessionFactory() as session:
+        reconcile_stale_active_season(session)
+
+    yield
+
 
 app = FastAPI(
     title="Fantasy What-If API",
     description=("Backend API and analytics engine for ESPN fantasy football what-if analysis."),
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 

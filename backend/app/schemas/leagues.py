@@ -21,3 +21,23 @@ class ImportedSeasonsResponse(BaseModel):
     """Imported seasons available for historical browsing."""
 
     seasons: tuple[ImportedSeasonResponse, ...]
+
+
+class ImportSeasonRequest(BaseModel):
+    """Administrator request to import another season."""
+
+    year: int
+
+
+class ImportSeasonResponse(BaseModel):
+    """Safe result of an imported provider season."""
+
+    season_id: int
+    league_id: int
+    year: int
+    status: str
+    synchronization_enabled: bool
+    teams_upserted: int
+    matchups_upserted: int
+    fantasy_byes_upserted: int
+    player_week_scores_upserted: int

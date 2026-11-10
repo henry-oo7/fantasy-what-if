@@ -1,7 +1,5 @@
 export type InstallationStatus =
-  | "setup_required"
-  | "setup_in_progress"
-  | "active";
+  "setup_required" | "setup_in_progress" | "active";
 
 export interface SetupStatus {
   status: InstallationStatus;
@@ -28,10 +26,7 @@ export interface BootstrapAdminResponse {
   email: string | null;
 }
 
-export type FantasyProvider =
-  | "espn"
-  | "sleeper"
-  | "yahoo";
+export type FantasyProvider = "espn" | "sleeper" | "yahoo";
 
 export interface SetupProvider {
   provider: FantasyProvider;
@@ -47,7 +42,6 @@ export interface SetupProvidersResponse {
 
 export interface ProviderConnectionRequest {
   provider: FantasyProvider;
-  display_name: string;
   league_id: string;
   season: string;
   espn_s2: string | null;
@@ -78,7 +72,6 @@ export interface SetupFinalizationResponse {
   fantasy_byes_upserted: number;
   player_week_scores_upserted: number;
 }
-
 
 export interface CreateSpectatorRequest {
   username: string;

@@ -121,7 +121,7 @@ def list_imported_seasons(
     session: Session,
     *,
     installation_id: int,
-    active_season_id: int,
+    active_season_id: int | None,
 ) -> tuple[ImportedSeason, ...]:
     """Return imported seasons for one installation."""
 

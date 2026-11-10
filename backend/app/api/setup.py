@@ -221,10 +221,16 @@ def create_setup_provider_connection(
         }
     )
 
+    provider_display_names = {
+        FantasyProvider.ESPN: "ESPN Fantasy Football",
+        FantasyProvider.SLEEPER: "Sleeper",
+        FantasyProvider.YAHOO: "Yahoo Fantasy Sports",
+    }
+
     try:
         connection = configurator(
             provider=provider,
-            display_name=payload.display_name,
+            display_name=provider_display_names[provider],
             credentials=credentials,
         )
     except SetupProviderAlreadyConfiguredError as exc:

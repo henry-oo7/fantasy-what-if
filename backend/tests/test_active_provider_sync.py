@@ -55,7 +55,12 @@ def test_active_sync_returns_provider_result(
         )
     )
     canonical_sync = Mock(return_value=canonical_result)
+    reconcile = Mock()
 
+    monkeypatch.setattr(
+        ("app.services.active_provider_sync.reconcile_stale_active_season"),
+        reconcile,
+    )
     monkeypatch.setattr(
         ("app.services.active_provider_sync.resolve_active_provider_adapter"),
         resolver,
@@ -87,6 +92,8 @@ def test_active_sync_returns_provider_result(
     assert result.fantasy_byes_upserted == 0
     assert result.player_week_scores_upserted == 401
 
+    reconcile.assert_called_once_with(session)
+
     resolver.assert_called_once_with(
         session=session,
         settings=settings,
@@ -105,6 +112,13 @@ def test_active_sync_propagates_resolution_failure(
 ) -> None:
     session = Mock(spec=Session)
     settings = SimpleNamespace()
+
+    reconcile = Mock()
+
+    monkeypatch.setattr(
+        ("app.services.active_provider_sync.reconcile_stale_active_season"),
+        reconcile,
+    )
 
     def reject_resolution(**kwargs):
         del kwargs
@@ -125,3 +139,5 @@ def test_active_sync_propagates_resolution_failure(
             settings=settings,
             full_sync=False,
         )
+
+    reconcile.assert_called_once_with(session)
