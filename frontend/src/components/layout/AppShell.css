@@ -98,8 +98,7 @@
   text-transform: uppercase;
 }
 
-.sidebar-link,
-.disabled-navigation-item {
+.sidebar-link {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -131,22 +130,10 @@
 }
 
 .sidebar-link svg,
-.disabled-navigation-item svg,
 .sidebar-logout svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
-}
-
-.sidebar-coming-soon {
-  display: grid;
-  gap: 5px;
-  margin-top: 14px;
-}
-
-.disabled-navigation-item {
-  color: #657b6d;
-  cursor: default;
 }
 
 .sidebar-account {
@@ -356,10 +343,7 @@
 }
 
 .sidebar-league strong {
-  font-family:
-    "Barlow Condensed",
-    "Arial Narrow",
-    sans-serif;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
   font-size: 1rem;
   font-weight: 800;
   letter-spacing: 0.01em;

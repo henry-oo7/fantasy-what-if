@@ -8,8 +8,12 @@ import {
   Trophy,
 } from "lucide-react";
 
-import { currentLeagueQueryOptions } from "./api/league";
+import { leagueAverageQueryOptions } from "./api/analytics";
 import { ApiError } from "./api/client";
+import {
+  currentLeagueQueryOptions,
+  importedSeasonsQueryOptions,
+} from "./api/league";
 import { useAuth } from "./auth/AuthProvider";
 import "./App.css";
 
@@ -28,6 +32,8 @@ function errorMessage(error: unknown): string {
 export default function App() {
   const auth = useAuth();
   const leagueQuery = useQuery(currentLeagueQueryOptions());
+  const leagueAverageQuery = useQuery(leagueAverageQueryOptions());
+  const importedSeasonsQuery = useQuery(importedSeasonsQueryOptions());
 
   const sortedStandings = useMemo(
     () =>
@@ -75,7 +81,64 @@ export default function App() {
     0,
   );
 
-  const leagueLeader = sortedStandings[0];
+  const teamNames = new Map(
+    league.teams.map((team) => [team.team_id, team.name]),
+  );
+
+  const latestCompletedWeek = league.matchups.reduce(
+    (latestWeek, matchup) => Math.max(latestWeek, matchup.week),
+    0,
+  );
+
+  const latestMatchups = league.matchups.filter(
+    (matchup) => matchup.week === latestCompletedWeek,
+  );
+
+  const activeSeason = importedSeasonsQuery.data?.seasons.find(
+    (season) => season.is_active,
+  );
+
+  const lastSyncedLabel = (() => {
+    if (!activeSeason?.last_synced_at) {
+      if (importedSeasonsQuery.isPending) {
+        return "Checking last sync";
+      }
+
+      return "Last sync unavailable";
+    }
+
+    const timestamp = new Date(activeSeason.last_synced_at);
+
+    if (Number.isNaN(timestamp.getTime())) {
+      return "Last sync unavailable";
+    }
+
+    return `Last synced ${new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(timestamp)}`;
+  })();
+
+  const latestLeagueAverage = (() => {
+    const weeklyResults = leagueAverageQuery.data?.[0]?.weekly_results ?? [];
+
+    const latestResult = weeklyResults.reduce<
+      (typeof weeklyResults)[number] | null
+    >(
+      (latest, result) =>
+        latest === null || result.week > latest.week ? result : latest,
+      null,
+    );
+
+    if (latestResult === null) {
+      return null;
+    }
+
+    return {
+      week: latestResult.week,
+      average: latestResult.league_average,
+    };
+  })();
 
   return (
     <div className="dashboard-page">
@@ -100,59 +163,74 @@ export default function App() {
         </div>
       </header>
 
-      <section
-        className="team-hero"
-        aria-labelledby="league-leader-heading"
-      >
-        <div className="team-hero-main">
-          <p className="team-label">
-            Current league leader
-          </p>
+      <section className="scoreboard-hero" aria-labelledby="scoreboard-heading">
+        <div className="scoreboard-heading">
+          <div>
+            <p className="team-label">Latest completed results</p>
 
-          <h2 id="league-leader-heading">
-            {leagueLeader?.name ?? "Unavailable"}
-          </h2>
-
-          <div className="team-record">
-            <strong>
-              {leagueLeader
-                ? `${leagueLeader.wins}-${leagueLeader.losses}${
-                    leagueLeader.ties > 0
-                      ? `-${leagueLeader.ties}`
-                      : ""
-                  }`
-                : "N/A"}
-            </strong>
-
-            <span>Current record</span>
+            <h2 id="scoreboard-heading">
+              Week {latestCompletedWeek} scoreboard
+            </h2>
           </div>
+
+          <span className="scoreboard-status">Final</span>
         </div>
 
-        <div className="team-stat-grid">
-          <div className="team-stat">
-            <span>League rank</span>
-            <strong>
-              {leagueLeader ? "#1" : "N/A"}
-            </strong>
-          </div>
+        {latestMatchups.length > 0 ? (
+          <div className="scoreboard-grid">
+            {latestMatchups.map((matchup) => {
+              const homeWon = matchup.home_score > matchup.away_score;
+              const awayWon = matchup.away_score > matchup.home_score;
 
-          <div className="team-stat">
-            <span>Points for</span>
-            <strong>
-              {leagueLeader
-                ? leagueLeader.points_for.toFixed(2)
-                : "N/A"}
-            </strong>
-          </div>
+              return (
+                <article
+                  key={`${matchup.week}-${matchup.home_team_id}-${matchup.away_team_id}`}
+                  className="scoreboard-matchup"
+                >
+                  <div
+                    className={
+                      homeWon
+                        ? "scoreboard-team scoreboard-winner"
+                        : "scoreboard-team"
+                    }
+                  >
+                    <span>
+                      {teamNames.get(matchup.home_team_id) ?? "Unknown team"}
+                    </span>
 
-          <div className="team-stat">
-            <span>Points against</span>
-            <strong>
-              {leagueLeader
-                ? leagueLeader.points_against.toFixed(2)
-                : "N/A"}
-            </strong>
+                    <strong>{matchup.home_score.toFixed(2)}</strong>
+                  </div>
+
+                  <div
+                    className={
+                      awayWon
+                        ? "scoreboard-team scoreboard-winner"
+                        : "scoreboard-team"
+                    }
+                  >
+                    <span>
+                      {teamNames.get(matchup.away_team_id) ?? "Unknown team"}
+                    </span>
+
+                    <strong>{matchup.away_score.toFixed(2)}</strong>
+                  </div>
+                </article>
+              );
+            })}
           </div>
+        ) : (
+          <p className="scoreboard-empty">
+            No completed matchup results are available yet.
+          </p>
+        )}
+
+        <div className="scoreboard-footer">
+          <span>
+            {completedWeeks} of {league.regular_season_weeks} regular-season
+            weeks complete
+          </span>
+
+          <strong>{lastSyncedLabel}</strong>
         </div>
       </section>
 
@@ -163,10 +241,8 @@ export default function App() {
           </span>
 
           <div>
-            <p>Completed weeks</p>
-            <strong>
-              {completedWeeks} of {league.regular_season_weeks}
-            </strong>
+            <p>Current week</p>
+            <strong>Week {league.current_week}</strong>
           </div>
         </article>
 
@@ -187,8 +263,21 @@ export default function App() {
           </span>
 
           <div>
-            <p>Current leader</p>
-            <strong>{leagueLeader?.name ?? "Unavailable"}</strong>
+            <p>Latest weekly average</p>
+
+            <strong>
+              {latestLeagueAverage
+                ? `${latestLeagueAverage.average.toFixed(2)} points`
+                : "Unavailable"}
+            </strong>
+
+            <small className="summary-detail">
+              {latestLeagueAverage
+                ? `Week ${latestLeagueAverage.week}`
+                : leagueAverageQuery.isError
+                  ? "League-average data unavailable"
+                  : "No completed results"}
+            </small>
           </div>
         </article>
       </section>
@@ -208,34 +297,38 @@ export default function App() {
 
         <div className="standings-list">
           {sortedStandings.map((team, index) => (
-          <div
-            key={team.team_id}
-            className="standing-row"
-          >
-            <span className="standing-rank">
-              {index + 1}
-            </span>
+            <div key={team.team_id} className="standing-row">
+              <span className="standing-rank">{index + 1}</span>
 
-            <div className="standing-team">
-              <strong>{team.name}</strong>
+              <div className="standing-team">
+                <strong>{team.name}</strong>
+              </div>
 
-              <small>
-                {team.points_against.toFixed(1)} PA
-              </small>
+              <div
+                className="standing-scoring"
+                aria-label={`${team.points_for.toFixed(
+                  1,
+                )} points for and ${team.points_against.toFixed(
+                  1,
+                )} points against`}
+              >
+                <span>
+                  <small>PF</small>
+                  <strong>{team.points_for.toFixed(1)}</strong>
+                </span>
+
+                <span>
+                  <small>PA</small>
+                  <strong>{team.points_against.toFixed(1)}</strong>
+                </span>
+              </div>
+
+              <strong className="standing-record">
+                {team.wins}-{team.losses}
+                {team.ties > 0 ? `-${team.ties}` : ""}
+              </strong>
             </div>
-
-            <span className="standing-points">
-              {team.points_for.toFixed(1)} PF
-            </span>
-
-            <strong className="standing-record">
-              {team.wins}-{team.losses}
-              {team.ties > 0
-                ? `-${team.ties}`
-                : ""}
-            </strong>
-          </div>
-        ))}
+          ))}
         </div>
       </section>
     </div>

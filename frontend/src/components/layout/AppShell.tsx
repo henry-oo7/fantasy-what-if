@@ -15,11 +15,7 @@ import { useAuth } from "../../auth/AuthProvider";
 import { SeasonMenu } from "./SeasonMenu";
 import "./AppShell.css";
 
-function FootballIcon({
-  className,
-}: {
-  className?: string;
-}) {
+function FootballIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -50,7 +46,6 @@ function FootballIcon({
     </svg>
   );
 }
-
 
 interface NavigationItem {
   label: string;
@@ -241,15 +236,6 @@ export function AppShell() {
               </NavLink>
             );
           })}
-
-          <div className="sidebar-coming-soon">
-            <span className="navigation-section-label">Coming next</span>
-
-            <div className="disabled-navigation-item">
-              <BarChart3 aria-hidden="true" />
-              <span>League Analytics</span>
-            </div>
-          </div>
         </nav>
 
         <div className="sidebar-account">
@@ -266,41 +252,28 @@ export function AppShell() {
                 setDrawerOpen(false);
               }}
             >
-              <div
-                className="sidebar-user-avatar"
-                aria-hidden="true"
-              >
+              <div className="sidebar-user-avatar" aria-hidden="true">
                 {userInitial}
               </div>
 
               <div className="sidebar-user-details">
-                <strong>
-                  {auth.user.display_name}
-                </strong>
+                <strong>{auth.user.display_name}</strong>
 
                 <span>Administrator</span>
               </div>
 
-              <span
-                className="sidebar-admin-icon"
-                title="Open administration"
-              >
+              <span className="sidebar-admin-icon" title="Open administration">
                 <ShieldCheck aria-hidden="true" />
               </span>
             </NavLink>
           ) : (
             <div className="sidebar-user">
-              <div
-                className="sidebar-user-avatar"
-                aria-hidden="true"
-              >
+              <div className="sidebar-user-avatar" aria-hidden="true">
                 {userInitial}
               </div>
 
               <div className="sidebar-user-details">
-                <strong>
-                  {auth.user.display_name}
-                </strong>
+                <strong>{auth.user.display_name}</strong>
 
                 <span>Spectator</span>
               </div>
