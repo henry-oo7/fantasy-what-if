@@ -21,11 +21,14 @@ from app.api.security import (
 from app.auth.authentication import (
     InactiveAccountError,
     InvalidCredentialsError,
+    LoginThrottledError,
     log_in_user,
 )
 from app.auth.cookies import (
     clear_authentication_cookies,
     clear_pre_auth_csrf_cookie,
+    ensure_login_browser_cookie,
+    get_login_browser_id,
     set_authentication_cookies,
     set_pre_auth_csrf_cookie,
 )
@@ -50,6 +53,7 @@ router = APIRouter(
 
 @router.get("/csrf")
 def issue_pre_auth_csrf_token(
+    request: Request,
     response: Response,
     settings: Annotated[
         Settings,
@@ -62,6 +66,11 @@ def issue_pre_auth_csrf_token(
         response,
         settings=settings,
         csrf_token=csrf_token,
+    )
+    ensure_login_browser_cookie(
+        request,
+        response,
+        settings=settings,
     )
 
     return CsrfTokenResponse(csrf_token=csrf_token)
@@ -85,8 +94,8 @@ def login(
         Depends(require_pre_auth_csrf),
     ],
 ) -> AuthenticationResponse:
-    try:
-        with SessionFactory() as session:
+    with SessionFactory() as session:
+        try:
             result = log_in_user(
                 session,
                 username=payload.username,
@@ -94,45 +103,66 @@ def login(
                 session_lifetime_hours=(settings.session_lifetime_hours),
                 ip_address=_client_ip(request),
                 user_agent=request.headers.get("user-agent"),
+                throttle_secret=(settings.app_secret_key.get_secret_value()),
+                browser_id=(
+                    get_login_browser_id(request)
+                    or ensure_login_browser_cookie(
+                        request,
+                        response,
+                        settings=settings,
+                    )
+                ),
+                maximum_attempts=5,
+                attempt_window_minutes=(settings.login_attempt_window_minutes),
+                lockout_minutes=(settings.login_lockout_minutes),
             )
-
-            user_response = _build_user_response(
-                user_id=result.user.id,
-                username=result.user.username,
-                display_name=result.user.display_name,
-                email=result.user.email,
-                role=result.user.role.value,
-                is_active=result.user.is_active,
-            )
-
+        except LoginThrottledError as exc:
             session.commit()
 
-            set_authentication_cookies(
-                response,
-                settings=settings,
-                session_token=result.session_token,
-                csrf_token=result.csrf_token,
-            )
-            clear_pre_auth_csrf_cookie(
-                response,
-                settings=settings,
-            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Invalid username or password.",
+                headers={
+                    "Retry-After": str(exc.retry_after_seconds),
+                },
+            ) from exc
+        except (
+            InvalidCredentialsError,
+            InactiveAccountError,
+        ) as exc:
+            session.commit()
 
-            return AuthenticationResponse(
-                user=user_response,
-                csrf_token=result.csrf_token,
-            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password.",
+            ) from exc
 
-    except InvalidCredentialsError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password.",
-        ) from exc
-    except InactiveAccountError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account is inactive.",
-        ) from exc
+        user_response = _build_user_response(
+            user_id=result.user.id,
+            username=result.user.username,
+            display_name=result.user.display_name,
+            email=result.user.email,
+            role=result.user.role.value,
+            is_active=result.user.is_active,
+        )
+
+        session.commit()
+
+        set_authentication_cookies(
+            response,
+            settings=settings,
+            session_token=result.session_token,
+            csrf_token=result.csrf_token,
+        )
+        clear_pre_auth_csrf_cookie(
+            response,
+            settings=settings,
+        )
+
+        return AuthenticationResponse(
+            user=user_response,
+            csrf_token=result.csrf_token,
+        )
 
 
 @router.post("/logout")

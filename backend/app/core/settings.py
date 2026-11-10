@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     frontend_origin: str = "http://localhost:5173"
     trusted_origins: str = "http://localhost:5173"
+    forwarded_allow_ips: str = "127.0.0.1,::1"
 
     session_cookie_name: str = "fantasy_session"
     session_cookie_secure: bool = False
@@ -42,6 +43,21 @@ class Settings(BaseSettings):
         default=168,
         ge=1,
         le=24 * 30,
+    )
+    login_maximum_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+    )
+    login_attempt_window_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=60,
+    )
+    login_lockout_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=24 * 60,
     )
 
     sync_scheduler_enabled: bool = False
@@ -200,6 +216,14 @@ class Settings(BaseSettings):
         )
 
     @property
+    def forwarded_allow_ip_list(
+        self,
+    ) -> tuple[str, ...]:
+        return tuple(
+            value.strip() for value in self.forwarded_allow_ips.split(",") if value.strip()
+        )
+
+    @property
     def is_production(self) -> bool:
         return self.app_env == "production"
 
@@ -212,6 +236,11 @@ class Settings(BaseSettings):
         if "*" in origins:
             raise ValueError("Wildcard trusted origins are not allowed.")
 
+        forwarded_allow_ips = self.forwarded_allow_ip_list
+
+        if not forwarded_allow_ips:
+            raise ValueError("FORWARDED_ALLOW_IPS cannot be empty.")
+
         if frontend_origin not in origins:
             raise ValueError("FRONTEND_ORIGIN must also appear in TRUSTED_ORIGINS.")
 
@@ -223,6 +252,9 @@ class Settings(BaseSettings):
 
         if not self.is_production:
             return self
+
+        if "*" in forwarded_allow_ips:
+            raise ValueError("Production cannot trust forwarded headers from every source.")
 
         if self.app_debug:
             raise ValueError("APP_DEBUG must be false in production.")

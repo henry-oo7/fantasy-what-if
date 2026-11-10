@@ -61,7 +61,10 @@ def select_completed_weeks(
         return ()
 
     if explicit_from_week is not None:
-        assert explicit_through_week is not None
+        if explicit_through_week is None:
+            raise ValueError(
+                "explicit_through_week is required when explicit_from_week is provided."
+            )
 
         through_week = min(
             explicit_through_week,
