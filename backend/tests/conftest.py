@@ -210,6 +210,50 @@ def _seed_canonical_integration_baseline() -> bool:
             },
         )
 
+        connection.execute(
+            text(
+                """
+                INSERT INTO schedule_rules (
+                    id,
+                    season_id,
+                    regular_season_weeks,
+                    playoff_week_start,
+                    playoff_week_end,
+                    playoff_team_count,
+                    playoff_seed_tie_rule,
+                    playoff_seed_tie_rule_fallback,
+                    has_divisions,
+                    has_median_game,
+                    has_doubleheaders,
+                    allows_ties,
+                    metadata,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    1,
+                    1,
+                    12,
+                    13,
+                    16,
+                    6,
+                    'TOTAL_POINTS_SCORED',
+                    NULL,
+                    false,
+                    false,
+                    false,
+                    true,
+                    '{"provider": "espn"}'::jsonb,
+                    :now,
+                    :now
+                )
+                """
+            ),
+            {
+                "now": now,
+            },
+        )
+
         team_rows = []
 
         for team_id in range(1, 13):
@@ -525,6 +569,7 @@ def _seed_canonical_integration_baseline() -> bool:
             "teams_id_seq",
             "matchups_id_seq",
             "player_week_scores_id_seq",
+            "schedule_rules_id_seq",
             "sync_runs_id_seq",
             "users_id_seq",
         ):
