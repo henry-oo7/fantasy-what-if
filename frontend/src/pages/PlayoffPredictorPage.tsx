@@ -13,10 +13,13 @@ import { ApiError } from "../api/client";
 import { playoffPredictorQueryOptions } from "../api/league";
 import type { PlayoffPredictorMatchup } from "../types/league";
 import {
+  actualMatchupResult,
+  allPredictorMatchups,
   buildProjectedBracket,
   calculateProjectedStandings,
   predictionsForWeek,
-  remainingWeeks,
+  predictorWeeks,
+  weekIsCompleted,
 } from "../utils/playoffPredictor";
 import type {
   PredictedResult,
@@ -96,14 +99,17 @@ export function PlayoffPredictorPage() {
   const [predictions, setPredictions] = useState<PredictionSelections>({});
 
   const weeks = useMemo(
-    () => (predictorQuery.data ? remainingWeeks(predictorQuery.data) : []),
+    () => (predictorQuery.data ? predictorWeeks(predictorQuery.data) : []),
     [predictorQuery.data],
   );
 
   const activeWeek =
     selectedWeek !== null && weeks.includes(selectedWeek)
       ? selectedWeek
-      : (weeks[0] ?? null);
+      : predictorQuery.data !== undefined &&
+          weeks.includes(predictorQuery.data.current_week)
+        ? predictorQuery.data.current_week
+        : (weeks.at(-1) ?? null);
 
   const standings = useMemo(
     () =>
@@ -129,9 +135,9 @@ export function PlayoffPredictorPage() {
       return [];
     }
 
-    return predictorQuery.data.remaining_matchups
-      .filter((matchup) => matchup.week === activeWeek)
-      .sort((first, second) => first.matchup_id - second.matchup_id);
+    return allPredictorMatchups(predictorQuery.data).filter(
+      (matchup) => matchup.week === activeWeek,
+    );
   }, [predictorQuery.data, activeWeek]);
 
   const teamNames = useMemo(
@@ -143,21 +149,32 @@ export function PlayoffPredictorPage() {
     [predictorQuery.data],
   );
 
-  function chooseResult(matchupId: number, result: PredictedResult) {
+  function chooseResult(
+    matchup: PlayoffPredictorMatchup,
+    result: PredictedResult,
+  ) {
     setPredictions((current) => {
-      if (selectionMatches(current[matchupId], result)) {
+      const actualResult =
+        actualMatchupResult(matchup);
+      const currentOverride =
+        current[matchup.matchup_id];
+
+      if (
+        result === actualResult ||
+        selectionMatches(currentOverride, result)
+      ) {
         const updated = {
           ...current,
         };
 
-        delete updated[matchupId];
+        delete updated[matchup.matchup_id];
 
         return updated;
       }
 
       return {
         ...current,
-        [matchupId]: result,
+        [matchup.matchup_id]: result,
       };
     });
   }
@@ -169,7 +186,7 @@ export function PlayoffPredictorPage() {
 
     setPredictions((current) =>
       predictionsForWeek(
-        predictorQuery.data.remaining_matchups,
+        allPredictorMatchups(predictorQuery.data),
         current,
         activeWeek,
       ),
@@ -233,10 +250,13 @@ export function PlayoffPredictorPage() {
     activeWeek === null
       ? 0
       : weekPredictionCount(
-          predictor.remaining_matchups,
+          allPredictorMatchups(predictor),
           predictions,
           activeWeek,
         );
+  const selectedWeekCompleted =
+    activeWeek !== null &&
+    weekIsCompleted(predictor, activeWeek);
 
   return (
     <div className="playoff-predictor-page">
@@ -246,9 +266,9 @@ export function PlayoffPredictorPage() {
         <h1>Playoff Predictor</h1>
 
         <p>
-          Choose winners for the remaining schedule. Projected standings and
-          playoff seeds update immediately without changing imported league
-          data.
+          Review every regular-season week and change any result to explore
+          alternate standings and playoff fields. Imported league data remains
+          unchanged.
         </p>
 
         <div className="predictor-header-status">
@@ -274,41 +294,53 @@ export function PlayoffPredictorPage() {
         >
           <div className="predictor-section-heading">
             <div>
-              <p className="section-label">Remaining schedule</p>
+              <p className="section-label">Full regular season</p>
 
               <h2 id="predictor-weeks-heading">Choose a week</h2>
             </div>
 
-            <span>Through week {Math.max(predictor.current_week - 1, 0)}</span>
+            <span>
+              Completed through week{" "}
+              {Math.max(predictor.current_week - 1, 0)}
+            </span>
           </div>
 
           {weeks.length > 0 ? (
             <div
               className="predictor-week-list"
-              aria-label="Remaining regular-season weeks"
+              aria-label="Regular-season weeks"
             >
               {weeks.map((week) => {
                 const selected = week === activeWeek;
 
+                const completed =
+                  weekIsCompleted(predictor, week);
+                const weekMatchups =
+                  allPredictorMatchups(predictor).filter(
+                    (matchup) => matchup.week === week,
+                  );
                 const count = weekPredictionCount(
-                  predictor.remaining_matchups,
+                  weekMatchups,
                   predictions,
                   week,
                 );
-
-                const total = predictor.remaining_matchups.filter(
-                  (matchup) => matchup.week === week,
-                ).length;
+                const total = weekMatchups.length;
 
                 return (
                   <button
                     key={week}
                     type="button"
-                    className={
+                    className={[
+                      "predictor-week-button",
+                      completed
+                        ? "predictor-week-button-completed"
+                        : "predictor-week-button-upcoming",
                       selected
-                        ? "predictor-week-button predictor-week-button-active"
-                        : "predictor-week-button"
-                    }
+                        ? "predictor-week-button-active"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     aria-pressed={selected}
                     onClick={() => {
                       setSelectedWeek(week);
@@ -317,7 +349,11 @@ export function PlayoffPredictorPage() {
                   >
                     <span>Week {week}</span>
                     <small>
-                      {count}/{total} picked
+                      {completed
+                        ? count > 0
+                          ? `Completed · ${count} changed`
+                          : "Completed"
+                        : `${count}/${total} picked`}
                     </small>
                   </button>
                 );
@@ -325,7 +361,7 @@ export function PlayoffPredictorPage() {
             </div>
           ) : (
             <p className="predictor-empty-copy">
-              No remaining regular-season matchups are available.
+              No regular-season matchups are available.
             </p>
           )}
 
@@ -346,7 +382,11 @@ export function PlayoffPredictorPage() {
                   <span>Week {activeWeek} matchups</span>
 
                   <small>
-                    {selectedWeekPredictions}/{selectedMatchups.length} picked
+                    {selectedWeekCompleted
+                      ? selectedWeekPredictions > 0
+                        ? `${selectedWeekPredictions} result(s) changed`
+                        : "Completed · actual results"
+                      : `${selectedWeekPredictions}/${selectedMatchups.length} picked`}
                   </small>
 
                   {matchupsExpanded ? (
@@ -372,7 +412,14 @@ export function PlayoffPredictorPage() {
                   className="predictor-matchup-list"
                 >
                   {selectedMatchups.map((matchup) => {
-                    const selection = predictions[matchup.matchup_id];
+                    const actualResult =
+                      actualMatchupResult(matchup);
+                    const selection =
+                      predictions[matchup.matchup_id] ??
+                      actualResult;
+                    const changed =
+                      predictions[matchup.matchup_id] !==
+                      undefined;
 
                     const homeName =
                       teamNames.get(matchup.home_team_id) ?? "Unknown team";
@@ -383,9 +430,19 @@ export function PlayoffPredictorPage() {
                     return (
                       <article
                         key={matchup.matchup_id}
-                        className="predictor-matchup"
+                        className={
+                          changed
+                            ? "predictor-matchup predictor-matchup-changed"
+                            : "predictor-matchup"
+                        }
                       >
-                        <p>Choose the projected winner</p>
+                        <p>
+                          {matchup.is_complete
+                            ? changed
+                              ? "Historical result changed"
+                              : "Synchronized final result"
+                            : "Choose the projected winner"}
+                        </p>
 
                         <div className="predictor-team-picks">
                           <button
@@ -398,7 +455,7 @@ export function PlayoffPredictorPage() {
                             aria-pressed={selection === matchup.home_team_id}
                             onClick={() => {
                               chooseResult(
-                                matchup.matchup_id,
+                                matchup,
                                 matchup.home_team_id,
                               );
                             }}
@@ -419,7 +476,7 @@ export function PlayoffPredictorPage() {
                             aria-pressed={selection === matchup.away_team_id}
                             onClick={() => {
                               chooseResult(
-                                matchup.matchup_id,
+                                matchup,
                                 matchup.away_team_id,
                               );
                             }}
@@ -439,7 +496,7 @@ export function PlayoffPredictorPage() {
                             }
                             aria-pressed={selection === "tie"}
                             onClick={() => {
-                              chooseResult(matchup.matchup_id, "tie");
+                              chooseResult(matchup, "tie");
                             }}
                           >
                             Project a tie

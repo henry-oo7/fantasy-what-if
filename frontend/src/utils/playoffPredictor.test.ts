@@ -6,10 +6,12 @@ import type {
   PlayoffPredictorTeam,
 } from "../types/league";
 import {
+  actualMatchupResult,
   buildProjectedBracket,
   calculateProjectedStandings,
   predictionsForWeek,
-  remainingWeeks,
+  predictorWeeks,
+  weekIsCompleted,
 } from "./playoffPredictor";
 
 function team(
@@ -139,6 +141,89 @@ describe("playoff predictor standings", () => {
         }),
       ]),
     );
+  });
+
+  it("replaces a completed result without double-counting it", () => {
+    const data = snapshot(
+      [team(1, 6, 5), team(2, 5, 6)],
+      [matchup(1, 4, 1, 2, true, 120, 100)],
+      [],
+      2,
+    );
+
+    const standings = calculateProjectedStandings(data, {
+      1: 2,
+    });
+
+    expect(standings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          team_id: 1,
+          wins: 5,
+          losses: 6,
+        }),
+        expect.objectContaining({
+          team_id: 2,
+          wins: 6,
+          losses: 5,
+        }),
+      ]),
+    );
+  });
+
+  it("uses a completed historical override for head-to-head", () => {
+    const data = snapshot(
+      [
+        team(1, 6, 5, 1100),
+        team(2, 5, 6, 900),
+        team(3, 10, 1),
+        team(4, 1, 10),
+      ],
+      [matchup(1, 4, 1, 2, true, 120, 100)],
+      [
+        matchup(2, 12, 1, 3),
+        matchup(3, 12, 2, 4),
+      ],
+      2,
+    );
+
+    const standings = calculateProjectedStandings(data, {
+      1: 2,
+      2: 1,
+      3: 4,
+    });
+
+    const tiedTeams = standings.filter(
+      (standing) =>
+        standing.team_id === 1 ||
+        standing.team_id === 2,
+    );
+
+    expect(
+      tiedTeams.map((standing) => ({
+        team_id: standing.team_id,
+        wins: standing.wins,
+        losses: standing.losses,
+        tiebreaker: standing.tiebreaker,
+        head_to_head_percentage:
+          standing.head_to_head_percentage,
+      })),
+    ).toEqual([
+      {
+        team_id: 2,
+        wins: 6,
+        losses: 6,
+        tiebreaker: "head_to_head",
+        head_to_head_percentage: 1,
+      },
+      {
+        team_id: 1,
+        wins: 6,
+        losses: 6,
+        tiebreaker: "head_to_head",
+        head_to_head_percentage: 0,
+      },
+    ]);
   });
 
   it("uses completed head-to-head results for two-team ties", () => {
@@ -354,14 +439,46 @@ describe("playoff predictor controls", () => {
     });
   });
 
-  it("returns sorted remaining weeks without duplicates", () => {
+  it("returns all sorted weeks without duplicates", () => {
     const data = snapshot(
       [team(1, 5, 5), team(2, 5, 5)],
-      [],
-      [matchup(201, 12, 1, 2), matchup(101, 11, 1, 2), matchup(102, 11, 2, 1)],
+      [
+        matchup(1, 1, 1, 2, true, 100, 90),
+        matchup(2, 2, 2, 1, true, 110, 95),
+      ],
+      [
+        matchup(201, 12, 1, 2),
+        matchup(101, 11, 1, 2),
+        matchup(102, 11, 2, 1),
+      ],
       2,
     );
 
-    expect(remainingWeeks(data)).toEqual([11, 12]);
+    expect(predictorWeeks(data)).toEqual([
+      1,
+      2,
+      11,
+      12,
+    ]);
+    expect(weekIsCompleted(data, 1)).toBe(true);
+    expect(weekIsCompleted(data, 11)).toBe(false);
+  });
+
+  it("derives synchronized actual matchup results", () => {
+    expect(
+      actualMatchupResult(
+        matchup(1, 1, 1, 2, true, 120, 100),
+      ),
+    ).toBe(1);
+    expect(
+      actualMatchupResult(
+        matchup(2, 1, 1, 2, true, 95, 110),
+      ),
+    ).toBe(2);
+    expect(
+      actualMatchupResult(
+        matchup(3, 1, 1, 2, true, 100, 100),
+      ),
+    ).toBe("tie");
   });
 });

@@ -24,14 +24,21 @@ export const setupQueryKeys = {
 };
 
 
+export function getSetupStatus(
+  signal?: AbortSignal,
+): Promise<SetupStatus> {
+  return getJson<SetupStatus>(
+    "/setup/status",
+    signal,
+  );
+}
+
+
 export function setupStatusQueryOptions() {
   return queryOptions({
     queryKey: setupQueryKeys.status(),
     queryFn: ({ signal }) =>
-      getJson<SetupStatus>(
-        "/setup/status",
-        signal,
-      ),
+      getSetupStatus(signal),
     staleTime: 30_000,
     retry: false,
   });

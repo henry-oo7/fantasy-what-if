@@ -65,11 +65,21 @@ export function playoffPredictorQueryOptions() {
   });
 }
 
+export function getImportedSeasons(
+  signal?: AbortSignal,
+): Promise<ImportedSeasonsResponse> {
+  return getJson<ImportedSeasonsResponse>(
+    "/leagues/seasons",
+    signal,
+  );
+}
+
+
 export function importedSeasonsQueryOptions() {
   return queryOptions({
     queryKey: leagueQueryKeys.seasons(),
     queryFn: ({ signal }) =>
-      getJson<ImportedSeasonsResponse>("/leagues/seasons", signal),
+      getImportedSeasons(signal),
     staleTime: 60_000,
   });
 }

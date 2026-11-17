@@ -20,9 +20,14 @@ import {
 import { ApiError } from "../api/client";
 import {
   finalizeSetup,
+  getSetupStatus,
   setupQueryKeys,
 } from "../api/setup";
 import { useAuth } from "../auth/AuthProvider";
+import {
+  isAmbiguousLongRequestError,
+  pollUntilComplete,
+} from "../utils/longRequestRecovery";
 import type {
   SetupFinalizationResponse,
 } from "../types/setup";
@@ -139,6 +144,10 @@ export function FinalizeSetupPanel() {
     );
   const [error, setError] =
     useState<string | null>(null);
+  const [
+    recoveredCompletion,
+    setRecoveredCompletion,
+  ] = useState(false);
   const [submitting, setSubmitting] =
     useState(false);
   const [progress, setProgress] =
@@ -220,6 +229,7 @@ export function FinalizeSetupPanel() {
 
   async function handleFinalize() {
     setError(null);
+    setRecoveredCompletion(false);
 
     if (
       !authenticatedAdministrator ||
@@ -265,9 +275,41 @@ export function FinalizeSetupPanel() {
 
       setResult(response);
     } catch (currentError) {
-      stopProgressTimer();
-      setProgress(0);
-      setError(errorMessage(currentError));
+      if (
+        !isAmbiguousLongRequestError(
+          currentError,
+        )
+      ) {
+        stopProgressTimer();
+        setProgress(0);
+        setError(errorMessage(currentError));
+        return;
+      }
+
+      setProgress(92);
+
+      try {
+        await pollUntilComplete({
+          readStatus: getSetupStatus,
+          isComplete: (status) =>
+            status.status === "active" &&
+            status.active_league_configured,
+        });
+
+        stopProgressTimer();
+        setProgress(100);
+
+        await queryClient.invalidateQueries({
+          queryKey: setupQueryKeys.all,
+        });
+
+        await delay(COMPLETION_PAUSE_MS);
+        setRecoveredCompletion(true);
+      } catch (recoveryError) {
+        stopProgressTimer();
+        setProgress(0);
+        setError(errorMessage(recoveryError));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -283,7 +325,7 @@ export function FinalizeSetupPanel() {
     });
   }
 
-  if (result !== null) {
+  if (result !== null || recoveredCompletion) {
     return (
       <section className="setup-form-panel">
         <div className="setup-completion">
@@ -304,39 +346,48 @@ export function FinalizeSetupPanel() {
           </div>
         </div>
 
-        <dl className="setup-result-grid">
-          <div>
-            <dt>Teams imported</dt>
-            <dd>{result.teams_upserted}</dd>
-          </div>
+        {result !== null ? (
+          <dl className="setup-result-grid">
+            <div>
+              <dt>Teams imported</dt>
+              <dd>{result.teams_upserted}</dd>
+            </div>
 
-          <div>
-            <dt>Matchups imported</dt>
-            <dd>{result.matchups_upserted}</dd>
-          </div>
+            <div>
+              <dt>Matchups imported</dt>
+              <dd>{result.matchups_upserted}</dd>
+            </div>
 
-          <div>
-            <dt>Player-week rows</dt>
-            <dd>
-              {result.player_week_scores_upserted}
-            </dd>
-          </div>
+            <div>
+              <dt>Player-week rows</dt>
+              <dd>
+                {result.player_week_scores_upserted}
+              </dd>
+            </div>
 
-          <div>
-            <dt>Current week</dt>
-            <dd>{result.current_week}</dd>
-          </div>
+            <div>
+              <dt>Current week</dt>
+              <dd>{result.current_week}</dd>
+            </div>
 
-          <div>
-            <dt>Provider</dt>
-            <dd>{result.provider.toUpperCase()}</dd>
-          </div>
+            <div>
+              <dt>Provider</dt>
+              <dd>{result.provider.toUpperCase()}</dd>
+            </div>
 
-          <div>
-            <dt>Season</dt>
-            <dd>{result.provider_season_id}</dd>
-          </div>
-        </dl>
+            <div>
+              <dt>Season</dt>
+              <dd>{result.provider_season_id}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="setup-form-success" role="status">
+            The request connection ended before the response
+            arrived, but the persisted installation status
+            confirms that synchronization completed
+            successfully.
+          </p>
+        )}
 
         <button
           type="button"

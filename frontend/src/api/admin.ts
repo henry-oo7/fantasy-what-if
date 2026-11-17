@@ -54,14 +54,21 @@ export function spectatorQueryOptions() {
 }
 
 
+export function getSynchronizationStatus(
+  signal?: AbortSignal,
+): Promise<SyncStatus> {
+  return getJson<SyncStatus>(
+    "/admin/sync-status",
+    signal,
+  );
+}
+
+
 export function syncStatusQueryOptions() {
   return queryOptions({
     queryKey: adminQueryKeys.syncStatus(),
     queryFn: ({ signal }) =>
-      getJson<SyncStatus>(
-        "/admin/sync-status",
-        signal,
-      ),
+      getSynchronizationStatus(signal),
     staleTime: 30_000,
   });
 }

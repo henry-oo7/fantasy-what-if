@@ -86,7 +86,7 @@ export function SpectatorSetupPanel() {
       await createSpectatorAccount(
         {
           username,
-          display_name: "League Spectator",
+          display_name: "Spectator",
           email: null,
           password,
         },

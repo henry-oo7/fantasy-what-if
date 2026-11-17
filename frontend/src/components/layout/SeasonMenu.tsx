@@ -6,11 +6,16 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { analyticsQueryKeys } from "../../api/analytics";
 import { ApiError } from "../../api/client";
 import {
+  getImportedSeasons,
   importSeason,
   importedSeasonsQueryOptions,
   leagueQueryKeys,
 } from "../../api/league";
 import { useAuth } from "../../auth/AuthProvider";
+import {
+  isAmbiguousLongRequestError,
+  pollUntilComplete,
+} from "../../utils/longRequestRecovery";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const IMPORT_PROGRESS_UPDATE_MS = 250;
@@ -304,9 +309,70 @@ export function SeasonMenu({ onNavigate }: SeasonMenuProps) {
       setShowImportForm(false);
       setSelectedYear("");
     } catch (currentError) {
-      stopImportProgress();
-      setImportProgress(0);
-      setImportError(errorMessage(currentError));
+      if (
+        !isAmbiguousLongRequestError(
+          currentError,
+        )
+      ) {
+        stopImportProgress();
+        setImportProgress(0);
+        setImportError(errorMessage(currentError));
+        return;
+      }
+
+      setImportProgress(92);
+
+      try {
+        const recovered =
+          await pollUntilComplete({
+            readStatus: getImportedSeasons,
+            isComplete: (inventory) =>
+              inventory.seasons.some(
+                (season) =>
+                  season.year === year &&
+                  season.last_synced_at !== null,
+              ),
+          });
+
+        const importedSeason =
+          recovered.seasons.find(
+            (season) => season.year === year,
+          );
+
+        await queryClient.invalidateQueries({
+          queryKey: leagueQueryKeys.all,
+        });
+
+        await queryClient.invalidateQueries({
+          queryKey: analyticsQueryKeys.all,
+        });
+
+        await seasonsQuery.refetch();
+
+        stopImportProgress();
+        setImportProgress(100);
+
+        await new Promise<void>((resolve) => {
+          window.setTimeout(
+            resolve,
+            IMPORT_COMPLETION_PAUSE_MS,
+          );
+        });
+
+        setImportSuccess(
+          importedSeason?.is_active
+            ? `${year} imported and activated.`
+            : `${year} imported as completed history.`,
+        );
+        setShowImportForm(false);
+        setSelectedYear("");
+      } catch (recoveryError) {
+        stopImportProgress();
+        setImportProgress(0);
+        setImportError(
+          errorMessage(recoveryError),
+        );
+      }
     } finally {
       stopImportProgress();
       setImporting(false);

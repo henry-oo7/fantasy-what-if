@@ -18,6 +18,7 @@ import {
 
 import {
   adminQueryKeys,
+  getSynchronizationStatus,
   resetSpectatorPassword,
   runSynchronization,
   setSpectatorAccess,
@@ -28,6 +29,10 @@ import {
 } from "../api/admin";
 import { ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
+import {
+  isAmbiguousLongRequestError,
+  pollUntilComplete,
+} from "../utils/longRequestRecovery";
 import type {
   StandingsTiebreakerRule,
 } from "../types/admin";
@@ -125,10 +130,10 @@ export function AdminPage() {
     );
 
   const [
-    standingsFallback,
-    setStandingsFallback,
-  ] = useState<StandingsTiebreakerRule>(
-    "TOTAL_POINTS_SCORED",
+    selectedStandingsFallback,
+    setSelectedStandingsFallback,
+  ] = useState<StandingsTiebreakerRule | null>(
+    null,
   );
   const [
     standingsMessage,
@@ -179,7 +184,10 @@ export function AdminPage() {
     try {
       const result =
         await setStandingsTiebreakerFallback(
-          standingsFallback,
+          selectedStandingsFallback ??
+            standingsTiebreakerQuery.data
+              ?.admin_fallback_rule ??
+            "TOTAL_POINTS_SCORED",
           csrfToken,
         );
 
@@ -320,6 +328,9 @@ export function AdminPage() {
         : "incremental",
     );
 
+    const previousRunId =
+      syncQuery.data?.latest_run?.id ?? null;
+
     try {
       const result =
         await runSynchronization(
@@ -333,9 +344,60 @@ export function AdminPage() {
 
       await refreshSyncStatus();
     } catch (currentError) {
-      setSyncError(
-        errorMessage(currentError),
+      if (
+        !isAmbiguousLongRequestError(
+          currentError,
+        )
+      ) {
+        setSyncError(
+          errorMessage(currentError),
+        );
+        return;
+      }
+
+      setSyncMessage(
+        "The request connection ended, but synchronization may still be running. Checking the persisted synchronization status...",
       );
+
+      try {
+        const recovered =
+          await pollUntilComplete({
+            readStatus:
+              getSynchronizationStatus,
+            isComplete: (status) =>
+              status.latest_run !== null &&
+              status.latest_run.id !==
+                previousRunId &&
+              status.latest_run.status ===
+                "succeeded",
+            isFailed: (status) =>
+              status.latest_run !== null &&
+              status.latest_run.id !==
+                previousRunId &&
+              status.latest_run.status ===
+                "failed",
+            failureMessage: (status) =>
+              status.latest_run
+                ?.safe_error_message ??
+              "Synchronization failed. Review the latest synchronization status before trying again.",
+          });
+
+        const completedRun =
+          recovered.latest_run;
+
+        setSyncMessage(
+          completedRun === null
+            ? "Synchronization completed."
+            : `${fullSync ? "Full" : "Incremental"} synchronization completed: ${completedRun.teams_upserted} teams, ${completedRun.matchups_upserted} matchups, and ${completedRun.player_week_scores_upserted} player-week rows processed.`,
+        );
+
+        await refreshSyncStatus();
+      } catch (recoveryError) {
+        setSyncMessage(null);
+        setSyncError(
+          errorMessage(recoveryError),
+        );
+      }
     } finally {
       setRunningSync(null);
     }
@@ -403,6 +465,10 @@ export function AdminPage() {
   const syncStatus = syncQuery.data;
   const standingsTiebreaker =
     standingsTiebreakerQuery.data;
+  const displayedStandingsFallback =
+    selectedStandingsFallback ??
+    standingsTiebreaker.admin_fallback_rule ??
+    "TOTAL_POINTS_SCORED";
 
   return (
     <div className="admin-page">
@@ -674,62 +740,80 @@ export function AdminPage() {
           </div>
         </dl>
 
-        <div className="admin-control-panel">
-          <div className="admin-control-heading">
-            <ListOrdered aria-hidden="true" />
+        {standingsTiebreaker.provider_rule_supported ? (
+          <div className="admin-control-panel">
+            <div className="admin-control-heading">
+              <ListOrdered aria-hidden="true" />
 
-            <div>
-              <h3>Fallback rule</h3>
+              <div>
+                <h3>Provider-managed rule</h3>
 
-              <p>
-                This choice is used only when the provider
-                does not supply a supported standings
-                tiebreaker. A supported provider rule always
-                remains authoritative.
-              </p>
+                <p>
+                  The provider supplied a supported standings
+                  tiebreaker, so no administrator selection is
+                  required. Synchronization keeps this rule
+                  aligned with the imported league settings.
+                </p>
+              </div>
             </div>
           </div>
+        ) : (
+          <div className="admin-control-panel">
+            <div className="admin-control-heading">
+              <ListOrdered aria-hidden="true" />
 
-          <div className="admin-setting-field">
-            <label htmlFor="standings-fallback">
-              Standings fallback
-            </label>
+              <div>
+                <h3>Fallback rule required</h3>
 
-            <select
-              id="standings-fallback"
-              value={standingsFallback}
-              disabled={savingStandingsFallback}
-              onChange={(event) => {
-                setStandingsFallback(
-                  event.target
-                    .value as StandingsTiebreakerRule,
-                );
-              }}
-            >
-              <option value="TOTAL_POINTS_SCORED">
-                Points For
-              </option>
-              <option value="H2H_RECORD">
-                Head-to-head record
-              </option>
-            </select>
+                <p>
+                  The provider did not supply a supported
+                  standings tiebreaker. Choose how teams with
+                  equal projected records should be ordered.
+                </p>
+              </div>
+            </div>
+
+            <div className="admin-setting-field">
+              <label htmlFor="standings-fallback">
+                Standings fallback
+              </label>
+
+              <select
+                id="standings-fallback"
+                value={displayedStandingsFallback}
+                disabled={savingStandingsFallback}
+                onChange={(event) => {
+                  setSelectedStandingsFallback(
+                    event.target
+                      .value as StandingsTiebreakerRule,
+                  );
+                }}
+              >
+                <option value="TOTAL_POINTS_SCORED">
+                  Points For
+                </option>
+                <option value="H2H_RECORD">
+                  Head-to-head record
+                </option>
+              </select>
+            </div>
+
+            <div className="admin-actions">
+              <button
+                type="button"
+                className="admin-primary-button"
+                disabled={savingStandingsFallback}
+                onClick={() => {
+                  void handleStandingsFallbackSave();
+                }}
+              >
+                {savingStandingsFallback
+                  ? "Saving fallback..."
+                  : "Save fallback"}
+              </button>
+            </div>
           </div>
-
-          <div className="admin-actions">
-            <button
-              type="button"
-              className="admin-primary-button"
-              disabled={savingStandingsFallback}
-              onClick={() => {
-                void handleStandingsFallbackSave();
-              }}
-            >
-              {savingStandingsFallback
-                ? "Saving fallback..."
-                : "Save fallback"}
-            </button>
-          </div>
-        </div>
+        )}
 
         {standingsMessage ? (
           <p

@@ -88,6 +88,59 @@ function currentRanks(
   );
 }
 
+function applyResult(
+  records: Map<number, MutableRecord>,
+  matchup: PlayoffPredictorMatchup,
+  result: PredictedResult,
+  direction: 1 | -1,
+): void {
+  const home = records.get(matchup.home_team_id);
+  const away = records.get(matchup.away_team_id);
+
+  if (home === undefined || away === undefined) {
+    return;
+  }
+
+  if (result === "tie") {
+    home.ties += direction;
+    away.ties += direction;
+    return;
+  }
+
+  if (result === matchup.home_team_id) {
+    home.wins += direction;
+    away.losses += direction;
+    return;
+  }
+
+  if (result === matchup.away_team_id) {
+    away.wins += direction;
+    home.losses += direction;
+  }
+}
+
+
+export function actualMatchupResult(
+  matchup: PlayoffPredictorMatchup,
+): PredictedResult | undefined {
+  if (
+    !matchup.is_complete ||
+    matchup.home_score === null ||
+    matchup.away_score === null
+  ) {
+    return undefined;
+  }
+
+  if (matchup.home_score === matchup.away_score) {
+    return "tie";
+  }
+
+  return matchup.home_score > matchup.away_score
+    ? matchup.home_team_id
+    : matchup.away_team_id;
+}
+
+
 function applyPredictions(
   snapshot: PlayoffPredictorSnapshot,
   predictions: PredictionSelections,
@@ -107,35 +160,27 @@ function applyPredictions(
     ]),
   );
 
+  for (const matchup of snapshot.completed_matchups) {
+    const override = predictions[matchup.matchup_id];
+
+    if (override === undefined) {
+      continue;
+    }
+
+    const actual = actualMatchupResult(matchup);
+
+    if (actual !== undefined) {
+      applyResult(records, matchup, actual, -1);
+    }
+
+    applyResult(records, matchup, override, 1);
+  }
+
   for (const matchup of snapshot.remaining_matchups) {
     const result = predictions[matchup.matchup_id];
 
-    if (result === undefined) {
-      continue;
-    }
-
-    const home = records.get(matchup.home_team_id);
-    const away = records.get(matchup.away_team_id);
-
-    if (home === undefined || away === undefined) {
-      continue;
-    }
-
-    if (result === "tie") {
-      home.ties += 1;
-      away.ties += 1;
-      continue;
-    }
-
-    if (result === home.team.team_id) {
-      home.wins += 1;
-      away.losses += 1;
-      continue;
-    }
-
-    if (result === away.team.team_id) {
-      away.wins += 1;
-      home.losses += 1;
+    if (result !== undefined) {
+      applyResult(records, matchup, result, 1);
     }
   }
 
@@ -146,21 +191,10 @@ function matchupResult(
   matchup: PlayoffPredictorMatchup,
   predictions: PredictionSelections,
 ): PredictedResult | undefined {
-  if (!matchup.is_complete) {
-    return predictions[matchup.matchup_id];
-  }
-
-  if (matchup.home_score === null || matchup.away_score === null) {
-    return undefined;
-  }
-
-  if (matchup.home_score === matchup.away_score) {
-    return "tie";
-  }
-
-  return matchup.home_score > matchup.away_score
-    ? matchup.home_team_id
-    : matchup.away_team_id;
+  return (
+    predictions[matchup.matchup_id] ??
+    actualMatchupResult(matchup)
+  );
 }
 
 function tiedGroupHeadToHead(
@@ -417,8 +451,43 @@ export function predictionsForWeek(
   );
 }
 
-export function remainingWeeks(snapshot: PlayoffPredictorSnapshot): number[] {
+export function allPredictorMatchups(
+  snapshot: PlayoffPredictorSnapshot,
+): PlayoffPredictorMatchup[] {
   return [
-    ...new Set(snapshot.remaining_matchups.map((matchup) => matchup.week)),
+    ...snapshot.completed_matchups,
+    ...snapshot.remaining_matchups,
+  ].sort(
+    (first, second) =>
+      first.week - second.week ||
+      first.matchup_id - second.matchup_id,
+  );
+}
+
+
+export function predictorWeeks(
+  snapshot: PlayoffPredictorSnapshot,
+): number[] {
+  return [
+    ...new Set(
+      allPredictorMatchups(snapshot).map(
+        (matchup) => matchup.week,
+      ),
+    ),
   ].sort((first, second) => first - second);
+}
+
+
+export function weekIsCompleted(
+  snapshot: PlayoffPredictorSnapshot,
+  week: number,
+): boolean {
+  const matchups = allPredictorMatchups(snapshot).filter(
+    (matchup) => matchup.week === week,
+  );
+
+  return (
+    matchups.length > 0 &&
+    matchups.every((matchup) => matchup.is_complete)
+  );
 }

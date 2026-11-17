@@ -75,7 +75,7 @@ export interface SetupFinalizationResponse {
 
 export interface CreateSpectatorRequest {
   username: string;
-  display_name: "League Spectator";
+  display_name: "Spectator";
   email: null;
   password: string;
 }

@@ -119,23 +119,23 @@
 }
 
 .predictor-week-list {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, 112px), 1fr)
+  );
   gap: 8px;
+  width: 100%;
   margin-top: 20px;
-  padding-bottom: 5px;
-  overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .predictor-week-button {
   display: grid;
-  flex: 0 0 auto;
+  min-width: 0;
   gap: 3px;
-  min-width: 112px;
   padding: 12px 16px;
   color: var(--color-text);
   text-align: left;
-  background: transparent;
   border: 1px solid var(--color-border);
   border-radius: 3px;
 }
@@ -152,14 +152,30 @@
   font-weight: 700;
 }
 
+.predictor-week-button-upcoming {
+  background: #ffffff;
+}
+
+.predictor-week-button-completed {
+  color: #ffffff;
+  background: var(--color-green-700);
+  border-color: var(--color-green-700);
+}
+
+.predictor-week-button-completed small {
+  color: rgba(255, 255, 255, 0.82);
+}
+
 .predictor-week-button-active {
-  color: white;
-  background: var(--color-green-800);
-  border-color: var(--color-green-800);
+  color: #302600;
+  background: #f4c542;
+  border-color: #a97d00;
+  outline: 3px solid #f8e39a;
+  outline-offset: 1px;
 }
 
 .predictor-week-button-active small {
-  color: rgba(255, 255, 255, 0.75);
+  color: #554300;
 }
 
 .predictor-matchup-section {
@@ -575,4 +591,65 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+
+.predictor-matchup-changed {
+  border-color: var(--color-green-700);
+  border-left: 4px solid var(--color-green-700);
+}
+
+.predictor-matchup-changed > p {
+  color: var(--color-green-700);
+}
+
+
+/*
+ * Prevent long team names or grid minimums from widening the page.
+ * Content wraps within the available AppShell column instead.
+ */
+.playoff-predictor-page,
+.playoff-predictor-content,
+.predictor-card,
+.predictor-weeks-card,
+.predictor-matchup-section,
+.predictor-matchup-list,
+.predictor-matchup,
+.predictor-results-grid,
+.predictor-standings-card,
+.predictor-bracket-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.predictor-matchup-list > *,
+.predictor-results-grid > *,
+.predictor-team-picks > *,
+.predictor-standing-row > *,
+.predictor-bracket-team > * {
+  min-width: 0;
+}
+
+.predictor-team-pick,
+.predictor-standing-team,
+.predictor-bracket-team-details {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+@media (max-width: 680px) {
+  .predictor-week-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .predictor-week-button {
+    width: 100%;
+    padding: 11px 12px;
+  }
+}
+
+@media (max-width: 380px) {
+  .predictor-week-list {
+    grid-template-columns: 1fr;
+  }
 }

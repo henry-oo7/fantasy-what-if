@@ -15,6 +15,7 @@ import {
   importedSeasonsQueryOptions,
 } from "./api/league";
 import { useAuth } from "./auth/AuthProvider";
+import { dashboardGreeting } from "./utils/dashboardGreeting";
 import { seasonPresentation } from "./utils/seasonPresentation";
 import "./App.css";
 
@@ -144,7 +145,7 @@ export default function App() {
         <div>
           <p className="page-kicker">{seasonView.pageKicker}</p>
 
-          <h1>Welcome back, {auth.user?.display_name.split(" ")[0]}</h1>
+          <h1>{dashboardGreeting(auth.user)}</h1>
 
           <p>
             Here is the latest from <strong>{league.name}</strong>.
