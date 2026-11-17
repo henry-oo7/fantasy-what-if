@@ -7,6 +7,7 @@ import type {
   ImportSeasonRequest,
   ImportSeasonResponse,
   LeagueSnapshot,
+  PlayoffPredictorSnapshot,
 } from "../types/league";
 
 function viewedSeasonId(): number | null {
@@ -29,6 +30,9 @@ export const leagueQueryKeys = {
 
   allPlay: () =>
     [...leagueQueryKeys.all, "all-play", viewedSeasonId()] as const,
+
+  playoffPredictor: () =>
+    [...leagueQueryKeys.all, "playoff-predictor", viewedSeasonId()] as const,
 };
 
 export function currentLeagueQueryOptions() {
@@ -45,6 +49,18 @@ export function allPlayQueryOptions() {
     queryKey: leagueQueryKeys.allPlay(),
     queryFn: ({ signal }) =>
       getJson<AllPlayStanding[]>("/analytics/all-play", signal),
+    staleTime: 60_000,
+  });
+}
+
+export function playoffPredictorQueryOptions() {
+  return queryOptions({
+    queryKey: leagueQueryKeys.playoffPredictor(),
+    queryFn: ({ signal }) =>
+      getJson<PlayoffPredictorSnapshot>(
+        "/leagues/current/playoff-predictor",
+        signal,
+      ),
     staleTime: 60_000,
   });
 }

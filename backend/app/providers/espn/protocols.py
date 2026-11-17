@@ -8,6 +8,8 @@ from typing import Any, Protocol
 class EspnLeagueSettings(Protocol):
     name: str
     reg_season_count: int
+    playoff_team_count: int
+    playoff_seed_tie_rule: str
     position_slot_counts: dict[str, int]
 
 
@@ -53,4 +55,11 @@ class EspnLeague(Protocol):
         week: int,
     ) -> list[EspnMatchup]:
         """Return ESPN box scores for one scoring week."""
+        ...
+
+    def scoreboard(
+        self,
+        week: int,
+    ) -> list[EspnMatchup]:
+        """Return ESPN schedule matchups for one week."""
         ...

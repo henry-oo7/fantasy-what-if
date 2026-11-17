@@ -21,6 +21,8 @@ from app.providers.registry import ProviderRegistry
 class FakeSettings:
     name: str = "Jimmy and Friends"
     reg_season_count: int = 12
+    playoff_team_count: int = 6
+    playoff_seed_tie_rule: str = "H2H_RECORD"
     position_slot_counts: dict[str, int] = field(
         default_factory=lambda: {
             "QB": 1,
@@ -131,6 +133,20 @@ class FakeLeague:
                 FakeMatchup(
                     home_team=self.teams[0],
                     away_team=self.teams[1],
+                )
+            ]
+
+        return []
+
+    def scoreboard(
+        self,
+        week: int,
+    ) -> list[FakeMatchup]:
+        if week == 10:
+            return [
+                FakeMatchup(
+                    home_team=self.teams[1],
+                    away_team=self.teams[2],
                 )
             ]
 
@@ -293,6 +309,41 @@ def test_incomplete_week_omits_scores() -> None:
     assert played.away_score is None
 
 
+def test_future_matchups_use_scoreboard_schedule() -> None:
+    matchups = provider().fetch_matchups(
+        provider_league_id="529250970",
+        provider_season_id="2026",
+        weeks=(9, 10),
+    )
+
+    played = [matchup for matchup in matchups if not matchup.is_bye]
+
+    assert [
+        (
+            matchup.week,
+            matchup.home_provider_team_id,
+            matchup.away_provider_team_id,
+        )
+        for matchup in played
+    ] == [
+        (
+            9,
+            "2",
+            "3",
+        ),
+        (
+            10,
+            "3",
+            "4",
+        ),
+    ]
+
+    assert all(
+        matchup.home_score is None and matchup.away_score is None and matchup.is_complete is False
+        for matchup in played
+    )
+
+
 def test_completed_empty_week_is_rejected() -> None:
     with pytest.raises(ProviderResponseError):
         provider().fetch_matchups(
@@ -378,3 +429,13 @@ def test_registry_registration_is_opt_in() -> None:
     )
 
     assert isinstance(adapter, ProviderAdapter)
+
+
+def test_fetch_league_imports_playoff_predictor_settings() -> None:
+    league = provider().fetch_league(
+        provider_league_id="529250970",
+        provider_season_id="2026",
+    )
+
+    assert league.schedule_rules.playoff_team_count == 6
+    assert league.schedule_rules.playoff_seed_tie_rule == "H2H_RECORD"

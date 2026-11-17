@@ -44,3 +44,17 @@ export interface SyncResult {
   fantasy_byes_upserted: number;
   player_week_scores_upserted: number;
 }
+
+
+export type StandingsTiebreakerRule =
+  | "H2H_RECORD"
+  | "TOTAL_POINTS_SCORED";
+
+export interface StandingsTiebreakerConfiguration {
+  season_id: number;
+  provider_rule: string | null;
+  provider_rule_supported: boolean;
+  admin_fallback_rule: StandingsTiebreakerRule | null;
+  effective_rule: StandingsTiebreakerRule | null;
+  effective_rule_source: "provider" | "admin_fallback" | null;
+}

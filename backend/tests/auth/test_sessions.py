@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.authentication import (
@@ -265,6 +265,15 @@ def test_expired_sessions_can_be_deleted(
 ) -> None:
     user = create_test_user(database_session)
     now = datetime.now(UTC)
+    expiration_cutoff = now + timedelta(hours=2)
+
+    existing_expired_count = database_session.scalar(
+        select(func.count(AuthSession.id)).where(
+            AuthSession.expires_at <= expiration_cutoff,
+        )
+    )
+
+    assert existing_expired_count is not None
 
     login = log_in_user(
         database_session,
@@ -277,10 +286,10 @@ def test_expired_sessions_can_be_deleted(
     repository = SessionRepository(database_session)
 
     deleted_count = repository.delete_expired_sessions(
-        now=now + timedelta(hours=2),
+        now=expiration_cutoff,
     )
 
-    assert deleted_count == 1
+    assert deleted_count == existing_expired_count + 1
 
     stored_session = database_session.scalar(
         select(AuthSession).where(AuthSession.id == login.auth_session.id)

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Database,
   Eye,
+  ListOrdered,
   EyeOff,
   RefreshCw,
   ShieldCheck,
@@ -20,11 +21,16 @@ import {
   resetSpectatorPassword,
   runSynchronization,
   setSpectatorAccess,
+  setStandingsTiebreakerFallback,
   spectatorQueryOptions,
+  standingsTiebreakerQueryOptions,
   syncStatusQueryOptions,
 } from "../api/admin";
 import { ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
+import type {
+  StandingsTiebreakerRule,
+} from "../types/admin";
 import "./admin.css";
 
 
@@ -58,6 +64,25 @@ function formatTimestamp(
 }
 
 
+function tiebreakerLabel(
+  rule: string | null,
+): string {
+  if (rule === "TOTAL_POINTS_SCORED") {
+    return "Points For";
+  }
+
+  if (rule === "H2H_RECORD") {
+    return "Head-to-head record";
+  }
+
+  if (rule === null) {
+    return "Unavailable";
+  }
+
+  return rule;
+}
+
+
 export function AdminPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
@@ -68,6 +93,10 @@ export function AdminPage() {
 
   const syncQuery = useQuery(
     syncStatusQueryOptions(),
+  );
+
+  const standingsTiebreakerQuery = useQuery(
+    standingsTiebreakerQueryOptions(),
   );
 
   const [password, setPassword] =
@@ -95,6 +124,25 @@ export function AdminPage() {
       null,
     );
 
+  const [
+    standingsFallback,
+    setStandingsFallback,
+  ] = useState<StandingsTiebreakerRule>(
+    "TOTAL_POINTS_SCORED",
+  );
+  const [
+    standingsMessage,
+    setStandingsMessage,
+  ] = useState<string | null>(null);
+  const [
+    standingsError,
+    setStandingsError,
+  ] = useState<string | null>(null);
+  const [
+    savingStandingsFallback,
+    setSavingStandingsFallback,
+  ] = useState(false);
+
   const csrfToken = auth.csrfToken;
 
   async function refreshSpectator() {
@@ -107,6 +155,48 @@ export function AdminPage() {
     await queryClient.invalidateQueries({
       queryKey: adminQueryKeys.syncStatus(),
     });
+  }
+
+  async function refreshStandingsTiebreaker() {
+    await queryClient.invalidateQueries({
+      queryKey: adminQueryKeys.standingsTiebreaker(),
+    });
+  }
+
+  async function handleStandingsFallbackSave() {
+    setStandingsError(null);
+    setStandingsMessage(null);
+
+    if (!csrfToken) {
+      setStandingsError(
+        "Your administrator session does not have a CSRF token. Sign in again.",
+      );
+      return;
+    }
+
+    setSavingStandingsFallback(true);
+
+    try {
+      const result =
+        await setStandingsTiebreakerFallback(
+          standingsFallback,
+          csrfToken,
+        );
+
+      setStandingsMessage(
+        result.effective_rule_source === "provider"
+          ? `Fallback saved. The provider-supplied ${tiebreakerLabel(result.effective_rule)} rule remains authoritative.`
+          : `Fallback saved and active: ${tiebreakerLabel(result.effective_rule)}.`,
+      );
+
+      await refreshStandingsTiebreaker();
+    } catch (currentError) {
+      setStandingsError(
+        errorMessage(currentError),
+      );
+    } finally {
+      setSavingStandingsFallback(false);
+    }
   }
 
   async function handlePasswordReset() {
@@ -253,7 +343,8 @@ export function AdminPage() {
 
   if (
     spectatorQuery.isPending ||
-    syncQuery.isPending
+    syncQuery.isPending ||
+    standingsTiebreakerQuery.isPending
   ) {
     return (
       <section
@@ -277,11 +368,13 @@ export function AdminPage() {
 
   if (
     spectatorQuery.isError ||
-    syncQuery.isError
+    syncQuery.isError ||
+    standingsTiebreakerQuery.isError
   ) {
     const error =
       spectatorQuery.error ??
-      syncQuery.error;
+      syncQuery.error ??
+      standingsTiebreakerQuery.error;
 
     return (
       <section
@@ -297,6 +390,7 @@ export function AdminPage() {
           onClick={() => {
             void spectatorQuery.refetch();
             void syncQuery.refetch();
+            void standingsTiebreakerQuery.refetch();
           }}
         >
           Try again
@@ -307,6 +401,8 @@ export function AdminPage() {
 
   const spectator = spectatorQuery.data;
   const syncStatus = syncQuery.data;
+  const standingsTiebreaker =
+    standingsTiebreakerQuery.data;
 
   return (
     <div className="admin-page">
@@ -528,6 +624,129 @@ export function AdminPage() {
             role="alert"
           >
             {spectatorError}
+          </p>
+        ) : null}
+      </section>
+
+      <section
+        className="admin-section"
+        aria-labelledby="standings-tiebreaker-heading"
+      >
+        <div className="admin-section-heading">
+          <div>
+            <p className="admin-kicker">
+              League rules
+            </p>
+
+            <h2 id="standings-tiebreaker-heading">
+              Standings tiebreaker
+            </h2>
+          </div>
+
+          <span className="admin-status admin-status-active">
+            {standingsTiebreaker.effective_rule_source ===
+            "provider"
+              ? "Provider supplied"
+              : standingsTiebreaker.effective_rule_source ===
+                  "admin_fallback"
+                ? "Admin fallback"
+                : "Configuration required"}
+          </span>
+        </div>
+
+        <dl className="admin-detail-grid">
+          <div>
+            <dt>Provider rule</dt>
+            <dd>
+              {tiebreakerLabel(
+                standingsTiebreaker.provider_rule,
+              )}
+            </dd>
+          </div>
+
+          <div>
+            <dt>Effective rule</dt>
+            <dd>
+              {tiebreakerLabel(
+                standingsTiebreaker.effective_rule,
+              )}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="admin-control-panel">
+          <div className="admin-control-heading">
+            <ListOrdered aria-hidden="true" />
+
+            <div>
+              <h3>Fallback rule</h3>
+
+              <p>
+                This choice is used only when the provider
+                does not supply a supported standings
+                tiebreaker. A supported provider rule always
+                remains authoritative.
+              </p>
+            </div>
+          </div>
+
+          <div className="admin-setting-field">
+            <label htmlFor="standings-fallback">
+              Standings fallback
+            </label>
+
+            <select
+              id="standings-fallback"
+              value={standingsFallback}
+              disabled={savingStandingsFallback}
+              onChange={(event) => {
+                setStandingsFallback(
+                  event.target
+                    .value as StandingsTiebreakerRule,
+                );
+              }}
+            >
+              <option value="TOTAL_POINTS_SCORED">
+                Points For
+              </option>
+              <option value="H2H_RECORD">
+                Head-to-head record
+              </option>
+            </select>
+          </div>
+
+          <div className="admin-actions">
+            <button
+              type="button"
+              className="admin-primary-button"
+              disabled={savingStandingsFallback}
+              onClick={() => {
+                void handleStandingsFallbackSave();
+              }}
+            >
+              {savingStandingsFallback
+                ? "Saving fallback..."
+                : "Save fallback"}
+            </button>
+          </div>
+        </div>
+
+        {standingsMessage ? (
+          <p
+            className="admin-message"
+            role="status"
+          >
+            <CheckCircle2 aria-hidden="true" />
+            {standingsMessage}
+          </p>
+        ) : null}
+
+        {standingsError ? (
+          <p
+            className="admin-error"
+            role="alert"
+          >
+            {standingsError}
           </p>
         ) : null}
       </section>

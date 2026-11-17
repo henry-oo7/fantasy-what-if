@@ -13,7 +13,9 @@ import {
   resetSpectatorPassword,
   runSynchronization,
   setSpectatorAccess,
+  setStandingsTiebreakerFallback,
   spectatorQueryOptions,
+  standingsTiebreakerQueryOptions,
   syncStatusQueryOptions,
 } from "./admin";
 
@@ -97,6 +99,74 @@ describe("admin API", () => {
     expect(result.provider_season_id).toBe(
       "2026",
     );
+  });
+
+  it("loads standings tiebreaker configuration", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        season_id: 1,
+        provider_rule: "TOTAL_POINTS_SCORED",
+        provider_rule_supported: true,
+        admin_fallback_rule: null,
+        effective_rule: "TOTAL_POINTS_SCORED",
+        effective_rule_source: "provider",
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient();
+
+    const result = await queryClient.fetchQuery(
+      standingsTiebreakerQueryOptions(),
+    );
+
+    expect(result.effective_rule).toBe(
+      "TOTAL_POINTS_SCORED",
+    );
+    expect(result.effective_rule_source).toBe(
+      "provider",
+    );
+  });
+
+  it("updates the standings tiebreaker fallback with CSRF", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        season_id: 1,
+        provider_rule: "TOTAL_POINTS_SCORED",
+        provider_rule_supported: true,
+        admin_fallback_rule: "H2H_RECORD",
+        effective_rule: "TOTAL_POINTS_SCORED",
+        effective_rule_source: "provider",
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await setStandingsTiebreakerFallback(
+      "H2H_RECORD",
+      "session-csrf",
+    );
+
+    const [, options] =
+      fetchMock.mock.calls[0];
+
+    expect(options).toMatchObject({
+      method: "PATCH",
+      credentials: "include",
+    });
+
+    expect(
+      new Headers(options.headers).get(
+        "X-CSRF-Token",
+      ),
+    ).toBe("session-csrf");
+
+    expect(
+      JSON.parse(String(options.body)),
+    ).toEqual({
+      fallback_rule: "H2H_RECORD",
+    });
   });
 
   it("resets the spectator password with CSRF", async () => {

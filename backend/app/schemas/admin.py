@@ -87,3 +87,20 @@ class SpectatorAccountMutationResponse(SpectatorAccountResponse):
     """Spectator metadata plus revoked-session count."""
 
     revoked_sessions: int = 0
+
+
+class StandingsTiebreakerConfigurationResponse(BaseModel):
+    """Standings tiebreaker configuration for the active season."""
+
+    season_id: int
+    provider_rule: str | None
+    provider_rule_supported: bool
+    admin_fallback_rule: str | None
+    effective_rule: str | None
+    effective_rule_source: str | None
+
+
+class SetStandingsTiebreakerFallbackRequest(BaseModel):
+    """Administrator-selected fallback standings tiebreaker."""
+
+    fallback_rule: str

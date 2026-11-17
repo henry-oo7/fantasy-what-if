@@ -283,3 +283,105 @@ def test_sync_conflict_returns_409() -> None:
         )
 
     assert response.status_code == status.HTTP_409_CONFLICT
+
+
+def test_admin_can_read_standings_tiebreaker_configuration() -> None:
+    app.dependency_overrides[get_current_user] = override_admin
+
+    try:
+        response = client.get(
+            "/api/admin/standings-tiebreaker",
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+
+    payload = response.json()
+
+    assert payload["season_id"] == 1
+    assert payload["provider_rule"] == "TOTAL_POINTS_SCORED"
+    assert payload["provider_rule_supported"] is True
+    assert payload["effective_rule"] == "TOTAL_POINTS_SCORED"
+    assert payload["effective_rule_source"] == "provider"
+
+
+def test_admin_can_store_standings_tiebreaker_fallback() -> None:
+    app.dependency_overrides[get_current_user] = override_admin
+    app.dependency_overrides[require_session_csrf] = override_csrf
+
+    try:
+        response = client.patch(
+            "/api/admin/standings-tiebreaker",
+            headers={
+                "Origin": "http://localhost:5173",
+            },
+            json={
+                "fallback_rule": "H2H_RECORD",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+        app.dependency_overrides.pop(
+            require_session_csrf,
+            None,
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+
+    payload = response.json()
+
+    assert payload["provider_rule"] == "TOTAL_POINTS_SCORED"
+    assert payload["admin_fallback_rule"] == "H2H_RECORD"
+    assert payload["effective_rule"] == "TOTAL_POINTS_SCORED"
+    assert payload["effective_rule_source"] == "provider"
+
+
+def test_standings_tiebreaker_fallback_rejects_unknown_rule() -> None:
+    app.dependency_overrides[get_current_user] = override_admin
+    app.dependency_overrides[require_session_csrf] = override_csrf
+
+    try:
+        response = client.patch(
+            "/api/admin/standings-tiebreaker",
+            headers={
+                "Origin": "http://localhost:5173",
+            },
+            json={
+                "fallback_rule": "COIN_FLIP",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+        app.dependency_overrides.pop(
+            require_session_csrf,
+            None,
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert response.json()["detail"] == ("Fallback rule must be H2H_RECORD or TOTAL_POINTS_SCORED.")
+
+
+def test_spectator_cannot_read_standings_tiebreaker_configuration() -> None:
+    app.dependency_overrides[get_current_user] = override_member
+
+    try:
+        response = client.get(
+            "/api/admin/standings-tiebreaker",
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN

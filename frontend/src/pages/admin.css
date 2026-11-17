@@ -443,3 +443,36 @@
       repeat(2, minmax(0, 1fr));
   }
 }
+
+
+.admin-setting-field {
+  display: grid;
+  gap: 0.4rem;
+  max-width: 24rem;
+  margin-top: 1rem;
+}
+
+.admin-setting-field label {
+  font-weight: 700;
+}
+
+.admin-setting-field select {
+  min-height: 2.8rem;
+  padding: 0.7rem 2.5rem 0.7rem 0.8rem;
+  border: 1px solid #829087;
+  border-radius: 0;
+  color: var(--color-green-900);
+  background: #ffffff;
+  font: inherit;
+}
+
+.admin-setting-field select:focus {
+  border-color: var(--color-green-700);
+  outline: 3px solid #b8d0c0;
+  outline-offset: 1px;
+}
+
+.admin-setting-field select:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}

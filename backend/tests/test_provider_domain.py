@@ -369,3 +369,64 @@ def test_league_requires_matching_schedule_length() -> None:
             schedule_rules=schedule,
             capabilities=make_capabilities(),
         )
+
+
+def test_schedule_accepts_playoff_predictor_settings() -> None:
+    rules = ProviderScheduleRules(
+        regular_season_weeks=14,
+        playoff_week_start=15,
+        playoff_week_end=17,
+        has_divisions=False,
+        has_median_game=False,
+        has_doubleheaders=False,
+        allows_ties=True,
+        playoff_team_count=6,
+        playoff_seed_tie_rule=" H2H_RECORD ",
+    )
+
+    assert rules.playoff_team_count == 6
+    assert rules.playoff_seed_tie_rule == "H2H_RECORD"
+
+
+@pytest.mark.parametrize(
+    "playoff_team_count",
+    [
+        -1,
+        0,
+        1,
+    ],
+)
+def test_schedule_rejects_invalid_playoff_team_count(
+    playoff_team_count: int,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="playoff_team_count must be at least two",
+    ):
+        ProviderScheduleRules(
+            regular_season_weeks=14,
+            playoff_week_start=15,
+            playoff_week_end=17,
+            has_divisions=False,
+            has_median_game=False,
+            has_doubleheaders=False,
+            allows_ties=True,
+            playoff_team_count=playoff_team_count,
+            playoff_seed_tie_rule="H2H_RECORD",
+        )
+
+
+def test_schedule_normalizes_empty_playoff_seed_rule() -> None:
+    rules = ProviderScheduleRules(
+        regular_season_weeks=14,
+        playoff_week_start=None,
+        playoff_week_end=None,
+        has_divisions=False,
+        has_median_game=False,
+        has_doubleheaders=False,
+        allows_ties=True,
+        playoff_team_count=None,
+        playoff_seed_tie_rule="   ",
+    )
+
+    assert rules.playoff_seed_tie_rule is None

@@ -66,3 +66,39 @@ export interface ImportSeasonResponse {
   fantasy_byes_upserted: number;
   player_week_scores_upserted: number;
 }
+
+export interface PlayoffPredictorTeam {
+  team_id: number;
+  name: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  points_for: number;
+  points_against: number;
+}
+
+export interface PlayoffPredictorMatchup {
+  matchup_id: number;
+  week: number;
+  home_team_id: number;
+  away_team_id: number;
+  home_score: number | null;
+  away_score: number | null;
+  is_complete: boolean;
+}
+
+export interface PlayoffPredictorSnapshot {
+  league_id: number;
+  league_name: string;
+  season_id: number;
+  season: number;
+  current_week: number;
+  regular_season_weeks: number;
+  playoff_team_count: number;
+  playoff_seed_tie_rule: string;
+  playoff_seed_tie_rule_source: "provider" | "admin_fallback";
+  allows_ties: boolean;
+  teams: PlayoffPredictorTeam[];
+  completed_matchups: PlayoffPredictorMatchup[];
+  remaining_matchups: PlayoffPredictorMatchup[];
+}

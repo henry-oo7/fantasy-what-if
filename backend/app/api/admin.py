@@ -27,9 +27,18 @@ from app.db.session import (
     SessionFactory,
     get_database_session,
 )
+from app.domain.standings_tiebreaker import (
+    StandingsTiebreaker,
+)
 from app.repositories.auth_repository import (
     DuplicateEmailError,
     DuplicateUsernameError,
+)
+from app.repositories.standings_tiebreaker_repository import (
+    StandingsTiebreakerConfiguration,
+    StandingsTiebreakerConfigurationError,
+    get_standings_tiebreaker_configuration,
+    set_standings_tiebreaker_fallback,
 )
 from app.repositories.sync_repository import (
     StoredSyncStatus,
@@ -39,13 +48,19 @@ from app.schemas.admin import (
     CreateSpectatorRequest,
     ResetSpectatorPasswordRequest,
     SetSpectatorAccessRequest,
+    SetStandingsTiebreakerFallbackRequest,
     SpectatorAccountMutationResponse,
     SpectatorAccountResponse,
+    StandingsTiebreakerConfigurationResponse,
     SyncRequest,
     SyncResultResponse,
     SyncRunResponse,
     SyncStatusResponse,
     UpdateSpectatorProfileRequest,
+)
+from app.services.active_season_context import (
+    ViewSeasonResolutionError,
+    resolve_view_season_context,
 )
 from app.services.provider_adapter_resolver import (
     resolve_active_provider_context,
@@ -137,6 +152,106 @@ def run_admin_synchronization(
         matchups_upserted=result.matchups_upserted,
         fantasy_byes_upserted=(result.fantasy_byes_upserted),
         player_week_scores_upserted=(result.player_week_scores_upserted),
+    )
+
+
+def _build_standings_tiebreaker_response(
+    configuration: StandingsTiebreakerConfiguration,
+) -> StandingsTiebreakerConfigurationResponse:
+    effective = configuration.effective
+
+    return StandingsTiebreakerConfigurationResponse(
+        season_id=configuration.season_id,
+        provider_rule=configuration.provider_rule,
+        provider_rule_supported=(configuration.provider_rule_supported),
+        admin_fallback_rule=(
+            configuration.admin_fallback_rule.value
+            if configuration.admin_fallback_rule is not None
+            else None
+        ),
+        effective_rule=(effective.rule.value if effective is not None else None),
+        effective_rule_source=(effective.source.value if effective is not None else None),
+    )
+
+
+@router.get("/standings-tiebreaker")
+def read_admin_standings_tiebreaker(
+    session: Annotated[
+        Session,
+        Depends(get_database_session),
+    ],
+) -> StandingsTiebreakerConfigurationResponse:
+    """Return provider and fallback standings tiebreaker settings."""
+
+    try:
+        context = resolve_view_season_context(
+            session=session,
+        )
+        configuration = get_standings_tiebreaker_configuration(
+            session,
+            season_id=context.season_id,
+        )
+    except (
+        ViewSeasonResolutionError,
+        StandingsTiebreakerConfigurationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return _build_standings_tiebreaker_response(
+        configuration,
+    )
+
+
+@router.patch("/standings-tiebreaker")
+def update_admin_standings_tiebreaker(
+    payload: SetStandingsTiebreakerFallbackRequest,
+    _: Annotated[
+        None,
+        Depends(validate_request_origin),
+    ],
+    __: Annotated[
+        AuthenticationContext,
+        Depends(require_session_csrf),
+    ],
+    session: Annotated[
+        Session,
+        Depends(get_database_session),
+    ],
+) -> StandingsTiebreakerConfigurationResponse:
+    """Store the active season's administrator fallback rule."""
+
+    try:
+        fallback_rule = StandingsTiebreaker(payload.fallback_rule.strip().upper())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=("Fallback rule must be H2H_RECORD or TOTAL_POINTS_SCORED."),
+        ) from exc
+
+    try:
+        context = resolve_view_season_context(
+            session=session,
+        )
+        configuration = set_standings_tiebreaker_fallback(
+            session,
+            season_id=context.season_id,
+            fallback_rule=fallback_rule,
+        )
+        session.commit()
+    except (
+        ViewSeasonResolutionError,
+        StandingsTiebreakerConfigurationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return _build_standings_tiebreaker_response(
+        configuration,
     )
 
 

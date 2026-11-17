@@ -17,6 +17,10 @@ from app.repositories.optimal_lineup_repository import (
 from app.repositories.player_week_repository import (
     load_team_week_rosters,
 )
+from app.repositories.playoff_predictor_repository import (
+    PlayoffPredictorConfigurationError,
+    load_playoff_predictor_snapshot,
+)
 from app.services.active_season_context import (
     ViewSeasonResolutionError,
     resolve_view_season_context,
@@ -133,3 +137,44 @@ def get_persisted_optimal_lineup_summaries(
         )
 
     return summaries
+
+
+def get_playoff_predictor_snapshot(
+    season_id: Annotated[int | None, Query(gt=0)] = None,
+):
+    """Load canonical playoff predictor data."""
+
+    try:
+        with SessionFactory() as session:
+            context = resolve_view_season_context(
+                session=session,
+                requested_season_id=season_id,
+            )
+
+            snapshot = load_playoff_predictor_snapshot(
+                session,
+                season_id=context.season_id,
+            )
+    except PlayoffPredictorConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ViewSeasonResolutionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=("Unable to retrieve playoff predictor data."),
+        ) from exc
+
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_STORED_DATA_UNAVAILABLE,
+        )
+
+    return snapshot

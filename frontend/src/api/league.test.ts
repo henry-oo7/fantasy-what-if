@@ -5,6 +5,7 @@ import {
   importSeason,
   importedSeasonsQueryOptions,
   leagueQueryKeys,
+  playoffPredictorQueryOptions,
 } from "./league";
 
 function jsonResponse(body: unknown): Response {
@@ -104,6 +105,42 @@ describe("league API", () => {
     expect(result.seasons.map((season) => season.year)).toEqual([2026, 2025]);
 
     expect(result.seasons.filter((season) => season.is_active)).toHaveLength(1);
+  });
+
+  it("loads the playoff predictor snapshot", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        league_id: 1,
+        league_name: "Jimmy and Friends",
+        season_id: 1,
+        season: 2026,
+        current_week: 11,
+        regular_season_weeks: 14,
+        playoff_team_count: 6,
+        playoff_seed_tie_rule: "H2H_RECORD",
+        allows_ties: true,
+        teams: [],
+        completed_matchups: [],
+        remaining_matchups: [],
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient();
+
+    const result = await queryClient.fetchQuery(playoffPredictorQueryOptions());
+
+    expect(result.playoff_team_count).toBe(6);
+    expect(result.playoff_seed_tie_rule).toBe("H2H_RECORD");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/leagues/current/playoff-predictor"),
+      expect.objectContaining({
+        method: "GET",
+        credentials: "include",
+      }),
+    );
   });
 
   it("imports another season with CSRF", async () => {

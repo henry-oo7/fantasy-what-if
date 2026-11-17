@@ -41,3 +41,54 @@ class ImportSeasonResponse(BaseModel):
     matchups_upserted: int
     fantasy_byes_upserted: int
     player_week_scores_upserted: int
+
+
+class PlayoffPredictorTeamResponse(BaseModel):
+    """One current team record in the predictor."""
+
+    team_id: int
+    name: str
+    wins: int
+    losses: int
+    ties: int
+    points_for: float
+    points_against: float
+
+
+class PlayoffPredictorMatchupResponse(BaseModel):
+    """One completed or remaining predictor matchup."""
+
+    matchup_id: int
+    week: int
+    home_team_id: int
+    away_team_id: int
+    home_score: float | None
+    away_score: float | None
+    is_complete: bool
+
+
+class PlayoffPredictorResponse(BaseModel):
+    """Canonical input for an ephemeral playoff scenario."""
+
+    league_id: int
+    league_name: str
+    season_id: int
+    season: int
+    current_week: int
+    regular_season_weeks: int
+    playoff_team_count: int
+    playoff_seed_tie_rule: str
+    playoff_seed_tie_rule_source: str
+    allows_ties: bool
+    teams: tuple[
+        PlayoffPredictorTeamResponse,
+        ...,
+    ]
+    completed_matchups: tuple[
+        PlayoffPredictorMatchupResponse,
+        ...,
+    ]
+    remaining_matchups: tuple[
+        PlayoffPredictorMatchupResponse,
+        ...,
+    ]

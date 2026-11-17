@@ -1,8 +1,4 @@
-import {
-  Navigate,
-  Route,
-  Routes,
-} from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 import App from "./App";
 import { AdminRoute } from "./auth/AdminRoute";
@@ -13,28 +9,18 @@ import { AdminPage } from "./pages/AdminPage";
 import { AllPlayPage } from "./pages/AllPlayPage";
 import { LeagueAveragePage } from "./pages/LeagueAveragePage";
 import { LoginPage } from "./pages/LoginPage";
-import {
-  OptimalLineupBreakdownPage,
-} from "./pages/OptimalLineupBreakdownPage";
+import { OptimalLineupBreakdownPage } from "./pages/OptimalLineupBreakdownPage";
 import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
-import {
-  ScheduleSwapPage,
-} from "./pages/ScheduleSwapPage";
+import { PlayoffPredictorPage } from "./pages/PlayoffPredictorPage";
+import { ScheduleSwapPage } from "./pages/ScheduleSwapPage";
 import { SetupPage } from "./pages/SetupPage";
-
 
 function ApplicationRoutes() {
   return (
     <Routes>
-      <Route
-        path="/setup"
-        element={<SetupPage />}
-      />
+      <Route path="/setup" element={<SetupPage />} />
 
-      <Route
-        path="/login"
-        element={<LoginPage />}
-      />
+      <Route path="/login" element={<LoginPage />} />
 
       <Route
         element={
@@ -43,10 +29,7 @@ function ApplicationRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route
-          index
-          element={<App />}
-        />
+        <Route index element={<App />} />
 
         <Route
           path="admin"
@@ -57,25 +40,15 @@ function ApplicationRoutes() {
           }
         />
 
-        <Route
-          path="all-play"
-          element={<AllPlayPage />}
-        />
+        <Route path="all-play" element={<AllPlayPage />} />
 
-        <Route
-          path="league-average"
-          element={<LeagueAveragePage />}
-        />
+        <Route path="league-average" element={<LeagueAveragePage />} />
 
-        <Route
-          path="schedule-swap"
-          element={<ScheduleSwapPage />}
-        />
+        <Route path="schedule-swap" element={<ScheduleSwapPage />} />
 
-        <Route
-          path="optimal-lineups"
-          element={<OptimalLineupsPage />}
-        />
+        <Route path="playoff-predictor" element={<PlayoffPredictorPage />} />
+
+        <Route path="optimal-lineups" element={<OptimalLineupsPage />} />
 
         <Route
           path="optimal-lineups/:teamId"
@@ -83,19 +56,10 @@ function ApplicationRoutes() {
         />
       </Route>
 
-      <Route
-        path="*"
-        element={
-          <Navigate
-            to="/"
-            replace
-          />
-        }
-      />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
-
 
 export function AppRouter() {
   return (

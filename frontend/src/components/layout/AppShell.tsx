@@ -7,6 +7,7 @@ import {
   Menu,
   ShieldCheck,
   Target,
+  Trophy,
   X,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -75,6 +76,11 @@ const navigationItems: NavigationItem[] = [
     label: "Schedule Swap",
     path: "/schedule-swap",
     icon: GitCompareArrows,
+  },
+  {
+    label: "Playoff Predictor",
+    path: "/playoff-predictor",
+    icon: Trophy,
   },
   {
     label: "Optimal Lineups",

@@ -405,6 +405,8 @@ class ProviderScheduleRules:
     has_median_game: bool
     has_doubleheaders: bool
     allows_ties: bool
+    playoff_team_count: int | None = None
+    playoff_seed_tie_rule: str | None = None
     metadata: Metadata = field(
         default_factory=immutable_mapping,
     )
@@ -428,6 +430,22 @@ class ProviderScheduleRules:
             and self.playoff_week_end < self.playoff_week_start
         ):
             raise ValueError("playoff_week_end cannot precede playoff_week_start.")
+
+        if self.playoff_team_count is not None and self.playoff_team_count < 2:
+            raise ValueError("playoff_team_count must be at least two.")
+
+        normalized_tie_rule = (
+            self.playoff_seed_tie_rule.strip() if self.playoff_seed_tie_rule is not None else None
+        )
+
+        if normalized_tie_rule == "":
+            normalized_tie_rule = None
+
+        object.__setattr__(
+            self,
+            "playoff_seed_tie_rule",
+            normalized_tie_rule,
+        )
 
         object.__setattr__(
             self,

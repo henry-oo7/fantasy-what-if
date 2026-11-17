@@ -345,6 +345,8 @@ class EspnProvider:
         try:
             current_week = int(client.current_week)
             regular_season_weeks = int(client.settings.reg_season_count)
+            playoff_team_count = int(client.settings.playoff_team_count)
+            playoff_seed_tie_rule = str(client.settings.playoff_seed_tie_rule).strip()
             name = str(client.settings.name).strip()
             lineup_slots = _create_lineup_slots(
                 client.settings.position_slot_counts,
@@ -371,6 +373,8 @@ class EspnProvider:
             has_median_game=False,
             has_doubleheaders=False,
             allows_ties=True,
+            playoff_team_count=playoff_team_count,
+            playoff_seed_tie_rule=(playoff_seed_tie_rule),
             metadata=immutable_mapping(
                 {
                     "provider": "espn",
@@ -448,8 +452,14 @@ class EspnProvider:
         results: list[ProviderMatchup] = []
 
         for week in normalized_weeks:
+            is_complete = week < current_week
+
             try:
-                raw_matchups = tuple(client.box_scores(week=week))
+                raw_matchups = tuple(
+                    client.box_scores(week=week)
+                    if week <= current_week
+                    else client.scoreboard(week=week)
+                )
             except Exception as exc:
                 raise ProviderResponseError(
                     context=self._error_context(
@@ -458,8 +468,6 @@ class EspnProvider:
                     ),
                     safe_message=(f"ESPN could not load matchup week {week}."),
                 ) from exc
-
-            is_complete = week < current_week
 
             if is_complete and not raw_matchups:
                 raise ProviderResponseError(

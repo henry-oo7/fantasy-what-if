@@ -12,6 +12,8 @@ import type {
 } from "../types/setup";
 import type {
   SpectatorAccount,
+  StandingsTiebreakerConfiguration,
+  StandingsTiebreakerRule,
   SyncResult,
   SyncStatus,
 } from "../types/admin";
@@ -30,6 +32,12 @@ export const adminQueryKeys = {
     [
       ...adminQueryKeys.all,
       "sync-status",
+    ] as const,
+
+  standingsTiebreaker: () =>
+    [
+      ...adminQueryKeys.all,
+      "standings-tiebreaker",
     ] as const,
 };
 
@@ -56,6 +64,34 @@ export function syncStatusQueryOptions() {
       ),
     staleTime: 30_000,
   });
+}
+
+
+export function standingsTiebreakerQueryOptions() {
+  return queryOptions({
+    queryKey: adminQueryKeys.standingsTiebreaker(),
+    queryFn: ({ signal }) =>
+      getJson<StandingsTiebreakerConfiguration>(
+        "/admin/standings-tiebreaker",
+        signal,
+      ),
+  });
+}
+
+
+export function setStandingsTiebreakerFallback(
+  fallbackRule: StandingsTiebreakerRule,
+  csrfToken: string,
+): Promise<StandingsTiebreakerConfiguration> {
+  return patchJson<StandingsTiebreakerConfiguration>(
+    "/admin/standings-tiebreaker",
+    {
+      fallback_rule: fallbackRule,
+    },
+    {
+      csrfToken,
+    },
+  );
 }
 
 

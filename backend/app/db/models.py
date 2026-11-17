@@ -953,6 +953,18 @@ class ScheduleRule(TimestampMixin, Base):
         Integer,
         nullable=True,
     )
+    playoff_team_count: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    playoff_seed_tie_rule: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    playoff_seed_tie_rule_fallback: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
     has_divisions: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

@@ -17,10 +17,16 @@ from app.api.auth_dependencies import (
     require_admin_user,
     require_session_csrf,
 )
-from app.api.dependencies import get_current_league_snapshot
+from app.api.dependencies import (
+    get_current_league_snapshot,
+    get_playoff_predictor_snapshot,
+)
 from app.api.security import validate_request_origin
 from app.db.session import SessionFactory
 from app.domain.league import LeagueSnapshot
+from app.domain.playoff_predictor import (
+    PlayoffPredictorSnapshot,
+)
 from app.providers.credential_vault import (
     ProviderCredentialConfigurationError,
 )
@@ -32,6 +38,7 @@ from app.schemas.leagues import (
     ImportedSeasonsResponse,
     ImportSeasonRequest,
     ImportSeasonResponse,
+    PlayoffPredictorResponse,
 )
 from app.services.active_season_context import (
     ViewSeasonResolutionError,
@@ -50,6 +57,21 @@ router = APIRouter(
         Depends(get_current_user),
     ],
 )
+
+
+@router.get(
+    "/current/playoff-predictor",
+    response_model=PlayoffPredictorResponse,
+)
+def read_playoff_predictor(
+    snapshot: Annotated[
+        PlayoffPredictorSnapshot,
+        Depends(get_playoff_predictor_snapshot),
+    ],
+) -> PlayoffPredictorSnapshot:
+    """Return canonical data for a playoff scenario."""
+
+    return snapshot
 
 
 @router.get("/current")

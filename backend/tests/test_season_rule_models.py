@@ -115,6 +115,11 @@ def test_schedule_rule_fields() -> None:
     assert table.c.regular_season_weeks.nullable is False
     assert table.c.playoff_week_start.nullable is True
     assert table.c.playoff_week_end.nullable is True
+    assert table.c.playoff_team_count.nullable is True
+    assert table.c.playoff_seed_tie_rule.nullable is True
+    assert table.c.playoff_seed_tie_rule.type.length == 100
+    assert table.c.playoff_seed_tie_rule_fallback.nullable is True
+    assert table.c.playoff_seed_tie_rule_fallback.type.length == 100
 
     assert table.c.has_divisions.server_default.arg == "false"
     assert table.c.has_median_game.server_default.arg == "false"
@@ -196,4 +201,4 @@ def test_rule_column_counts() -> None:
     assert len(LineupSlotDefinition.__table__.columns) == 13
     assert len(LineupSlotEligibility.__table__.columns) == 4
     assert len(ScoringRule.__table__.columns) == 9
-    assert len(ScheduleRule.__table__.columns) == 12
+    assert len(ScheduleRule.__table__.columns) == 15
