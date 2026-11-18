@@ -10,9 +10,11 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import (
     Mapped,
@@ -33,6 +35,14 @@ if TYPE_CHECKING:
 
 class Installation(TimestampMixin, Base):
     __tablename__ = "installations"
+    __table_args__ = (
+        Index(
+            "uq_installations_normalized_slug",
+            "normalized_slug",
+            unique=True,
+            postgresql_where=text("normalized_slug IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -46,6 +56,16 @@ class Installation(TimestampMixin, Base):
 
     public_url: Mapped[str | None] = mapped_column(
         String(500),
+        nullable=True,
+    )
+
+    slug: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    normalized_slug: Mapped[str | None] = mapped_column(
+        String(50),
         nullable=True,
     )
 
