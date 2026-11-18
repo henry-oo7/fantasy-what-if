@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -16,8 +16,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import (
     Mapped,
     mapped_column,
@@ -27,6 +29,8 @@ from sqlalchemy.orm import (
 from app.db.base import Base
 from app.db.mixins import TimestampMixin
 from app.db.platform_enums import (
+    BackgroundJobStatus,
+    BackgroundJobType,
     FantasyProvider,
     InstallationStatus,
 )
@@ -285,4 +289,214 @@ class ProviderLeagueClaim(TimestampMixin, Base):
     normalized_provider_league_id: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+
+
+class BackgroundJob(TimestampMixin, Base):
+    """Durable workspace-owned background work."""
+
+    __tablename__ = "background_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "payload_version > 0",
+            name=("ck_background_jobs_payload_version_positive"),
+        ),
+        CheckConstraint(
+            "attempt_count >= 0",
+            name=("ck_background_jobs_attempt_count_nonnegative"),
+        ),
+        CheckConstraint(
+            "maximum_attempts > 0",
+            name=("ck_background_jobs_maximum_attempts_positive"),
+        ),
+        CheckConstraint(
+            "attempt_count <= maximum_attempts",
+            name="ck_background_jobs_attempt_limit",
+        ),
+        CheckConstraint(
+            "idempotency_key IS NULL OR idempotency_key = btrim(idempotency_key)",
+            name=("ck_background_jobs_idempotency_key_trimmed"),
+        ),
+        CheckConstraint(
+            "idempotency_key IS NULL OR idempotency_key <> ''",
+            name=("ck_background_jobs_idempotency_key_nonempty"),
+        ),
+        CheckConstraint(
+            "status <> 'running'::background_job_status "
+            "OR ("
+            "claimed_at IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL "
+            "AND claimed_by IS NOT NULL "
+            "AND started_at IS NOT NULL"
+            ")",
+            name="ck_background_jobs_running_claim",
+        ),
+        CheckConstraint(
+            "status <> 'succeeded'::background_job_status OR completed_at IS NOT NULL",
+            name=("ck_background_jobs_succeeded_timestamp"),
+        ),
+        CheckConstraint(
+            "status <> 'failed'::background_job_status OR failed_at IS NOT NULL",
+            name="ck_background_jobs_failed_timestamp",
+        ),
+        CheckConstraint(
+            "status <> 'canceled'::background_job_status OR canceled_at IS NOT NULL",
+            name="ck_background_jobs_canceled_timestamp",
+        ),
+        Index(
+            "ix_background_jobs_queue_order",
+            "status",
+            text("priority DESC"),
+            "available_at",
+            "id",
+        ),
+        Index(
+            "uq_background_jobs_active_idempotency_key",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text(
+                "idempotency_key IS NOT NULL "
+                "AND status IN ("
+                "'pending'::background_job_status, "
+                "'running'::background_job_status, "
+                "'retry_scheduled'::background_job_status"
+                ")"
+            ),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "installations.id",
+            name=("fk_background_jobs_workspace_id_installations"),
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    job_type: Mapped[BackgroundJobType] = mapped_column(
+        Enum(
+            BackgroundJobType,
+            name="background_job_type",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+    )
+
+    status: Mapped[BackgroundJobStatus] = mapped_column(
+        Enum(
+            BackgroundJobStatus,
+            name="background_job_status",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+        default=BackgroundJobStatus.PENDING,
+        server_default=BackgroundJobStatus.PENDING.value,
+    )
+
+    priority: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    payload_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    progress: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+    attempt_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    maximum_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=5,
+        server_default="5",
+    )
+
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    claimed_by: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    canceled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    safe_error_code: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    safe_error_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    retryable: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
     )
