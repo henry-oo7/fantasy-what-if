@@ -35,6 +35,7 @@ def administrator() -> User:
         email="admin@example.com",
         password_hash="$argon2id$test-placeholder",
         role=UserRole.ADMIN,
+        workspace_id=1,
         is_active=True,
     )
 
@@ -80,6 +81,7 @@ def test_bootstrap_creates_admin_and_starts_setup() -> None:
         email="admin@example.com",
         password="correct horse battery staple",
         role=UserRole.ADMIN,
+        workspace_id=1,
         is_active=True,
     )
 

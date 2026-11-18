@@ -78,6 +78,7 @@ class AuthenticationRepository:
         email: str | None = None,
         role: UserRole = UserRole.SPECTATOR,
         is_active: bool = True,
+        workspace_id: int | None = None,
     ) -> User:
         normalized_username = normalize_username(username)
         normalized_display_name = normalize_display_name(display_name)
@@ -92,7 +93,9 @@ class AuthenticationRepository:
         user = User(
             username=normalized_username,
             display_name=normalized_display_name,
+            workspace_id=workspace_id,
             email=normalized_email,
+            normalized_email=normalized_email,
             password_hash=hash_password(password),
             role=role,
             is_active=is_active,

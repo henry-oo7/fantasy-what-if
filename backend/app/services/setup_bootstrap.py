@@ -88,6 +88,7 @@ def bootstrap_administrator(
         password=password,
         role=UserRole.ADMIN,
         is_active=True,
+        workspace_id=installation.id,
     )
 
     return installation, administrator

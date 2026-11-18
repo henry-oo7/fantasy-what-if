@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +27,26 @@ class UserRole(StrEnum):
 
 class User(TimestampMixin, Base):
     __tablename__ = "users"
+    __table_args__ = (
+        Index(
+            "uq_users_one_admin_per_workspace",
+            "workspace_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NOT NULL AND role = 'admin'::user_role"),
+        ),
+        Index(
+            "uq_users_one_spectator_per_workspace",
+            "workspace_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NOT NULL AND role = 'spectator'::user_role"),
+        ),
+        Index(
+            "uq_users_admin_normalized_email",
+            "normalized_email",
+            unique=True,
+            postgresql_where=text("role = 'admin'::user_role AND normalized_email IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -44,11 +65,31 @@ class User(TimestampMixin, Base):
         nullable=False,
     )
 
+    workspace_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "installations.id",
+            name="fk_users_workspace_id_installations",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
+
     email: Mapped[str | None] = mapped_column(
         String(320),
         nullable=True,
         unique=True,
         index=True,
+    )
+
+    normalized_email: Mapped[str | None] = mapped_column(
+        String(320),
+        nullable=True,
+    )
+
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     password_hash: Mapped[str] = mapped_column(

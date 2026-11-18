@@ -1815,7 +1815,6 @@ The following decisions remain open and must be resolved before their implementa
 
 1. Final email provider
 2. Final email normalization implementation
-3. Existing production workspace slug
 4. Provisional workspace cleanup implementation
 5. Exact worker lease duration
 6. Exact retry schedule
@@ -1871,3 +1870,15 @@ The target architecture succeeds when:
 15. Backups and restoration are proven.
 16. Homelab operations support the initial user population.
 17. Cloud migration remains possible without rewriting the domain.
+
+## Existing Production Identity Migration Decisions
+
+The existing v1.0.1 production workspace will use the workspace slug `jimmyandfriends`.
+
+The existing administrator email will be marked verified during migration because the administrator account predates SaaS registration and is already the established production owner.
+
+For new workspaces, provider validation may suggest a slug derived from the provider league name, but the registering administrator chooses the final available slug before league claiming.
+
+Changing a league name at ESPN, Sleeper, or Yahoo must not automatically change the saved workspace slug.
+
+The existing spectator username remains temporarily for compatibility. The target spectator login uses `jimmyandfriends` and the existing shared spectator password.
