@@ -16,7 +16,11 @@ from app.auth.security import (
     hash_password,
     hash_token,
 )
-from app.db.auth_models import AuthSession, User
+from app.db.auth_models import (
+    AuthSession,
+    User,
+    UserRole,
+)
 from app.db.session import engine
 from app.repositories.auth_repository import (
     AuthenticationRepository,
@@ -305,3 +309,90 @@ def test_password_hash_is_argon2(
 
     assert user.password_hash.startswith("$argon2")
     assert user.password_hash != hash_password("correct horse battery staple")
+
+
+def test_administrator_login_replaces_prior_session(
+    database_session: Session,
+) -> None:
+    user = AuthenticationRepository(database_session).create_user(
+        username="replacement-admin",
+        display_name="Replacement Administrator",
+        password="correct horse battery staple",
+        role=UserRole.ADMIN,
+    )
+
+    first = log_in_user(
+        database_session,
+        username=user.username,
+        password="correct horse battery staple",
+        session_lifetime_hours=168,
+    )
+    second = log_in_user(
+        database_session,
+        username=user.username,
+        password="correct horse battery staple",
+        session_lifetime_hours=168,
+    )
+
+    repository = SessionRepository(database_session)
+
+    assert repository.resolve_session(first.session_token) is None
+    assert repository.resolve_session(second.session_token) is not None
+
+
+def test_spectator_logins_remain_concurrent(
+    database_session: Session,
+) -> None:
+    user = create_test_user(
+        database_session,
+        username="concurrent-spectator",
+    )
+
+    first = log_in_user(
+        database_session,
+        username=user.username,
+        password="correct horse battery staple",
+        session_lifetime_hours=168,
+    )
+    second = log_in_user(
+        database_session,
+        username=user.username,
+        password="correct horse battery staple",
+        session_lifetime_hours=168,
+    )
+
+    repository = SessionRepository(database_session)
+
+    assert repository.resolve_session(first.session_token) is not None
+    assert repository.resolve_session(second.session_token) is not None
+
+
+def test_failed_administrator_login_preserves_active_session(
+    database_session: Session,
+) -> None:
+    user = AuthenticationRepository(database_session).create_user(
+        username="preserved-admin",
+        display_name="Preserved Administrator",
+        password="correct horse battery staple",
+        role=UserRole.ADMIN,
+    )
+
+    active = log_in_user(
+        database_session,
+        username=user.username,
+        password="correct horse battery staple",
+        session_lifetime_hours=168,
+    )
+
+    with pytest.raises(
+        InvalidCredentialsError,
+        match="Invalid username or password",
+    ):
+        log_in_user(
+            database_session,
+            username=user.username,
+            password="incorrect password",
+            session_lifetime_hours=168,
+        )
+
+    assert SessionRepository(database_session).resolve_session(active.session_token) is not None
