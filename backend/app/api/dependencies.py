@@ -1,9 +1,17 @@
 from typing import Annotated
 
-from fastapi import HTTPException, Query, status
+from fastapi import (
+    Depends,
+    HTTPException,
+    Query,
+    status,
+)
 
 from app.analytics.optimal_lineup import (
     TeamOptimalLineupSummary,
+)
+from app.api.auth_dependencies import (
+    get_current_workspace_id,
 )
 from app.db.session import SessionFactory
 from app.domain.league import LeagueSnapshot
@@ -30,12 +38,17 @@ _STORED_DATA_UNAVAILABLE = "League data has not been synchronized yet."
 
 
 def get_current_league_snapshot(
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
     season_id: Annotated[int | None, Query(gt=0)] = None,
 ) -> LeagueSnapshot:
     try:
         with SessionFactory() as session:
             context = resolve_view_season_context(
                 session=session,
+                workspace_id=workspace_id,
                 requested_season_id=season_id,
             )
 
@@ -64,12 +77,17 @@ def get_current_league_snapshot(
 
 
 def get_completed_team_week_rosters(
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
     season_id: Annotated[int | None, Query(gt=0)] = None,
 ) -> tuple[TeamWeekRoster, ...]:
     try:
         with SessionFactory() as session:
             context = resolve_view_season_context(
                 session=session,
+                workspace_id=workspace_id,
                 requested_season_id=season_id,
             )
 
@@ -104,6 +122,10 @@ def get_completed_team_week_rosters(
 
 
 def get_persisted_optimal_lineup_summaries(
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
     season_id: Annotated[int | None, Query(gt=0)] = None,
 ) -> tuple[TeamOptimalLineupSummary, ...]:
     """Load the selected season's stored optimal lineups."""
@@ -112,6 +134,7 @@ def get_persisted_optimal_lineup_summaries(
         with SessionFactory() as session:
             context = resolve_view_season_context(
                 session=session,
+                workspace_id=workspace_id,
                 requested_season_id=season_id,
             )
 
@@ -140,6 +163,10 @@ def get_persisted_optimal_lineup_summaries(
 
 
 def get_playoff_predictor_snapshot(
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
     season_id: Annotated[int | None, Query(gt=0)] = None,
 ):
     """Load canonical playoff predictor data."""
@@ -148,6 +175,7 @@ def get_playoff_predictor_snapshot(
         with SessionFactory() as session:
             context = resolve_view_season_context(
                 session=session,
+                workspace_id=workspace_id,
                 requested_season_id=season_id,
             )
 

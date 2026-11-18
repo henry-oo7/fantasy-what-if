@@ -34,6 +34,7 @@ class SeasonLifecycleReconciliationResult:
 def reconcile_stale_active_season(
     session: Session,
     *,
+    workspace_id: int,
     now: datetime | None = None,
     commit_transaction: bool = True,
 ) -> SeasonLifecycleReconciliationResult:
@@ -47,29 +48,22 @@ def reconcile_stale_active_season(
 
     timestamp = now or datetime.now(UTC)
 
-    installations = session.scalars(
+    installation = session.scalar(
         select(Installation)
         .where(
+            Installation.id == workspace_id,
             Installation.status == InstallationStatus.ACTIVE,
         )
-        .order_by(Installation.id)
         .with_for_update()
-    ).all()
+    )
 
-    if not installations:
+    if installation is None:
         return SeasonLifecycleReconciliationResult(
             changed=False,
             installation_id=None,
             completed_season_id=None,
             completed_season_year=None,
         )
-
-    if len(installations) > 1:
-        raise SeasonLifecycleReconciliationError(
-            "Multiple active installations cannot be reconciled safely."
-        )
-
-    installation = installations[0]
 
     if installation.active_season_id is None:
         return SeasonLifecycleReconciliationResult(

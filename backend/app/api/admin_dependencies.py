@@ -12,12 +12,14 @@ class SynchronizationRunner(Protocol):
     def __call__(
         self,
         *,
+        workspace_id: int,
         full_sync: bool,
     ) -> ProviderSyncResult: ...
 
 
 def run_synchronization(
     *,
+    workspace_id: int,
     full_sync: bool,
 ) -> ProviderSyncResult:
     settings = get_settings()
@@ -25,6 +27,7 @@ def run_synchronization(
     with SessionFactory() as session:
         return synchronize_active_season(
             session=session,
+            workspace_id=workspace_id,
             settings=settings,
             full_sync=full_sync,
         )

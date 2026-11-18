@@ -16,6 +16,7 @@ def create_test_authenticated_user() -> User:
         id=999_999,
         username="authenticated-test-user",
         display_name="Authenticated Test User",
+        workspace_id=1,
         email=None,
         password_hash="$argon2id$test-placeholder",
         role=UserRole.SPECTATOR,

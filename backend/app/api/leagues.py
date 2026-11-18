@@ -14,6 +14,7 @@ from app.api.admin_dependencies import (
 from app.api.auth_dependencies import (
     AuthenticationContext,
     get_current_user,
+    get_current_workspace_id,
     require_admin_user,
     require_session_csrf,
 )
@@ -85,13 +86,19 @@ def read_current_league(
 
 
 @router.get("/seasons")
-def read_imported_seasons() -> ImportedSeasonsResponse:
+def read_imported_seasons(
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
+) -> ImportedSeasonsResponse:
     """Return seasons already imported for this installation."""
 
     try:
         with SessionFactory() as session:
             context = resolve_view_season_context(
                 session=session,
+                workspace_id=workspace_id,
             )
 
             seasons = list_imported_seasons(

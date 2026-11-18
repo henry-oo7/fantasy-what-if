@@ -23,9 +23,14 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--workspace-id",
+        type=int,
+        help=("Internal workspace ID. Required when --season-id is omitted."),
+    )
+    parser.add_argument(
         "--season-id",
         type=int,
-        help=("Internal season ID. Defaults to the installation's active season."),
+        help=("Internal season ID. When omitted, rebuild the workspace's active season."),
     )
 
     return parser.parse_args()
@@ -38,8 +43,12 @@ def main() -> None:
         season_id = arguments.season_id
 
         if season_id is None:
+            if arguments.workspace_id is None:
+                raise SystemExit("--workspace-id is required when --season-id is omitted.")
+
             season_id = resolve_active_season_context(
                 session=session,
+                workspace_id=arguments.workspace_id,
             ).season_id
 
         rosters = load_team_week_rosters(

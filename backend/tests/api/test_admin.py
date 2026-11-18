@@ -30,6 +30,7 @@ def create_user(
         id=123_456,
         username=f"{role.value}-test-user",
         display_name="Admin API Test User",
+        workspace_id=1,
         email=None,
         password_hash="$argon2id$test-placeholder",
         role=role,
@@ -41,8 +42,10 @@ def create_user(
 
 def fake_sync_result(
     *,
+    workspace_id: int,
     full_sync: bool,
 ) -> ProviderSyncResult:
+    assert workspace_id == 1
     return ProviderSyncResult(
         provider=FantasyProvider.ESPN,
         season_id=1,
@@ -154,8 +157,10 @@ def test_admin_can_trigger_incremental_sync() -> None:
 def test_admin_sync_response_accepts_nonnumeric_provider_ids() -> None:
     def sleeper_runner(
         *,
+        workspace_id: int,
         full_sync: bool,
     ) -> ProviderSyncResult:
+        assert workspace_id == 1
         return ProviderSyncResult(
             provider=FantasyProvider.SLEEPER,
             season_id=17,
@@ -246,8 +251,10 @@ def test_member_cannot_trigger_sync() -> None:
 def test_sync_conflict_returns_409() -> None:
     def locked_runner(
         *,
+        workspace_id: int,
         full_sync: bool,
     ) -> ProviderSyncResult:
+        assert workspace_id == 1
         del full_sync
 
         raise SyncAlreadyRunningError(

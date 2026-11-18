@@ -4,7 +4,11 @@ import signal
 from datetime import UTC, datetime
 from threading import Event
 
+from sqlalchemy import select
+
 from app.core.settings import Settings, get_settings
+from app.db.platform_enums import InstallationStatus
+from app.db.platform_models import Installation
 from app.db.session import SessionFactory
 from app.services.active_provider_sync import (
     synchronize_active_season,
@@ -26,7 +30,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--run-now",
         action="store_true",
-        help=("Run one incremental synchronization immediately and exit."),
+        help=("Run one workspace synchronization immediately and exit."),
+    )
+    parser.add_argument(
+        "--workspace-id",
+        type=int,
+        help=("Internal workspace ID. Required with --run-now."),
     )
 
     parser.add_argument(
@@ -64,15 +73,34 @@ def install_signal_handlers() -> None:
     )
 
 
+def list_active_workspace_ids() -> tuple[int, ...]:
+    with SessionFactory() as session:
+        workspace_ids = session.scalars(
+            select(Installation.id)
+            .where(
+                Installation.status == InstallationStatus.ACTIVE,
+            )
+            .order_by(Installation.id)
+        ).all()
+
+    return tuple(workspace_ids)
+
+
 def run_incremental_sync(
     settings: Settings,
+    *,
+    workspace_id: int,
 ) -> ProviderSyncResult | None:
-    LOGGER.info("Starting incremental fantasy provider synchronization.")
+    LOGGER.info(
+        "Starting incremental synchronization: workspace_id=%s.",
+        workspace_id,
+    )
 
     try:
         with SessionFactory() as session:
             result = synchronize_active_season(
                 session=session,
+                workspace_id=workspace_id,
                 settings=settings,
                 full_sync=False,
             )
@@ -86,9 +114,10 @@ def run_incremental_sync(
         return None
 
     LOGGER.info(
-        "Synchronization succeeded: current_week=%s, "
-        "player_weeks=%s, teams=%s, matchups=%s, "
-        "player_week_scores=%s.",
+        "Synchronization succeeded: workspace_id=%s, "
+        "current_week=%s, player_weeks=%s, teams=%s, "
+        "matchups=%s, player_week_scores=%s.",
+        workspace_id,
         result.current_week,
         list(result.player_weeks),
         result.teams_upserted,
@@ -163,7 +192,21 @@ def run_scheduler(
         if SHUTDOWN_EVENT.is_set():
             break
 
-        run_incremental_sync(settings)
+        workspace_ids = list_active_workspace_ids()
+
+        LOGGER.info(
+            "Dispatching sequential synchronization for %s active workspaces.",
+            len(workspace_ids),
+        )
+
+        for workspace_id in workspace_ids:
+            if SHUTDOWN_EVENT.is_set():
+                break
+
+            run_incremental_sync(
+                settings,
+                workspace_id=workspace_id,
+            )
 
     LOGGER.info("Synchronization scheduler stopped.")
 
@@ -219,7 +262,13 @@ def main() -> None:
         return
 
     if arguments.run_now:
-        result = run_incremental_sync(settings)
+        if arguments.workspace_id is None:
+            raise SystemExit("--workspace-id is required with --run-now.")
+
+        result = run_incremental_sync(
+            settings,
+            workspace_id=arguments.workspace_id,
+        )
 
         if result is None:
             raise SystemExit(1)

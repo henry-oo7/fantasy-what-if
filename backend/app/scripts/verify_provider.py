@@ -1,4 +1,6 @@
-"""Verify the active fantasy provider without exposing credentials."""
+"""Verify one workspace's active provider without exposing credentials."""
+
+import argparse
 
 from app.core.settings import get_settings
 from app.db.models import Season
@@ -10,18 +12,35 @@ from app.services.provider_adapter_resolver import (
 )
 
 
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=("Verify one workspace's active fantasy provider.")
+    )
+    parser.add_argument(
+        "--workspace-id",
+        type=int,
+        required=True,
+        help=("Internal workspace ID whose active provider will be verified."),
+    )
+
+    return parser.parse_args()
+
+
 def main() -> None:
     """Validate and inspect the active provider connection."""
 
+    arguments = parse_arguments()
     settings = get_settings()
 
     print("=== ACTIVE FANTASY PROVIDER VERIFICATION ===")
+    print(f"Workspace ID: {arguments.workspace_id}")
     print("Provider credentials intentionally hidden.")
 
     try:
         with SessionFactory() as session:
             context, provider = resolve_active_provider_adapter(
                 session=session,
+                workspace_id=arguments.workspace_id,
                 settings=settings,
             )
 

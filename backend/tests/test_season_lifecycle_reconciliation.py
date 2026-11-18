@@ -65,8 +65,20 @@ def configured_session(
     stored_season: Season | None = None,
 ) -> MagicMock:
     session = MagicMock()
-    session.scalars.return_value.all.return_value = installations
+
+    def resolve_workspace(_statement):
+        return next(
+            (
+                workspace
+                for workspace in installations
+                if (workspace.id == 1 and workspace.status is InstallationStatus.ACTIVE)
+            ),
+            None,
+        )
+
+    session.scalar.side_effect = resolve_workspace
     session.get.return_value = stored_season
+
     return session
 
 
@@ -80,6 +92,7 @@ def test_prior_year_active_season_is_completed() -> None:
 
     result = reconcile_stale_active_season(
         session,
+        workspace_id=1,
         now=NEW_YEARS_DAY,
     )
 
@@ -113,6 +126,7 @@ def test_existing_completion_timestamp_is_preserved() -> None:
 
     reconcile_stale_active_season(
         session,
+        workspace_id=1,
         now=NEW_YEARS_DAY,
     )
 
@@ -129,6 +143,7 @@ def test_current_year_active_season_is_unchanged() -> None:
 
     result = reconcile_stale_active_season(
         session,
+        workspace_id=1,
         now=NEW_YEARS_DAY,
     )
 
@@ -152,6 +167,7 @@ def test_historical_only_installation_is_unchanged() -> None:
 
     result = reconcile_stale_active_season(
         session,
+        workspace_id=1,
         now=NEW_YEARS_DAY,
     )
 
@@ -167,6 +183,7 @@ def test_setup_without_active_installation_is_unchanged() -> None:
 
     result = reconcile_stale_active_season(
         session,
+        workspace_id=1,
         now=NEW_YEARS_DAY,
     )
 
@@ -174,26 +191,35 @@ def test_setup_without_active_installation_is_unchanged() -> None:
     assert result.installation_id is None
 
 
-def test_multiple_active_installations_are_rejected() -> None:
+def test_requested_workspace_is_reconciled_independently() -> None:
+    requested_workspace = installation(
+        installation_id=1,
+    )
+    other_workspace = installation(
+        installation_id=2,
+        active_season_id=40,
+    )
+    stale_season = season(
+        year=2025,
+    )
     session = configured_session(
         installations=[
-            installation(
-                installation_id=1,
-            ),
-            installation(
-                installation_id=2,
-            ),
+            requested_workspace,
+            other_workspace,
         ],
+        stored_season=stale_season,
     )
 
-    with pytest.raises(
-        SeasonLifecycleReconciliationError,
-        match="Multiple active installations",
-    ):
-        reconcile_stale_active_season(
-            session,
-            now=NEW_YEARS_DAY,
-        )
+    result = reconcile_stale_active_season(
+        session,
+        workspace_id=1,
+        now=NEW_YEARS_DAY,
+    )
+
+    assert result.changed is True
+    assert result.installation_id == 1
+    assert requested_workspace.active_season_id is None
+    assert other_workspace.active_season_id == 40
 
 
 def test_missing_active_season_is_rejected() -> None:
@@ -208,5 +234,6 @@ def test_missing_active_season_is_rejected() -> None:
     ):
         reconcile_stale_active_season(
             session,
+            workspace_id=1,
             now=NEW_YEARS_DAY,
         )

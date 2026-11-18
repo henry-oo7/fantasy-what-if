@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from app.api.admin import router as admin_router
 from app.api.analytics import router as analytics_router
@@ -11,6 +12,8 @@ from app.api.auth import router as auth_router
 from app.api.leagues import router as leagues_router
 from app.api.setup import router as setup_router
 from app.core.settings import get_settings
+from app.db.platform_enums import InstallationStatus
+from app.db.platform_models import Installation
 from app.db.session import SessionFactory
 from app.error_handlers import (
     unexpected_exception_handler,
@@ -26,10 +29,31 @@ from app.services.season_lifecycle_reconciliation import (
 settings = get_settings()
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+def reconcile_active_workspace_seasons() -> None:
     with SessionFactory() as session:
-        reconcile_stale_active_season(session)
+        workspace_ids = tuple(
+            session.scalars(
+                select(Installation.id)
+                .where(
+                    Installation.status == InstallationStatus.ACTIVE,
+                )
+                .order_by(Installation.id)
+            ).all()
+        )
+
+    for workspace_id in workspace_ids:
+        with SessionFactory() as session:
+            reconcile_stale_active_season(
+                session,
+                workspace_id=workspace_id,
+            )
+
+
+@asynccontextmanager
+async def lifespan(
+    _: FastAPI,
+) -> AsyncIterator[None]:
+    reconcile_active_workspace_seasons()
 
     yield
 
