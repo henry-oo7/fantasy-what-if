@@ -15,6 +15,7 @@ from app.db.platform_enums import (
 from app.db.platform_models import (
     Installation,
     ProviderConnection,
+    ProviderLeagueClaim,
 )
 from app.providers.credential_vault import (
     ProviderCredentialVault,
@@ -28,6 +29,9 @@ from app.providers.domain import (
     ProviderValidationResult,
 )
 from app.providers.registry import ProviderRegistry
+from app.repositories.provider_league_claim_repository import (
+    ProviderLeagueAlreadyClaimedError,
+)
 from app.services.setup_finalization import (
     SETUP_FINALIZATION_LOCK_KEY,
     SetupFinalizationUnavailableError,
@@ -236,9 +240,15 @@ def test_finalization_activates_after_full_sync() -> None:
 
     added = [call.args[0] for call in session.add.call_args_list]
 
+    claim = next(value for value in added if isinstance(value, ProviderLeagueClaim))
     league = next(value for value in added if isinstance(value, League))
     season = next(value for value in added if isinstance(value, Season))
 
+    assert claim.workspace_id == installation.id
+    assert claim.provider is FantasyProvider.ESPN
+    assert claim.provider_league_id == "529250970"
+    assert claim.normalized_provider_league_id == "529250970"
+    assert claim.league_id == league.id
     assert league.provider_league_id == "529250970"
     assert season.provider_season_id == "2026"
     assert season.status is SeasonStatus.ACTIVE
@@ -376,4 +386,37 @@ def test_future_finalization_is_rejected_before_database_inserts() -> None:
         )
 
     session.add.assert_not_called()
+    session.commit.assert_not_called()
+
+
+def test_claimed_provider_league_blocks_finalization() -> None:
+    key, installation, connection = setup_objects()
+    session = setup_session(
+        installation,
+        connection,
+    )
+
+    with (
+        patch(
+            "app.services.setup_finalization.ProviderLeagueClaimRepository.create_claim",
+            side_effect=ProviderLeagueAlreadyClaimedError("This league is already connected."),
+        ),
+        pytest.raises(
+            SetupFinalizationUnavailableError,
+            match="This league is already connected",
+        ),
+    ):
+        finalize_installation_setup(
+            session,
+            credential_key=key,
+            registry=registry(),
+        )
+
+    added = [call.args[0] for call in session.add.call_args_list]
+
+    assert not any(isinstance(value, League) for value in added)
+    assert not any(isinstance(value, Season) for value in added)
+    assert installation.status is (InstallationStatus.SETUP_IN_PROGRESS)
+    assert installation.active_league_id is None
+    assert installation.active_season_id is None
     session.commit.assert_not_called()

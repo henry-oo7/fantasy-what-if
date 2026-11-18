@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 from app.db.auth_models import User, UserRole
 from app.db.models import League
 from app.db.platform_enums import FantasyProvider
-from app.db.platform_models import ProviderConnection
+from app.db.platform_models import (
+    ProviderConnection,
+    ProviderLeagueClaim,
+)
 from app.db.session import engine
 from app.providers.credential_vault import (
     ProviderCredentialVault,
@@ -68,6 +71,34 @@ def migration_ready_database(
     assert connection is not None
     assert connection.provider is FantasyProvider.ESPN
 
+    league = database_session.scalar(
+        select(League).where(
+            League.installation_id == 1,
+        )
+    )
+
+    assert league is not None
+    assert league.provider is not None
+    assert league.provider_league_id is not None
+
+    claim = database_session.scalar(
+        select(ProviderLeagueClaim).where(
+            ProviderLeagueClaim.league_id == league.id,
+        )
+    )
+
+    if claim is None:
+        provider_league_id = league.provider_league_id.strip()
+
+        claim = ProviderLeagueClaim(
+            workspace_id=league.installation_id,
+            league_id=league.id,
+            provider=league.provider,
+            provider_league_id=provider_league_id,
+            normalized_provider_league_id=(provider_league_id),
+        )
+        database_session.add(claim)
+
     administrator.email = "administrator@example.test"
     connection.credential_version = 1
     connection.encrypted_credentials = vault.encrypt(
@@ -104,7 +135,7 @@ def test_valid_v1_database_passes_migration_audit(
     )
 
     assert audit.passed is True
-    assert len(audit.checks) == 19
+    assert len(audit.checks) == 26
     assert all(check.passed for check in audit.checks)
 
 
@@ -188,3 +219,55 @@ def test_invalid_espn_league_identity_blocks_migration(
     assert audit.passed is False
     assert check.passed is False
     assert check.message == ("The active league does not have a valid decimal ESPN league ID.")
+
+
+def test_mismatched_provider_claim_identity_blocks_migration(
+    migration_ready_database: tuple[Session, str],
+) -> None:
+    session, credential_key = migration_ready_database
+
+    claim = session.scalar(select(ProviderLeagueClaim))
+
+    assert claim is not None
+
+    claim.normalized_provider_league_id = "different-league-id"
+
+    audit = audit_saas_migration_readiness(
+        session,
+        provider_credential_key=credential_key,
+    )
+
+    check = check_by_name(
+        audit,
+        "provider_league_claim_identity_match",
+    )
+
+    assert audit.passed is False
+    assert check.passed is False
+    assert check.message == ("A provider identity claim does not match its league identifier.")
+
+
+def test_unattached_provider_claim_blocks_migration(
+    migration_ready_database: tuple[Session, str],
+) -> None:
+    session, credential_key = migration_ready_database
+
+    claim = session.scalar(select(ProviderLeagueClaim))
+
+    assert claim is not None
+
+    claim.league_id = None
+
+    audit = audit_saas_migration_readiness(
+        session,
+        provider_credential_key=credential_key,
+    )
+
+    check = check_by_name(
+        audit,
+        "provider_league_claim_attachment",
+    )
+
+    assert audit.passed is False
+    assert check.passed is False
+    assert check.message == ("One or more provider identity claims are not attached to a league.")
