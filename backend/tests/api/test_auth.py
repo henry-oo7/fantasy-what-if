@@ -12,6 +12,8 @@ from app.db.auth_models import (
     LoginAttempt,
     UserRole,
 )
+from app.db.platform_enums import InstallationStatus
+from app.db.platform_models import Installation
 from app.db.session import SessionFactory
 from app.main import app
 from app.repositories.auth_repository import (
@@ -92,13 +94,26 @@ def login_credentials() -> tuple[str, str]:
     username = f"http-user-{unique}"
     password = "correct horse battery staple"
 
+    workspace_slug = f"test-{unique}"
+
     with SessionFactory() as session:
+        workspace = Installation(
+            application_name="HTTP Authentication Test",
+            slug=workspace_slug,
+            normalized_slug=workspace_slug,
+            timezone="America/Chicago",
+            status=InstallationStatus.SETUP_IN_PROGRESS,
+        )
+        session.add(workspace)
+        session.flush()
+
         repository = AuthenticationRepository(session)
 
         repository.create_user(
             username=username,
             display_name="HTTP Test User",
             password=password,
+            workspace_id=workspace.id,
         )
 
         session.commit()
@@ -111,7 +126,18 @@ def login_credentials() -> tuple[str, str]:
         user = AuthenticationRepository(session).get_user_by_username(username)
 
         if user is not None:
+            workspace_id = user.workspace_id
             session.delete(user)
+            session.flush()
+
+            if workspace_id is not None:
+                workspace = session.get(
+                    Installation,
+                    workspace_id,
+                )
+
+                if workspace is not None:
+                    session.delete(workspace)
 
         session.commit()
 
@@ -122,7 +148,19 @@ def admin_login_credentials() -> tuple[str, str]:
     username = f"http-admin-{unique}"
     password = "correct horse battery staple"
 
+    workspace_slug = f"admin-{unique}"
+
     with SessionFactory() as session:
+        workspace = Installation(
+            application_name="HTTP Administrator Test",
+            slug=workspace_slug,
+            normalized_slug=workspace_slug,
+            timezone="America/Chicago",
+            status=InstallationStatus.SETUP_IN_PROGRESS,
+        )
+        session.add(workspace)
+        session.flush()
+
         repository = AuthenticationRepository(session)
 
         repository.create_user(
@@ -130,6 +168,7 @@ def admin_login_credentials() -> tuple[str, str]:
             display_name="HTTP Test Administrator",
             password=password,
             role=UserRole.ADMIN,
+            workspace_id=workspace.id,
         )
 
         session.commit()
@@ -142,7 +181,18 @@ def admin_login_credentials() -> tuple[str, str]:
         user = AuthenticationRepository(session).get_user_by_username(username)
 
         if user is not None:
+            workspace_id = user.workspace_id
             session.delete(user)
+            session.flush()
+
+            if workspace_id is not None:
+                workspace = session.get(
+                    Installation,
+                    workspace_id,
+                )
+
+                if workspace is not None:
+                    session.delete(workspace)
 
         session.commit()
 

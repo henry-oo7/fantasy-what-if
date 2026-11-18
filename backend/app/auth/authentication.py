@@ -14,7 +14,11 @@ from app.auth.security import (
     password_hash_needs_update,
     verify_password,
 )
-from app.db.auth_models import AuthSession, User
+from app.db.auth_models import (
+    AuthSession,
+    User,
+    UserRole,
+)
 from app.repositories.auth_repository import (
     AuthenticationRepository,
 )
@@ -242,6 +246,12 @@ def log_in_user(
     authentication_repository.record_successful_login(user)
 
     session_repository = SessionRepository(session)
+
+    if user.role is UserRole.ADMIN:
+        session_repository.revoke_all_user_sessions(
+            user_id=user.id,
+            now=now,
+        )
 
     created: CreatedSession = session_repository.create_session(
         user=user,

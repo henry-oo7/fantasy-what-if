@@ -19,12 +19,17 @@ from app.core.settings import Settings, get_settings
 from app.db.auth_models import AuthSession, User, UserRole
 from app.db.session import SessionFactory
 from app.repositories.session_repository import (
+    ResolvedSession,
     SessionRepository,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class AuthenticationContext:
+    user_id: int
+    workspace_id: int
+    role: UserRole
+    session_id: int
     user: User
     auth_session: AuthSession
 
@@ -58,15 +63,35 @@ def get_authentication_context(
                 detail="Authentication is required.",
             )
 
+        context = build_authentication_context(resolved)
+
         database_session.commit()
 
         database_session.expunge(resolved.user)
         database_session.expunge(resolved.session)
 
-        return AuthenticationContext(
-            user=resolved.user,
-            auth_session=resolved.session,
+        return context
+
+
+def build_authentication_context(
+    resolved: ResolvedSession,
+) -> AuthenticationContext:
+    workspace_id = resolved.user.workspace_id
+
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication is required.",
         )
+
+    return AuthenticationContext(
+        user_id=resolved.user.id,
+        workspace_id=workspace_id,
+        role=resolved.user.role,
+        session_id=resolved.session.id,
+        user=resolved.user,
+        auth_session=resolved.session,
+    )
 
 
 def get_current_user(
@@ -84,7 +109,7 @@ def require_admin_user(
         Depends(get_current_user),
     ],
 ) -> User:
-    if user.role != UserRole.ADMIN:
+    if user.role is not UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator access is required.",
