@@ -10,7 +10,11 @@ from sqlalchemy.orm import Session
 from app.db.auth_models import AuthSession, User, UserRole
 from app.db.models import League, Season, SyncRun
 from app.db.platform_enums import FantasyProvider, InstallationStatus
-from app.db.platform_models import Installation, ProviderConnection
+from app.db.platform_models import (
+    Installation,
+    ProviderConnection,
+    ProviderLeagueClaim,
+)
 from app.providers.credential_vault import (
     ProviderCredentialConfigurationError,
     ProviderCredentialDecryptionError,
@@ -244,6 +248,114 @@ def audit_saas_migration_readiness(
         passed=len(leagues) == 1,
         success="Exactly one workspace league exists.",
         failure=(f"Expected exactly one workspace league, found {len(leagues)}."),
+    )
+
+    claims = session.scalars(
+        select(ProviderLeagueClaim).order_by(
+            ProviderLeagueClaim.id,
+        )
+    ).all()
+
+    league_by_id = {league.id: league for league in leagues}
+    claim_counts_by_league_id = {league.id: 0 for league in leagues}
+
+    for claim in claims:
+        if claim.league_id in claim_counts_by_league_id:
+            claim_counts_by_league_id[claim.league_id] += 1
+
+    every_league_claimed_once = len(claims) == len(leagues) and all(
+        count == 1 for count in claim_counts_by_league_id.values()
+    )
+
+    _check(
+        checks,
+        name="provider_league_claim_count",
+        passed=every_league_claimed_once,
+        success=("Every workspace league has exactly one provider identity claim."),
+        failure=("One or more workspace leagues are missing a unique provider identity claim."),
+    )
+
+    installation_ids = {value.id for value in installations}
+
+    valid_claim_workspaces = all(claim.workspace_id in installation_ids for claim in claims)
+
+    _check(
+        checks,
+        name="provider_league_claim_workspace",
+        passed=valid_claim_workspaces,
+        success=("Every provider identity claim references a valid workspace."),
+        failure=("One or more provider identity claims reference a missing workspace."),
+    )
+
+    no_unattached_claims = all(claim.league_id is not None for claim in claims)
+
+    _check(
+        checks,
+        name="provider_league_claim_attachment",
+        passed=no_unattached_claims,
+        success=("No provisional provider identity claims remain."),
+        failure=("One or more provider identity claims are not attached to a league."),
+    )
+
+    valid_claim_leagues = all(
+        claim.league_id is not None and claim.league_id in league_by_id for claim in claims
+    )
+
+    _check(
+        checks,
+        name="provider_league_claim_league",
+        passed=valid_claim_leagues,
+        success=("Every provider identity claim references a valid league."),
+        failure=("One or more provider identity claims reference a missing league."),
+    )
+
+    matching_claim_workspaces = all(
+        claim.league_id is not None
+        and claim.league_id in league_by_id
+        and league_by_id[claim.league_id].installation_id == claim.workspace_id
+        for claim in claims
+    )
+
+    _check(
+        checks,
+        name="provider_league_claim_workspace_match",
+        passed=matching_claim_workspaces,
+        success=("Every provider identity claim and league belong to the same workspace."),
+        failure=("A provider identity claim and its league belong to different workspaces."),
+    )
+
+    matching_claim_providers = all(
+        claim.league_id is not None
+        and claim.league_id in league_by_id
+        and league_by_id[claim.league_id].provider is claim.provider
+        for claim in claims
+    )
+
+    _check(
+        checks,
+        name="provider_league_claim_provider_match",
+        passed=matching_claim_providers,
+        success=("Every provider identity claim matches its league provider."),
+        failure=("A provider identity claim does not match its league provider."),
+    )
+
+    matching_claim_identities = all(
+        claim.league_id is not None
+        and claim.league_id in league_by_id
+        and (league_by_id[claim.league_id].provider_league_id is not None)
+        and (
+            claim.normalized_provider_league_id
+            == league_by_id[claim.league_id].provider_league_id.strip()
+        )
+        for claim in claims
+    )
+
+    _check(
+        checks,
+        name="provider_league_claim_identity_match",
+        passed=matching_claim_identities,
+        success=("Every provider identity claim matches its league identifier."),
+        failure=("A provider identity claim does not match its league identifier."),
     )
 
     active_league = (

@@ -21,6 +21,10 @@ from app.providers.credential_vault import (
 )
 from app.providers.errors import ProviderNotSupportedError
 from app.providers.registry import ProviderRegistry
+from app.repositories.provider_league_claim_repository import (
+    ProviderLeagueAlreadyClaimedError,
+    ProviderLeagueClaimRepository,
+)
 from app.services.provider_adapter_resolver import (
     build_provider_registry,
 )
@@ -198,6 +202,17 @@ def finalize_installation_setup(
     except FutureSeasonImportError as exc:
         raise SetupFinalizationValidationError(str(exc)) from exc
 
+    claim_repository = ProviderLeagueClaimRepository(session)
+
+    try:
+        claim = claim_repository.create_claim(
+            workspace_id=installation.id,
+            provider=connection.provider,
+            provider_league_id=(provider_league.provider_league_id),
+        )
+    except ProviderLeagueAlreadyClaimedError as exc:
+        raise SetupFinalizationUnavailableError("This league is already connected.") from exc
+
     league = League(
         installation_id=installation.id,
         provider=connection.provider,
@@ -209,6 +224,11 @@ def finalize_installation_setup(
 
     session.add(league)
     session.flush()
+
+    claim_repository.attach_league(
+        claim,
+        league_id=league.id,
+    )
 
     season = Season(
         league_id=league.id,

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import (
@@ -211,4 +213,76 @@ class ProviderConnection(TimestampMixin, Base):
 
     sync_runs: Mapped[list[SyncRun]] = relationship(
         back_populates="provider_connection",
+    )
+
+
+class ProviderLeagueClaim(TimestampMixin, Base):
+    """Exclusive ownership of one provider league identity."""
+
+    __tablename__ = "provider_league_claims"
+    __table_args__ = (
+        CheckConstraint(
+            "provider_league_id = btrim(provider_league_id)",
+            name="ck_provider_league_claims_trimmed_id",
+        ),
+        CheckConstraint(
+            "normalized_provider_league_id = btrim(provider_league_id)",
+            name="ck_provider_league_claims_normalized_id",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            name="uq_provider_league_claims_workspace_id",
+        ),
+        UniqueConstraint(
+            "league_id",
+            name="uq_provider_league_claims_league_id",
+        ),
+        UniqueConstraint(
+            "provider",
+            "normalized_provider_league_id",
+            name="uq_provider_league_claims_provider_identity",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "installations.id",
+            name=("fk_provider_league_claims_workspace_id_installations"),
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+
+    league_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "leagues.id",
+            name=("fk_provider_league_claims_league_id_leagues"),
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+    )
+
+    provider: Mapped[FantasyProvider] = mapped_column(
+        Enum(
+            FantasyProvider,
+            name="fantasy_provider",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    provider_league_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    normalized_provider_league_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
     )
