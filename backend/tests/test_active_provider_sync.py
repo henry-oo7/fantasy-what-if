@@ -72,6 +72,7 @@ def test_active_sync_returns_provider_result(
 
     result = synchronize_active_season(
         session=session,
+        workspace_id=1,
         settings=settings,
         full_sync=False,
     )
@@ -92,10 +93,14 @@ def test_active_sync_returns_provider_result(
     assert result.fantasy_byes_upserted == 0
     assert result.player_week_scores_upserted == 401
 
-    reconcile.assert_called_once_with(session)
+    reconcile.assert_called_once_with(
+        session,
+        workspace_id=1,
+    )
 
     resolver.assert_called_once_with(
         session=session,
+        workspace_id=1,
         settings=settings,
     )
 
@@ -136,8 +141,12 @@ def test_active_sync_propagates_resolution_failure(
     ):
         synchronize_active_season(
             session=session,
+            workspace_id=1,
             settings=settings,
             full_sync=False,
         )
 
-    reconcile.assert_called_once_with(session)
+    reconcile.assert_called_once_with(
+        session,
+        workspace_id=1,
+    )

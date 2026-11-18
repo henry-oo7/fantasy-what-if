@@ -1,4 +1,6 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -7,7 +9,9 @@ from pydantic import SecretStr
 from app.core.settings import Settings
 from app.scripts.sync_scheduler import (
     _wait_for_target,
+    list_active_workspace_ids,
     next_scheduled_time,
+    run_incremental_sync,
     run_scheduler,
 )
 
@@ -90,3 +94,114 @@ def test_small_delay_completes() -> None:
         )
         is False
     )
+
+
+def test_active_workspace_ids_are_returned_in_query_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_session = MagicMock()
+    database_session.scalars.return_value.all.return_value = [
+        3,
+        8,
+        21,
+    ]
+
+    session_context = MagicMock()
+    session_context.__enter__.return_value = database_session
+
+    session_factory = MagicMock(
+        return_value=session_context,
+    )
+
+    monkeypatch.setattr(
+        "app.scripts.sync_scheduler.SessionFactory",
+        session_factory,
+    )
+
+    assert list_active_workspace_ids() == (
+        3,
+        8,
+        21,
+    )
+
+    database_session.scalars.assert_called_once()
+
+
+def test_incremental_sync_forwards_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = create_settings(
+        enabled=True,
+    )
+    expected_result = SimpleNamespace(
+        current_week=9,
+        player_weeks=(7, 8),
+        teams_upserted=12,
+        matchups_upserted=72,
+        player_week_scores_upserted=400,
+    )
+
+    synchronize = MagicMock(
+        return_value=expected_result,
+    )
+
+    database_session = MagicMock()
+    session_context = MagicMock()
+    session_context.__enter__.return_value = database_session
+
+    monkeypatch.setattr(
+        "app.scripts.sync_scheduler.SessionFactory",
+        MagicMock(
+            return_value=session_context,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.scripts.sync_scheduler.synchronize_active_season",
+        synchronize,
+    )
+
+    result = run_incremental_sync(
+        settings,
+        workspace_id=42,
+    )
+
+    assert result is expected_result
+
+    synchronize.assert_called_once_with(
+        session=database_session,
+        workspace_id=42,
+        settings=settings,
+        full_sync=False,
+    )
+
+
+def test_workspace_sync_failure_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = create_settings(
+        enabled=True,
+    )
+
+    database_session = MagicMock()
+    session_context = MagicMock()
+    session_context.__enter__.return_value = database_session
+
+    monkeypatch.setattr(
+        "app.scripts.sync_scheduler.SessionFactory",
+        MagicMock(
+            return_value=session_context,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.scripts.sync_scheduler.synchronize_active_season",
+        MagicMock(
+            side_effect=RuntimeError("Synthetic workspace failure."),
+        ),
+    )
+
+    result = run_incremental_sync(
+        settings,
+        workspace_id=42,
+    )
+
+    assert result is None

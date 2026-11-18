@@ -13,6 +13,13 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--workspace-id",
+        type=int,
+        required=True,
+        help=("Internal workspace ID whose active season will be synchronized."),
+    )
+
+    parser.add_argument(
         "--full",
         action="store_true",
         help=(
@@ -32,12 +39,14 @@ def main() -> None:
     mode = "full" if arguments.full else "incremental"
 
     print("=== FANTASY PROVIDER DATABASE SYNC ===")
+    print(f"Workspace ID: {arguments.workspace_id}")
     print(f"Mode: {mode}")
     print("Provider credentials intentionally hidden.")
 
     with SessionFactory() as session:
         result = synchronize_active_season(
             session=session,
+            workspace_id=arguments.workspace_id,
             settings=settings,
             full_sync=arguments.full,
         )

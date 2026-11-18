@@ -41,40 +41,33 @@ class ViewSeasonContext:
     is_synchronization_active: bool
 
 
-def _resolve_single_active_installation(
+def _resolve_active_workspace(
     session: Session,
     *,
+    workspace_id: int,
     error_type: type[RuntimeError],
 ) -> Installation:
-    installations = session.scalars(
-        select(Installation).order_by(
-            Installation.id,
-        )
-    ).all()
+    workspace = session.get(
+        Installation,
+        workspace_id,
+    )
 
-    active_installations = [
-        installation
-        for installation in installations
-        if installation.status is InstallationStatus.ACTIVE
-    ]
+    if workspace is None or workspace.status is not InstallationStatus.ACTIVE:
+        raise error_type("The requested workspace is not active.")
 
-    if not active_installations:
-        raise error_type("No active installation is configured.")
-
-    if len(active_installations) > 1:
-        raise error_type("Multiple active installations are configured.")
-
-    return active_installations[0]
+    return workspace
 
 
 def resolve_active_season_context(
     *,
     session: Session,
+    workspace_id: int,
 ) -> ActiveSeasonContext:
     """Resolve the only season eligible for synchronization."""
 
-    installation = _resolve_single_active_installation(
+    installation = _resolve_active_workspace(
         session,
+        workspace_id=workspace_id,
         error_type=ActiveSeasonResolutionError,
     )
 
@@ -89,8 +82,10 @@ def resolve_active_season_context(
         installation.active_league_id,
     )
 
-    if league is None:
-        raise ActiveSeasonResolutionError("The active league does not exist.")
+    if league is None or league.installation_id != installation.id:
+        raise ActiveSeasonResolutionError(
+            "The active league does not belong to the requested workspace."
+        )
 
     season = session.get(
         Season,
@@ -116,6 +111,7 @@ def resolve_active_season_context(
 def resolve_view_season_context(
     *,
     session: Session,
+    workspace_id: int,
     requested_season_id: int | None = None,
 ) -> ViewSeasonContext:
     """Resolve an imported season for stored-data reads.
@@ -125,8 +121,9 @@ def resolve_view_season_context(
     imported season.
     """
 
-    installation = _resolve_single_active_installation(
+    installation = _resolve_active_workspace(
         session,
+        workspace_id=workspace_id,
         error_type=ViewSeasonResolutionError,
     )
 
@@ -162,8 +159,10 @@ def resolve_view_season_context(
             season.league_id,
         )
 
-        if league is None:
-            raise ViewSeasonResolutionError("The active league does not exist.")
+        if league is None or league.installation_id != installation.id:
+            raise ViewSeasonResolutionError(
+                "The active season does not belong to the requested workspace."
+            )
     else:
         result = session.execute(
             select(

@@ -14,6 +14,7 @@ from app.api.admin_dependencies import (
 )
 from app.api.auth_dependencies import (
     AuthenticationContext,
+    get_current_workspace_id,
     require_admin_user,
     require_session_csrf,
 )
@@ -89,9 +90,17 @@ router = APIRouter(
 
 
 @router.get("/sync-status")
-def read_sync_status() -> SyncStatusResponse:
+def read_sync_status(
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
+) -> SyncStatusResponse:
     with SessionFactory() as session:
-        _, season, _ = resolve_active_provider_context(session=session)
+        _, season, _ = resolve_active_provider_context(
+            session=session,
+            workspace_id=workspace_id,
+        )
 
         stored = get_sync_status(
             session,
@@ -110,6 +119,10 @@ def read_sync_status() -> SyncStatusResponse:
 @router.post("/sync")
 def run_admin_synchronization(
     payload: SyncRequest,
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
     _: Annotated[
         User,
         Depends(require_admin_user),
@@ -128,7 +141,10 @@ def run_admin_synchronization(
     ],
 ) -> SyncResultResponse:
     try:
-        result = runner(full_sync=payload.full_sync)
+        result = runner(
+            workspace_id=workspace_id,
+            full_sync=payload.full_sync,
+        )
     except SyncAlreadyRunningError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -176,6 +192,10 @@ def _build_standings_tiebreaker_response(
 
 @router.get("/standings-tiebreaker")
 def read_admin_standings_tiebreaker(
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
     session: Annotated[
         Session,
         Depends(get_database_session),
@@ -186,6 +206,7 @@ def read_admin_standings_tiebreaker(
     try:
         context = resolve_view_season_context(
             session=session,
+            workspace_id=workspace_id,
         )
         configuration = get_standings_tiebreaker_configuration(
             session,
@@ -208,6 +229,10 @@ def read_admin_standings_tiebreaker(
 @router.patch("/standings-tiebreaker")
 def update_admin_standings_tiebreaker(
     payload: SetStandingsTiebreakerFallbackRequest,
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
     _: Annotated[
         None,
         Depends(validate_request_origin),
@@ -234,6 +259,7 @@ def update_admin_standings_tiebreaker(
     try:
         context = resolve_view_season_context(
             session=session,
+            workspace_id=workspace_id,
         )
         configuration = set_standings_tiebreaker_fallback(
             session,

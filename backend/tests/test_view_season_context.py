@@ -53,12 +53,16 @@ def configured_session(
 ) -> MagicMock:
     session = MagicMock()
 
-    session.scalars.return_value.all.return_value = [current_installation]
-
     def get_model(
         model_type,
         model_id: int,
     ):
+        if model_type is Installation:
+            if current_installation.id == model_id:
+                return current_installation
+
+            return None
+
         if model_type is Season:
             if season is not None and season.id == model_id:
                 return season
@@ -88,13 +92,14 @@ def test_historical_only_installation_uses_newest_imported_season() -> None:
     season = historical_season()
 
     context = resolve_view_season_context(
+        workspace_id=1,
         session=configured_session(
             current_installation=installation(),
             historical_result=(
                 season,
                 league,
             ),
-        )
+        ),
     )
 
     assert context == ViewSeasonContext(
@@ -122,13 +127,14 @@ def test_active_season_is_default_view() -> None:
     )
 
     context = resolve_view_season_context(
+        workspace_id=1,
         session=configured_session(
             current_installation=installation(
                 active_season_id=21,
             ),
             league=league,
             season=season,
-        )
+        ),
     )
 
     assert context == ViewSeasonContext(
@@ -148,6 +154,7 @@ def test_explicit_historical_season_can_be_viewed() -> None:
     season = historical_season()
 
     context = resolve_view_season_context(
+        workspace_id=1,
         session=configured_session(
             current_installation=installation(
                 active_season_id=21,
@@ -168,6 +175,7 @@ def test_explicit_missing_season_is_rejected() -> None:
         match="requested season does not exist",
     ):
         resolve_view_season_context(
+            workspace_id=1,
             session=configured_session(
                 current_installation=installation(),
             ),
@@ -181,8 +189,9 @@ def test_historical_only_installation_requires_imported_season() -> None:
         match="No imported season",
     ):
         resolve_view_season_context(
+            workspace_id=1,
             session=configured_session(
                 current_installation=installation(),
                 historical_result=None,
-            )
+            ),
         )

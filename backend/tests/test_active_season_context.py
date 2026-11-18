@@ -39,12 +39,16 @@ def configured_session(
 ) -> MagicMock:
     session = MagicMock()
 
-    session.scalars.return_value.all.return_value = installations
-
     def get_model(
         model_type,
         model_id: int,
     ):
+        if model_type is Installation:
+            return next(
+                (workspace for workspace in installations if workspace.id == model_id),
+                None,
+            )
+
         if model_type is League:
             return league
 
@@ -61,6 +65,7 @@ def configured_session(
 def test_resolves_active_internal_identities() -> None:
     league = League(
         id=10,
+        installation_id=1,
         name="Jimmy and Friends",
     )
     season = Season(
@@ -73,11 +78,12 @@ def test_resolves_active_internal_identities() -> None:
     )
 
     context = resolve_active_season_context(
+        workspace_id=1,
         session=configured_session(
             installations=[installation()],
             league=league,
             season=season,
-        )
+        ),
     )
 
     assert context == ActiveSeasonContext(
@@ -98,32 +104,52 @@ def test_rejects_missing_active_installation() -> None:
 
     with pytest.raises(
         ActiveSeasonResolutionError,
-        match="No active installation",
+        match="requested workspace is not active",
     ):
         resolve_active_season_context(
+            workspace_id=1,
             session=session,
         )
 
 
-def test_rejects_multiple_active_installations() -> None:
-    session = configured_session(
-        installations=[
-            installation(
-                installation_id=1,
-            ),
-            installation(
-                installation_id=2,
-            ),
-        ],
+def test_resolves_requested_workspace_when_multiple_exist() -> None:
+    league = League(
+        id=10,
+        installation_id=1,
+        name="Jimmy and Friends",
+    )
+    season = Season(
+        id=20,
+        league_id=10,
+        year=2026,
+        current_week=9,
+        regular_season_weeks=12,
+        status=SeasonStatus.ACTIVE,
     )
 
-    with pytest.raises(
-        ActiveSeasonResolutionError,
-        match="Multiple active installations",
-    ):
-        resolve_active_season_context(
-            session=session,
-        )
+    context = resolve_active_season_context(
+        workspace_id=1,
+        session=configured_session(
+            installations=[
+                installation(
+                    installation_id=1,
+                ),
+                installation(
+                    installation_id=2,
+                    active_league_id=30,
+                    active_season_id=40,
+                ),
+            ],
+            league=league,
+            season=season,
+        ),
+    )
+
+    assert context == ActiveSeasonContext(
+        installation_id=1,
+        league_id=10,
+        season_id=20,
+    )
 
 
 @pytest.mark.parametrize(
@@ -164,6 +190,7 @@ def test_rejects_missing_active_identifiers(
         match=message,
     ):
         resolve_active_season_context(
+            workspace_id=1,
             session=session,
         )
 
@@ -176,9 +203,10 @@ def test_rejects_missing_active_league() -> None:
 
     with pytest.raises(
         ActiveSeasonResolutionError,
-        match="active league does not exist",
+        match="active league does not belong",
     ):
         resolve_active_season_context(
+            workspace_id=1,
             session=session,
         )
 
@@ -186,6 +214,7 @@ def test_rejects_missing_active_league() -> None:
 def test_rejects_missing_active_season() -> None:
     league = League(
         id=10,
+        installation_id=1,
         name="Jimmy and Friends",
     )
 
@@ -200,6 +229,7 @@ def test_rejects_missing_active_season() -> None:
         match="active season does not exist",
     ):
         resolve_active_season_context(
+            workspace_id=1,
             session=session,
         )
 
@@ -207,6 +237,7 @@ def test_rejects_missing_active_season() -> None:
 def test_rejects_season_from_another_league() -> None:
     league = League(
         id=10,
+        installation_id=1,
         name="Jimmy and Friends",
     )
     season = Season(
@@ -228,5 +259,6 @@ def test_rejects_season_from_another_league() -> None:
         match="does not belong",
     ):
         resolve_active_season_context(
+            workspace_id=1,
             session=session,
         )

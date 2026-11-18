@@ -20,15 +20,20 @@ from app.services.season_lifecycle_reconciliation import (
 def synchronize_active_season(
     *,
     session: Session,
+    workspace_id: int,
     settings: Settings,
     full_sync: bool,
 ) -> ProviderSyncResult:
     """Synchronize the active season through its resolved adapter."""
 
-    reconcile_stale_active_season(session)
+    reconcile_stale_active_season(
+        session,
+        workspace_id=workspace_id,
+    )
 
     context, provider = resolve_active_provider_adapter(
         session=session,
+        workspace_id=workspace_id,
         settings=settings,
     )
 

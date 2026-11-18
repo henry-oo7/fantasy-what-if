@@ -1,3 +1,5 @@
+import argparse
+
 from app.db.session import SessionFactory
 from app.repositories.league_repository import (
     load_league_snapshot,
@@ -7,10 +9,27 @@ from app.services.active_season_context import (
 )
 
 
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=("Inspect one workspace's active database snapshot.")
+    )
+    parser.add_argument(
+        "--workspace-id",
+        type=int,
+        required=True,
+        help=("Internal workspace ID whose active snapshot will be inspected."),
+    )
+
+    return parser.parse_args()
+
+
 def main() -> None:
+    arguments = parse_arguments()
+
     with SessionFactory() as session:
         context = resolve_active_season_context(
             session=session,
+            workspace_id=arguments.workspace_id,
         )
 
         snapshot = load_league_snapshot(
@@ -24,6 +43,7 @@ def main() -> None:
     weeks = sorted({matchup.week for matchup in snapshot.matchups})
 
     print("=== DATABASE LEAGUE SNAPSHOT ===")
+    print(f"Workspace ID: {arguments.workspace_id}")
     print(f"League: {snapshot.name}")
     print(f"League ID: {snapshot.league_id}")
     print(f"Season: {snapshot.season}")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
@@ -26,6 +25,10 @@ from app.providers.espn import (
     register_espn_provider,
 )
 from app.providers.registry import ProviderRegistry
+from app.services.active_season_context import (
+    ActiveSeasonResolutionError,
+    resolve_active_season_context,
+)
 
 
 class ProviderAdapterResolutionError(RuntimeError):
@@ -56,36 +59,33 @@ def build_provider_registry() -> ProviderRegistry:
 def resolve_active_provider_context(
     *,
     session: Session,
+    workspace_id: int,
 ) -> tuple[
     Installation,
     Season,
     ProviderConnection,
 ]:
-    """Resolve the single installation's active season and connection."""
+    """Resolve one workspace's active season and connection."""
 
-    installations = session.scalars(select(Installation).order_by(Installation.id)).all()
-
-    active_installations = [
-        installation for installation in installations if installation.status.value == "active"
-    ]
-
-    if not active_installations:
-        raise ProviderAdapterResolutionError("No active installation is configured.")
-
-    if len(active_installations) > 1:
-        raise ProviderAdapterResolutionError("Multiple active installations are configured.")
-
-    installation = active_installations[0]
-
-    if installation.active_season_id is None:
-        raise ProviderAdapterResolutionError(
-            "The active installation does not have an active season."
+    try:
+        active_context = resolve_active_season_context(
+            session=session,
+            workspace_id=workspace_id,
         )
+    except ActiveSeasonResolutionError as exc:
+        raise ProviderAdapterResolutionError(str(exc)) from exc
 
+    installation = session.get(
+        Installation,
+        active_context.installation_id,
+    )
     season = session.get(
         Season,
-        installation.active_season_id,
+        active_context.season_id,
     )
+
+    if installation is None:
+        raise ProviderAdapterResolutionError("The requested workspace does not exist.")
 
     if season is None:
         raise ProviderAdapterResolutionError("The active season does not exist.")
@@ -105,7 +105,7 @@ def resolve_active_provider_context(
 
     if connection.installation_id != installation.id:
         raise ProviderAdapterResolutionError(
-            "The active provider connection belongs to another installation."
+            "The active provider connection belongs to another workspace."
         )
 
     if not connection.is_active:
@@ -205,6 +205,7 @@ def resolve_connection_credentials(
 def resolve_active_provider_adapter(
     *,
     session: Session,
+    workspace_id: int,
     settings: Settings,
     registry: ProviderRegistry | None = None,
 ) -> tuple[
@@ -217,7 +218,10 @@ def resolve_active_provider_adapter(
         installation,
         season,
         connection,
-    ) = resolve_active_provider_context(session=session)
+    ) = resolve_active_provider_context(
+        session=session,
+        workspace_id=workspace_id,
+    )
 
     credentials, source = resolve_connection_credentials(
         connection=connection,

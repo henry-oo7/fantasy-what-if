@@ -103,6 +103,23 @@ def get_current_user(
     return context.user
 
 
+def get_current_workspace_id(
+    user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+) -> int:
+    workspace_id = user.workspace_id
+
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication is required.",
+        )
+
+    return workspace_id
+
+
 def require_admin_user(
     user: Annotated[
         User,
