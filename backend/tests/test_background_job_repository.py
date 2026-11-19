@@ -773,3 +773,144 @@ def test_expired_lease_detection_rejects_invalid_limit(
         repository.list_expired_running_jobs(
             limit=0,
         )
+
+
+def test_expired_lease_query_uses_skip_locked(
+    database_session: Session,
+) -> None:
+    now = datetime.now(UTC)
+    job = create_running_job(database_session)
+    job.lease_expires_at = now - timedelta(minutes=1)
+    database_session.flush()
+
+    statements: list[str] = []
+
+    from sqlalchemy import event
+
+    def capture_statement(
+        _connection,
+        _cursor,
+        statement,
+        _parameters,
+        _context,
+        _executemany,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(
+        database_session.bind,
+        "before_cursor_execute",
+        capture_statement,
+    )
+
+    try:
+        BackgroundJobRepository(database_session).list_expired_running_jobs(
+            now=now,
+        )
+    finally:
+        event.remove(
+            database_session.bind,
+            "before_cursor_execute",
+            capture_statement,
+        )
+
+    normalized = " ".join(statement.upper() for statement in statements)
+
+    assert "FOR UPDATE SKIP LOCKED" in normalized
+
+
+def test_expired_lease_is_scheduled_for_retry(
+    database_session: Session,
+) -> None:
+    repository = BackgroundJobRepository(database_session)
+    now = datetime(
+        2026,
+        11,
+        19,
+        20,
+        0,
+        tzinfo=UTC,
+    )
+    retry_at = now + timedelta(seconds=30)
+    job = create_running_job(
+        database_session,
+        attempt_count=1,
+        maximum_attempts=5,
+    )
+    job.lease_expires_at = now - timedelta(seconds=1)
+    database_session.flush()
+
+    status = repository.recover_expired_lease(
+        job,
+        retry_at=retry_at,
+        now=now,
+    )
+
+    assert status is (BackgroundJobStatus.RETRY_SCHEDULED)
+    assert job.status is (BackgroundJobStatus.RETRY_SCHEDULED)
+    assert job.available_at == retry_at
+    assert job.safe_error_code == ("worker_lease_expired")
+    assert job.safe_error_message == ("The background worker stopped before the job completed.")
+    assert job.retryable is True
+    assert job.claimed_by is None
+    assert job.claimed_at is None
+    assert job.lease_expires_at is None
+    assert job.started_at is None
+    assert job.failed_at is None
+
+
+def test_exhausted_expired_lease_fails_terminally(
+    database_session: Session,
+) -> None:
+    repository = BackgroundJobRepository(database_session)
+    now = datetime(
+        2026,
+        11,
+        19,
+        20,
+        0,
+        tzinfo=UTC,
+    )
+    job = create_running_job(
+        database_session,
+        attempt_count=5,
+        maximum_attempts=5,
+    )
+    job.lease_expires_at = now - timedelta(seconds=1)
+    database_session.flush()
+
+    status = repository.recover_expired_lease(
+        job,
+        retry_at=now + timedelta(seconds=30),
+        now=now,
+    )
+
+    assert status is BackgroundJobStatus.FAILED
+    assert job.status is BackgroundJobStatus.FAILED
+    assert job.failed_at == now
+    assert job.safe_error_code == ("worker_lease_expired")
+    assert job.retryable is False
+    assert job.claimed_by is None
+    assert job.claimed_at is None
+    assert job.lease_expires_at is None
+    assert job.started_at is None
+
+
+def test_unexpired_lease_cannot_be_recovered(
+    database_session: Session,
+) -> None:
+    repository = BackgroundJobRepository(database_session)
+    now = datetime.now(UTC)
+    job = create_running_job(database_session)
+    job.lease_expires_at = now + timedelta(minutes=1)
+    database_session.flush()
+
+    with pytest.raises(
+        RuntimeError,
+        match="has not expired",
+    ):
+        repository.recover_expired_lease(
+            job,
+            retry_at=now + timedelta(seconds=30),
+            now=now,
+        )

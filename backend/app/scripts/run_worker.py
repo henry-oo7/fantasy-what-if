@@ -103,6 +103,11 @@ def run_worker(
         worker_id=worker_id,
         lease_duration=timedelta(seconds=(settings.background_worker_lease_seconds)),
         heartbeat_interval=timedelta(seconds=(settings.background_worker_heartbeat_seconds)),
+        recovery_interval=timedelta(seconds=(settings.background_worker_recovery_interval_seconds)),
+        recovery_retry_delay=timedelta(
+            seconds=(settings.background_worker_recovery_retry_delay_seconds)
+        ),
+        recovery_batch_size=(settings.background_worker_recovery_batch_size),
         poll_seconds=(settings.background_worker_poll_seconds),
         database_backoff_seconds=(settings.background_worker_database_backoff_seconds),
     )

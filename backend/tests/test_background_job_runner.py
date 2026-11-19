@@ -44,6 +44,9 @@ def configuration() -> BackgroundJobRunnerConfiguration:
         worker_id="worker-test-01",
         lease_duration=timedelta(minutes=5),
         heartbeat_interval=timedelta(minutes=1),
+        recovery_interval=timedelta(minutes=1),
+        recovery_retry_delay=timedelta(seconds=30),
+        recovery_batch_size=100,
         poll_seconds=2,
         database_backoff_seconds=11,
     )
@@ -265,6 +268,21 @@ def test_runner_forwards_runtime_contract() -> None:
             "must be shorter",
         ),
         (
+            "recovery_interval",
+            timedelta(0),
+            "recovery_interval must be positive",
+        ),
+        (
+            "recovery_retry_delay",
+            timedelta(seconds=-1),
+            "recovery_retry_delay cannot be negative",
+        ),
+        (
+            "recovery_batch_size",
+            0,
+            "recovery_batch_size must be positive",
+        ),
+        (
             "poll_seconds",
             0,
             "poll_seconds must be positive",
@@ -285,6 +303,9 @@ def test_runner_configuration_rejects_invalid_values(
         "worker_id": "worker-test-01",
         "lease_duration": timedelta(minutes=5),
         "heartbeat_interval": timedelta(minutes=1),
+        "recovery_interval": timedelta(minutes=1),
+        "recovery_retry_delay": timedelta(seconds=30),
+        "recovery_batch_size": 100,
         "poll_seconds": 2,
         "database_backoff_seconds": 11,
     }
@@ -297,3 +318,134 @@ def test_runner_configuration_rejects_invalid_values(
         BackgroundJobRunnerConfiguration(
             **values,  # type: ignore[arg-type]
         )
+
+
+def test_runner_recovers_expired_leases_before_claiming() -> None:
+    from app.services.background_job_lease_recovery import (
+        BackgroundJobLeaseRecoveryResult,
+    )
+
+    shutdown = RecordingEvent(
+        stop_after_waits=1,
+    )
+    order: list[str] = []
+
+    def recover_expired(
+        **kwargs,
+    ) -> BackgroundJobLeaseRecoveryResult:
+        order.append("recover")
+        assert kwargs["retry_delay"] == (timedelta(seconds=30))
+        assert kwargs["batch_size"] == 100
+
+        return BackgroundJobLeaseRecoveryResult(
+            inspected_count=1,
+            retry_scheduled_count=1,
+            failed_count=0,
+        )
+
+    def execute_one(
+        **_kwargs,
+    ) -> BackgroundJobExecutionResult:
+        order.append("execute")
+        return idle_result()
+
+    run_background_job_worker(
+        session_factory=MagicMock(),
+        configuration=configuration(),
+        handlers={},
+        shutdown_event=shutdown,  # type: ignore[arg-type]
+        execute_one=execute_one,
+        recover_expired=recover_expired,
+        monotonic_time=lambda: 0.0,
+    )
+
+    assert order == [
+        "recover",
+        "execute",
+    ]
+
+
+def test_runner_scans_recovery_periodically() -> None:
+    from app.services.background_job_lease_recovery import (
+        BackgroundJobLeaseRecoveryResult,
+    )
+
+    shutdown = RecordingEvent(
+        stop_after_waits=1,
+    )
+    recovery_calls = 0
+    execution_calls = 0
+    monotonic_values = iter(
+        [
+            0.0,
+            30.0,
+            60.0,
+        ]
+    )
+
+    def recover_expired(
+        **_kwargs,
+    ) -> BackgroundJobLeaseRecoveryResult:
+        nonlocal recovery_calls
+        recovery_calls += 1
+
+        return BackgroundJobLeaseRecoveryResult(
+            inspected_count=0,
+            retry_scheduled_count=0,
+            failed_count=0,
+        )
+
+    def execute_one(
+        **_kwargs,
+    ) -> BackgroundJobExecutionResult:
+        nonlocal execution_calls
+        execution_calls += 1
+
+        if execution_calls < 3:
+            return completed_result(
+                job_id=execution_calls,
+            )
+
+        return idle_result()
+
+    run_background_job_worker(
+        session_factory=MagicMock(),
+        configuration=configuration(),
+        handlers={},
+        shutdown_event=shutdown,  # type: ignore[arg-type]
+        execute_one=execute_one,
+        recover_expired=recover_expired,
+        monotonic_time=lambda: next(monotonic_values),
+    )
+
+    assert execution_calls == 3
+    assert recovery_calls == 2
+
+
+def test_recovery_failure_prevents_job_claim_and_uses_backoff() -> None:
+    shutdown = RecordingEvent(
+        stop_after_waits=1,
+    )
+    execute_one = MagicMock()
+
+    def recover_expired(
+        **_kwargs,
+    ):
+        raise OperationalError(
+            "SELECT background_jobs",
+            {},
+            RuntimeError("database unavailable"),
+        )
+
+    run_background_job_worker(
+        session_factory=MagicMock(),
+        configuration=configuration(),
+        handlers={},
+        shutdown_event=shutdown,  # type: ignore[arg-type]
+        execute_one=execute_one,
+        recover_expired=recover_expired,
+        monotonic_time=lambda: 0.0,
+    )
+
+    execute_one.assert_not_called()
+    assert shutdown.wait_calls == [11]
