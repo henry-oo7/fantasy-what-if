@@ -9,6 +9,7 @@ from app.core.settings import Settings
 from app.db.models import Season
 from app.db.platform_enums import BackgroundJobType
 from app.db.platform_models import Installation
+from app.providers.registry import ProviderRegistry
 from app.services.active_provider_sync import (
     synchronize_active_season,
 )
@@ -30,10 +31,12 @@ class SynchronizationBackgroundJobHandler:
         session_factory: sessionmaker[Session],
         settings: Settings,
         full_sync: bool,
+        registry: ProviderRegistry | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
         self.full_sync = full_sync
+        self.registry = registry
 
     def __call__(
         self,
@@ -56,6 +59,7 @@ class SynchronizationBackgroundJobHandler:
                 workspace_id=job.workspace_id,
                 settings=self.settings,
                 full_sync=self.full_sync,
+                registry=self.registry,
             )
 
 
@@ -63,6 +67,7 @@ def build_background_job_handlers(
     *,
     session_factory: sessionmaker[Session],
     settings: Settings,
+    registry: ProviderRegistry | None = None,
 ) -> Mapping[
     BackgroundJobType,
     BackgroundJobHandler,
@@ -74,12 +79,14 @@ def build_background_job_handlers(
             session_factory=session_factory,
             settings=settings,
             full_sync=False,
+            registry=registry,
         ),
         BackgroundJobType.FULL_SEASON_SYNC: (
             SynchronizationBackgroundJobHandler(
                 session_factory=session_factory,
                 settings=settings,
                 full_sync=True,
+                registry=registry,
             )
         ),
     }
