@@ -54,11 +54,13 @@ def connection(
     encrypted_credentials: str | None = None,
     provider: FantasyProvider = (FantasyProvider.ESPN),
     credential_version: int = 1,
+    credential_schema_version: int = 1,
 ):
     return SimpleNamespace(
         provider=provider,
         encrypted_credentials=(encrypted_credentials),
         credential_version=credential_version,
+        credential_schema_version=credential_schema_version,
     )
 
 
@@ -150,6 +152,35 @@ def test_stored_credentials_take_precedence() -> None:
         "season": "2026",
         "swid": "{stored-swid}",
     }
+
+
+def test_stored_credentials_reject_mismatched_schema_metadata() -> None:
+    key = Fernet.generate_key().decode("ascii")
+    encrypted = ProviderCredentialVault(keys={1: key}).encrypt(
+        provider=FantasyProvider.ESPN,
+        credentials=ProviderCredentials(
+            values={
+                "league_id": "529250970",
+                "season": "2026",
+                "espn_s2": "stored-cookie",
+                "swid": "{stored-swid}",
+            }
+        ),
+        key_version=1,
+    )
+
+    with pytest.raises(
+        ProviderAdapterResolutionError,
+        match="could not be decrypted",
+    ):
+        resolve_connection_credentials(
+            connection=connection(
+                encrypted_credentials=encrypted,
+                credential_schema_version=2,
+            ),
+            season=season(),
+            settings=settings(key=key),
+        )
 
 
 def test_stored_credentials_require_key() -> None:

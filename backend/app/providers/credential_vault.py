@@ -117,6 +117,7 @@ class ProviderCredentialVault:
         encrypted_credentials: str,
         key_version: int,
         expected_provider: FantasyProvider,
+        expected_schema_version: int = CREDENTIAL_SCHEMA_VERSION,
     ) -> ProviderCredentialEnvelope:
         """Decrypt and validate one provider-bound payload."""
 
@@ -152,9 +153,14 @@ class ProviderCredentialVault:
 
         schema_version = payload.get("schema_version")
 
-        if schema_version != CREDENTIAL_SCHEMA_VERSION:
+        if expected_schema_version != CREDENTIAL_SCHEMA_VERSION:
             raise ProviderCredentialDecryptionError(
                 "Stored provider credentials use an unsupported schema version."
+            )
+
+        if schema_version != expected_schema_version:
+            raise ProviderCredentialDecryptionError(
+                "Stored provider credentials do not match the recorded schema version."
             )
 
         provider_value = payload.get("provider")

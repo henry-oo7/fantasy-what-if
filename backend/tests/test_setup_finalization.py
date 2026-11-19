@@ -175,6 +175,7 @@ def setup_objects(
         display_name="ESPN",
         encrypted_credentials=encrypted,
         credential_version=1,
+        credential_schema_version=1,
         is_active=True,
     )
 

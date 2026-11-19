@@ -147,6 +147,12 @@ class Installation(TimestampMixin, Base):
 
 class ProviderConnection(TimestampMixin, Base):
     __tablename__ = "provider_connections"
+    __table_args__ = (
+        CheckConstraint(
+            "credential_schema_version > 0",
+            name="ck_provider_connections_credential_schema_version_positive",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -183,6 +189,13 @@ class ProviderConnection(TimestampMixin, Base):
     )
 
     credential_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+
+    credential_schema_version: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=1,

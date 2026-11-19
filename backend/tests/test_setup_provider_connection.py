@@ -159,6 +159,7 @@ def test_valid_credentials_are_encrypted_and_stored() -> None:
     assert connection.provider is FantasyProvider.ESPN
     assert connection.display_name == "ESPN League"
     assert connection.credential_version == 1
+    assert connection.credential_schema_version == 1
     assert connection.is_active is True
     assert connection.last_validated_at == timestamp
     assert connection.last_validation_error is None

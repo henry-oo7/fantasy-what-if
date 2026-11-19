@@ -183,6 +183,7 @@ def objects():
         display_name="ESPN Fantasy Football",
         encrypted_credentials=encrypted,
         credential_version=1,
+        credential_schema_version=1,
         is_active=True,
     )
 

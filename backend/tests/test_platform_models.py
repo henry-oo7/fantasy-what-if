@@ -57,7 +57,16 @@ def test_provider_connection_defaults() -> None:
     table = ProviderConnection.__table__
 
     assert table.c.credential_version.server_default.arg == "1"
+    assert table.c.credential_schema_version.server_default.arg == "1"
     assert table.c.is_active.server_default.arg == "true"
+
+
+def test_provider_credential_versions_are_distinct_metadata() -> None:
+    table = ProviderConnection.__table__
+
+    assert "credential_version" in table.c
+    assert "credential_schema_version" in table.c
+    assert table.c.credential_version is not table.c.credential_schema_version
 
 
 def test_platform_enum_database_names() -> None:

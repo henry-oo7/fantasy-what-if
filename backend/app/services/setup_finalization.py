@@ -146,6 +146,7 @@ def finalize_installation_setup(
         encrypted_credentials=(connection.encrypted_credentials),
         key_version=connection.credential_version,
         expected_provider=connection.provider,
+        expected_schema_version=(connection.credential_schema_version),
     )
 
     active_registry = registry if registry is not None else build_provider_registry()
