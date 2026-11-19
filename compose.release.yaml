@@ -66,6 +66,34 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  backend-worker:
+    image: ghcr.io/henry-oo7/fantasy-what-if-backend:${APP_VERSION:-latest}
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      BACKGROUND_WORKER_ENABLED: "true"
+      SYNC_SCHEDULER_ENABLED: "false"
+    command:
+      - python
+      - -m
+      - app.scripts.run_worker
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      fantasy_internal:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      disable: true
+
   frontend:
     image: ghcr.io/henry-oo7/fantasy-what-if-frontend:${APP_VERSION:-latest}
     depends_on:

@@ -131,6 +131,19 @@ The backend listens on:
 http://127.0.0.1:8000
 ```
 
+Run the background worker from a separate terminal only
+when testing queued synchronization:
+
+\\bash
+BACKGROUND_WORKER_ENABLED=true \\
+  uv run python -m app.scripts.run_worker
+\\
+
+The worker uses PostgreSQL for durable queue state and
+does not expose an HTTP port. Stop the worker with
+`Ctrl+C`. The worker stops claiming new jobs and exits
+after the active iteration reaches a safe boundary.
+
 Verify:
 
 ```bash

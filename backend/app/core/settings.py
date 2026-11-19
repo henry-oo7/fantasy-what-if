@@ -83,6 +83,29 @@ class Settings(BaseSettings):
         le=300,
     )
 
+    background_worker_enabled: bool = False
+    background_worker_poll_seconds: int = Field(
+        default=5,
+        ge=1,
+        le=300,
+    )
+    background_worker_lease_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=60 * 60,
+    )
+    background_worker_heartbeat_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=60 * 60,
+    )
+    background_worker_database_backoff_seconds: int = Field(
+        default=10,
+        ge=1,
+        le=300,
+    )
+    background_worker_id: str | None = None
+
     espn_s2: SecretStr | None = None
     espn_swid: SecretStr | None = None
 
@@ -110,6 +133,38 @@ class Settings(BaseSettings):
             raise ValueError("APP_SECRET_KEY cannot be empty.")
 
         return SecretStr(secret)
+
+    @model_validator(mode="after")
+    def validate_background_worker_lease_timing(
+        self,
+    ) -> Settings:
+        if self.background_worker_heartbeat_seconds >= self.background_worker_lease_seconds:
+            raise ValueError(
+                "BACKGROUND_WORKER_HEARTBEAT_SECONDS "
+                "must be shorter than "
+                "BACKGROUND_WORKER_LEASE_SECONDS."
+            )
+
+        return self
+
+    @field_validator("background_worker_id")
+    @classmethod
+    def normalize_background_worker_id(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        normalized = value.strip()
+
+        if not normalized:
+            return None
+
+        if len(normalized) > 255:
+            raise ValueError("BACKGROUND_WORKER_ID cannot exceed 255 characters.")
+
+        return normalized
 
     @field_validator(
         "espn_s2",
