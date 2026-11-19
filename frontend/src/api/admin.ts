@@ -14,7 +14,8 @@ import type {
   SpectatorAccount,
   StandingsTiebreakerConfiguration,
   StandingsTiebreakerRule,
-  SyncResult,
+  BackgroundJob,
+  SyncJobAccepted,
   SyncStatus,
 } from "../types/admin";
 
@@ -32,6 +33,13 @@ export const adminQueryKeys = {
     [
       ...adminQueryKeys.all,
       "sync-status",
+    ] as const,
+
+  job: (jobId: number) =>
+    [
+      ...adminQueryKeys.all,
+      "jobs",
+      jobId,
     ] as const,
 
   standingsTiebreaker: () =>
@@ -151,8 +159,8 @@ export function setSpectatorAccess(
 export function runSynchronization(
   fullSync: boolean,
   csrfToken: string,
-): Promise<SyncResult> {
-  return postJson<SyncResult>(
+): Promise<SyncJobAccepted> {
+  return postJson<SyncJobAccepted>(
     "/admin/sync",
     {
       full_sync: fullSync,
@@ -160,5 +168,70 @@ export function runSynchronization(
     {
       csrfToken,
     },
+  );
+}
+
+
+export function getBackgroundJob(
+  jobId: number,
+  signal?: AbortSignal,
+): Promise<BackgroundJob> {
+  return getJson<BackgroundJob>(
+    `/admin/jobs/${jobId}`,
+    signal,
+  );
+}
+
+
+export interface PollBackgroundJobOptions {
+  intervalMs?: number;
+  timeoutMs?: number;
+  maximumConsecutiveReadFailures?: number;
+}
+
+const TERMINAL_JOB_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "canceled",
+]);
+
+export async function pollBackgroundJob(
+  jobId: number,
+  {
+    intervalMs = 2_000,
+    timeoutMs = 300_000,
+    maximumConsecutiveReadFailures = 5,
+  }: PollBackgroundJobOptions = {},
+): Promise<BackgroundJob> {
+  const startedAt = Date.now();
+  let consecutiveReadFailures = 0;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const job = await getBackgroundJob(jobId);
+
+      consecutiveReadFailures = 0;
+
+      if (TERMINAL_JOB_STATUSES.has(job.status)) {
+        return job;
+      }
+    } catch (error) {
+      consecutiveReadFailures += 1;
+
+      if (
+        consecutiveReadFailures >=
+        maximumConsecutiveReadFailures
+      ) {
+        throw error;
+      }
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, intervalMs);
+    });
+  }
+
+  throw new Error(
+    "Synchronization is still running. Refresh the page to check its persisted job status.",
   );
 }

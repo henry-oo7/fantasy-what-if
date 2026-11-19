@@ -6,11 +6,16 @@ from fastapi import (
     HTTPException,
     status,
 )
+from fastapi import (
+    Path as PathParameter,
+)
 from sqlalchemy.orm import Session
 
 from app.api.admin_dependencies import (
-    SynchronizationRunner,
-    get_synchronization_runner,
+    BackgroundJobStatusReader,
+    SynchronizationJobEnqueuer,
+    get_background_job_status_reader,
+    get_synchronization_job_enqueuer,
 )
 from app.api.auth_dependencies import (
     AuthenticationContext,
@@ -46,6 +51,7 @@ from app.repositories.sync_repository import (
     get_sync_status,
 )
 from app.schemas.admin import (
+    BackgroundJobStatusResponse,
     CreateSpectatorRequest,
     ResetSpectatorPasswordRequest,
     SetSpectatorAccessRequest,
@@ -53,8 +59,8 @@ from app.schemas.admin import (
     SpectatorAccountMutationResponse,
     SpectatorAccountResponse,
     StandingsTiebreakerConfigurationResponse,
+    SyncJobAcceptedResponse,
     SyncRequest,
-    SyncResultResponse,
     SyncRunResponse,
     SyncStatusResponse,
     UpdateSpectatorProfileRequest,
@@ -75,9 +81,6 @@ from app.services.spectator_account import (
     reset_spectator_password,
     set_spectator_active,
     update_spectator_profile,
-)
-from app.services.sync_lock import (
-    SyncAlreadyRunningError,
 )
 
 router = APIRouter(
@@ -116,7 +119,10 @@ def read_sync_status(
     return _build_sync_status_response(stored)
 
 
-@router.post("/sync")
+@router.post(
+    "/sync",
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def run_admin_synchronization(
     payload: SyncRequest,
     workspace_id: Annotated[
@@ -135,39 +141,70 @@ def run_admin_synchronization(
         AuthenticationContext,
         Depends(require_session_csrf),
     ],
-    runner: Annotated[
-        SynchronizationRunner,
-        Depends(get_synchronization_runner),
+    enqueue_job: Annotated[
+        SynchronizationJobEnqueuer,
+        Depends(get_synchronization_job_enqueuer),
     ],
-) -> SyncResultResponse:
+) -> SyncJobAcceptedResponse:
     try:
-        result = runner(
+        accepted = enqueue_job(
             workspace_id=workspace_id,
             full_sync=payload.full_sync,
         )
-    except SyncAlreadyRunningError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
     except Exception as exc:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=("Unable to synchronize fantasy provider data."),
+            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+            detail=("Unable to accept the synchronization job."),
         ) from exc
 
-    return SyncResultResponse(
-        provider=result.provider.value,
-        season_id=result.season_id,
-        provider_league_id=(result.provider_league_id),
-        provider_season_id=(result.provider_season_id),
-        current_week=result.current_week,
-        full_sync=result.full_sync,
-        player_weeks=result.player_weeks,
-        teams_upserted=result.teams_upserted,
-        matchups_upserted=result.matchups_upserted,
-        fantasy_byes_upserted=(result.fantasy_byes_upserted),
-        player_week_scores_upserted=(result.player_week_scores_upserted),
+    return SyncJobAcceptedResponse(
+        job_id=accepted.job_id,
+        status=accepted.status.value,
+        existing=accepted.existing,
+    )
+
+
+@router.get("/jobs/{job_id}")
+def read_background_job_status(
+    job_id: Annotated[
+        int,
+        PathParameter(gt=0),
+    ],
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
+    read_job: Annotated[
+        BackgroundJobStatusReader,
+        Depends(get_background_job_status_reader),
+    ],
+) -> BackgroundJobStatusResponse:
+    job = read_job(
+        job_id=job_id,
+        workspace_id=workspace_id,
+    )
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Background job was not found.",
+        )
+
+    return BackgroundJobStatusResponse(
+        job_id=job.job_id,
+        job_type=job.job_type.value,
+        status=job.status.value,
+        attempt_count=job.attempt_count,
+        maximum_attempts=job.maximum_attempts,
+        progress=job.progress,
+        available_at=job.available_at,
+        started_at=job.started_at,
+        completed_at=job.completed_at,
+        failed_at=job.failed_at,
+        canceled_at=job.canceled_at,
+        safe_error_code=job.safe_error_code,
+        safe_error_message=job.safe_error_message,
+        retryable=job.retryable,
     )
 
 

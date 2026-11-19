@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -30,18 +31,27 @@ class SyncRequest(BaseModel):
     full_sync: bool = False
 
 
-class SyncResultResponse(BaseModel):
-    provider: str
-    season_id: int
-    provider_league_id: str
-    provider_season_id: str
-    current_week: int
-    full_sync: bool
-    player_weeks: tuple[int, ...]
-    teams_upserted: int
-    matchups_upserted: int
-    fantasy_byes_upserted: int
-    player_week_scores_upserted: int
+class SyncJobAcceptedResponse(BaseModel):
+    job_id: int
+    status: str
+    existing: bool
+
+
+class BackgroundJobStatusResponse(BaseModel):
+    job_id: int
+    job_type: str
+    status: str
+    attempt_count: int
+    maximum_attempts: int
+    progress: dict[str, Any] | None
+    available_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    failed_at: datetime | None
+    canceled_at: datetime | None
+    safe_error_code: str | None
+    safe_error_message: str | None
+    retryable: bool | None
 
 
 class SpectatorAccountResponse(BaseModel):

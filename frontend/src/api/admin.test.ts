@@ -10,6 +10,8 @@ import {
 } from "vitest";
 
 import {
+  getBackgroundJob,
+  pollBackgroundJob,
   resetSpectatorPassword,
   runSynchronization,
   setSpectatorAccess,
@@ -246,30 +248,21 @@ describe("admin API", () => {
     });
   });
 
-  it("runs a full synchronization", async () => {
+  it("accepts a full synchronization job", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        provider: "espn",
-        season_id: 1,
-        provider_league_id: "529250970",
-        provider_season_id: "2026",
-        current_week: 9,
-        full_sync: true,
-        player_weeks: [
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-        ],
-        teams_upserted: 12,
-        matchups_upserted: 72,
-        fantasy_byes_upserted: 0,
-        player_week_scores_upserted: 1579,
-      }),
+      new Response(
+        JSON.stringify({
+          job_id: 84,
+          status: "pending",
+          existing: false,
+        }),
+        {
+          status: 202,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
     );
 
     vi.stubGlobal("fetch", fetchMock);
@@ -279,10 +272,29 @@ describe("admin API", () => {
       "session-csrf",
     );
 
-    expect(result.full_sync).toBe(true);
+    expect(result).toEqual({
+      job_id: 84,
+      status: "pending",
+      existing: false,
+    });
 
-    const [, options] =
+    const [requestedUrl, options] =
       fetchMock.mock.calls[0];
+
+    expect(String(requestedUrl)).toContain(
+      "/api/admin/sync",
+    );
+
+    expect(options).toMatchObject({
+      method: "POST",
+      credentials: "include",
+    });
+
+    expect(
+      new Headers(options.headers).get(
+        "X-CSRF-Token",
+      ),
+    ).toBe("session-csrf");
 
     expect(
       JSON.parse(String(options.body)),
@@ -290,4 +302,164 @@ describe("admin API", () => {
       full_sync: true,
     });
   });
+
+  it("reads a workspace-scoped background job", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        job_id: 84,
+        job_type: "full_season_sync",
+        status: "running",
+        attempt_count: 1,
+        maximum_attempts: 5,
+        progress: {
+          stage: "fetching_matchups",
+        },
+        available_at: "2026-11-19T18:00:00Z",
+        started_at: "2026-11-19T18:00:02Z",
+        completed_at: null,
+        failed_at: null,
+        canceled_at: null,
+        safe_error_code: null,
+        safe_error_message: null,
+        retryable: null,
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await getBackgroundJob(84);
+
+    expect(job.status).toBe("running");
+    expect(job.progress?.stage).toBe(
+      "fetching_matchups",
+    );
+
+    const [requestedUrl, options] =
+      fetchMock.mock.calls[0];
+
+    expect(String(requestedUrl)).toContain(
+      "/api/admin/jobs/84",
+    );
+    expect(options).toMatchObject({
+      method: "GET",
+      credentials: "include",
+    });
+  });
+
+  it("polls until the persisted job succeeds", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          job_id: 84,
+          job_type: "full_season_sync",
+          status: "running",
+          attempt_count: 1,
+          maximum_attempts: 5,
+          progress: null,
+          available_at: "2026-11-19T18:00:00Z",
+          started_at: "2026-11-19T18:00:02Z",
+          completed_at: null,
+          failed_at: null,
+          canceled_at: null,
+          safe_error_code: null,
+          safe_error_message: null,
+          retryable: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          job_id: 84,
+          job_type: "full_season_sync",
+          status: "succeeded",
+          attempt_count: 1,
+          maximum_attempts: 5,
+          progress: null,
+          available_at: "2026-11-19T18:00:00Z",
+          started_at: "2026-11-19T18:00:02Z",
+          completed_at: "2026-11-19T18:01:00Z",
+          failed_at: null,
+          canceled_at: null,
+          safe_error_code: null,
+          safe_error_message: null,
+          retryable: null,
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resultPromise = pollBackgroundJob(
+      84,
+      {
+        intervalMs: 10,
+        timeoutMs: 100,
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    await expect(resultPromise).resolves.toEqual(
+      expect.objectContaining({
+        job_id: 84,
+        status: "succeeded",
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("tolerates a temporary polling failure", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new TypeError("Temporary network failure"),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          job_id: 42,
+          job_type: "incremental_season_sync",
+          status: "succeeded",
+          attempt_count: 1,
+          maximum_attempts: 5,
+          progress: null,
+          available_at: "2026-11-19T18:00:00Z",
+          started_at: "2026-11-19T18:00:02Z",
+          completed_at: "2026-11-19T18:00:30Z",
+          failed_at: null,
+          canceled_at: null,
+          safe_error_code: null,
+          safe_error_message: null,
+          retryable: null,
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resultPromise = pollBackgroundJob(
+      42,
+      {
+        intervalMs: 10,
+        timeoutMs: 100,
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    await expect(resultPromise).resolves.toEqual(
+      expect.objectContaining({
+        status: "succeeded",
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
 });

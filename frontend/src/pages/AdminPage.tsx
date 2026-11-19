@@ -18,7 +18,7 @@ import {
 
 import {
   adminQueryKeys,
-  getSynchronizationStatus,
+  pollBackgroundJob,
   resetSpectatorPassword,
   runSynchronization,
   setSpectatorAccess,
@@ -28,11 +28,9 @@ import {
   syncStatusQueryOptions,
 } from "../api/admin";
 import { ApiError } from "../api/client";
+import { analyticsQueryKeys } from "../api/analytics";
+import { leagueQueryKeys } from "../api/league";
 import { useAuth } from "../auth/AuthProvider";
-import {
-  isAmbiguousLongRequestError,
-  pollUntilComplete,
-} from "../utils/longRequestRecovery";
 import type {
   StandingsTiebreakerRule,
 } from "../types/admin";
@@ -156,10 +154,18 @@ export function AdminPage() {
     });
   }
 
-  async function refreshSyncStatus() {
-    await queryClient.invalidateQueries({
-      queryKey: adminQueryKeys.syncStatus(),
-    });
+  async function refreshSynchronizedData() {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: adminQueryKeys.syncStatus(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: leagueQueryKeys.all,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: analyticsQueryKeys.all,
+      }),
+    ]);
   }
 
   async function refreshStandingsTiebreaker() {
@@ -316,11 +322,15 @@ export function AdminPage() {
     if (
       fullSync &&
       !window.confirm(
-        "Run a full ESPN synchronization? This reloads all completed player-week history and may take several minutes.",
+        "Queue a full ESPN synchronization? This reloads all completed player-week history and may take several minutes.",
       )
     ) {
       return;
     }
+
+    const synchronizationLabel = fullSync
+      ? "Full"
+      : "Incremental";
 
     setRunningSync(
       fullSync
@@ -328,76 +338,57 @@ export function AdminPage() {
         : "incremental",
     );
 
-    const previousRunId =
-      syncQuery.data?.latest_run?.id ?? null;
-
     try {
-      const result =
-        await runSynchronization(
-          fullSync,
-          csrfToken,
-        );
-
-      setSyncMessage(
-        `${fullSync ? "Full" : "Incremental"} synchronization completed: ${result.teams_upserted} teams, ${result.matchups_upserted} matchups, and ${result.player_week_scores_upserted} player-week rows processed.`,
+      const accepted = await runSynchronization(
+        fullSync,
+        csrfToken,
       );
 
-      await refreshSyncStatus();
-    } catch (currentError) {
-      if (
-        !isAmbiguousLongRequestError(
-          currentError,
-        )
-      ) {
+      setSyncMessage(
+        accepted.existing
+          ? `${synchronizationLabel} synchronization is already ${accepted.status.replace("_", " ")}. Monitoring job ${accepted.job_id}.`
+          : `${synchronizationLabel} synchronization was queued as job ${accepted.job_id}.`,
+      );
+
+      const completedJob = await pollBackgroundJob(
+        accepted.job_id,
+      );
+
+      if (completedJob.status === "failed") {
+        setSyncMessage(null);
         setSyncError(
-          errorMessage(currentError),
+          completedJob.safe_error_message ??
+            "Synchronization failed. Review the persisted job status before trying again.",
+        );
+        return;
+      }
+
+      if (completedJob.status === "canceled") {
+        setSyncMessage(null);
+        setSyncError(
+          "Synchronization was canceled before completion.",
+        );
+        return;
+      }
+
+      if (completedJob.status !== "succeeded") {
+        setSyncMessage(null);
+        setSyncError(
+          "Synchronization ended in an unexpected state. Refresh the page before trying again.",
         );
         return;
       }
 
       setSyncMessage(
-        "The request connection ended, but synchronization may still be running. Checking the persisted synchronization status...",
+        `${synchronizationLabel} synchronization completed successfully.`,
       );
 
-      try {
-        const recovered =
-          await pollUntilComplete({
-            readStatus:
-              getSynchronizationStatus,
-            isComplete: (status) =>
-              status.latest_run !== null &&
-              status.latest_run.id !==
-                previousRunId &&
-              status.latest_run.status ===
-                "succeeded",
-            isFailed: (status) =>
-              status.latest_run !== null &&
-              status.latest_run.id !==
-                previousRunId &&
-              status.latest_run.status ===
-                "failed",
-            failureMessage: (status) =>
-              status.latest_run
-                ?.safe_error_message ??
-              "Synchronization failed. Review the latest synchronization status before trying again.",
-          });
-
-        const completedRun =
-          recovered.latest_run;
-
-        setSyncMessage(
-          completedRun === null
-            ? "Synchronization completed."
-            : `${fullSync ? "Full" : "Incremental"} synchronization completed: ${completedRun.teams_upserted} teams, ${completedRun.matchups_upserted} matchups, and ${completedRun.player_week_scores_upserted} player-week rows processed.`,
-        );
-
-        await refreshSyncStatus();
-      } catch (recoveryError) {
-        setSyncMessage(null);
-        setSyncError(
-          errorMessage(recoveryError),
-        );
-      }
+      await refreshSynchronizedData();
+    } catch (currentError) {
+      setSyncMessage(null);
+      setSyncError(
+        errorMessage(currentError),
+      );
     } finally {
       setRunningSync(null);
     }
