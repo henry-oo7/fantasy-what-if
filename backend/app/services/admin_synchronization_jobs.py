@@ -16,10 +16,13 @@ from app.repositories.background_job_repository import (
 from app.services.active_season_context import (
     resolve_active_season_context,
 )
+from app.services.synchronization_job_contract import (
+    SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
+    build_synchronization_job_payload,
+)
 
 ADMIN_SYNC_PRIORITY = 100
 ADMIN_SYNC_MAXIMUM_ATTEMPTS = 5
-SYNC_PAYLOAD_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,13 +58,13 @@ def enqueue_administrator_synchronization(
     result = BackgroundJobRepository(session).enqueue(
         workspace_id=workspace_id,
         job_type=job_type,
-        payload={
-            "season_id": context.season_id,
-            "full_sync": full_sync,
-            "trigger": "administrator",
-        },
+        payload=build_synchronization_job_payload(
+            season_id=context.season_id,
+            full_sync=full_sync,
+            trigger="administrator",
+        ),
         idempotency_key=idempotency_key,
-        payload_version=SYNC_PAYLOAD_VERSION,
+        payload_version=SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
         priority=ADMIN_SYNC_PRIORITY,
         maximum_attempts=(ADMIN_SYNC_MAXIMUM_ATTEMPTS),
     )

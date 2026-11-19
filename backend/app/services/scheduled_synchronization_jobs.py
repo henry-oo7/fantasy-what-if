@@ -19,10 +19,13 @@ from app.db.platform_models import Installation
 from app.repositories.background_job_repository import (
     BackgroundJobRepository,
 )
+from app.services.synchronization_job_contract import (
+    SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
+    build_synchronization_job_payload,
+)
 
 SCHEDULED_SYNC_PRIORITY = 25
 SCHEDULED_SYNC_MAXIMUM_ATTEMPTS = 5
-SCHEDULED_SYNC_PAYLOAD_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,13 +131,13 @@ def enqueue_scheduled_synchronization(
     result = BackgroundJobRepository(session).enqueue(
         workspace_id=target.workspace_id,
         job_type=(BackgroundJobType.INCREMENTAL_SEASON_SYNC),
-        payload={
-            "season_id": target.season_id,
-            "full_sync": False,
-            "trigger": "scheduled",
-        },
+        payload=build_synchronization_job_payload(
+            season_id=target.season_id,
+            full_sync=False,
+            trigger="scheduled",
+        ),
         idempotency_key=idempotency_key,
-        payload_version=(SCHEDULED_SYNC_PAYLOAD_VERSION),
+        payload_version=SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
         priority=SCHEDULED_SYNC_PRIORITY,
         maximum_attempts=(SCHEDULED_SYNC_MAXIMUM_ATTEMPTS),
     )

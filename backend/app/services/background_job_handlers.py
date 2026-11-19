@@ -18,8 +18,10 @@ from app.services.background_job_worker import (
     BackgroundJobHandler,
     BackgroundJobSnapshot,
 )
-
-SUPPORTED_SYNC_PAYLOAD_VERSION = 1
+from app.services.synchronization_job_contract import (
+    SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
+    synchronization_payload_contains_prohibited_names,
+)
 
 
 class SynchronizationBackgroundJobHandler:
@@ -97,7 +99,7 @@ def validate_sync_job_payload(
     *,
     expected_full_sync: bool,
 ) -> int:
-    if job.payload_version != SUPPORTED_SYNC_PAYLOAD_VERSION:
+    if job.payload_version != SYNCHRONIZATION_JOB_PAYLOAD_VERSION:
         raise BackgroundJobExecutionError(
             safe_error_code=("unsupported_payload_version"),
             safe_error_message=("The background job payload version is not supported."),
@@ -131,20 +133,7 @@ def validate_sync_job_payload(
 def reject_secret_payload_fields(
     payload: Mapping[str, Any],
 ) -> None:
-    prohibited_names = {
-        "authorization",
-        "encrypted_credentials",
-        "espn_s2",
-        "oauth_access_token",
-        "oauth_refresh_token",
-        "password",
-        "provider_credentials",
-        "session_token",
-        "swid",
-    }
-    normalized_names = {str(name).strip().casefold() for name in payload}
-
-    if normalized_names & prohibited_names:
+    if synchronization_payload_contains_prohibited_names(dict(payload)):
         raise BackgroundJobExecutionError(
             safe_error_code="invalid_job_payload",
             safe_error_message=("The background job payload contains prohibited data."),
