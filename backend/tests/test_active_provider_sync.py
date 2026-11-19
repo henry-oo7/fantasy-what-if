@@ -70,11 +70,14 @@ def test_active_sync_returns_provider_result(
         canonical_sync,
     )
 
+    registry = object()
+
     result = synchronize_active_season(
         session=session,
         workspace_id=1,
         settings=settings,
         full_sync=False,
+        registry=registry,  # type: ignore[arg-type]
     )
 
     assert isinstance(
@@ -102,6 +105,7 @@ def test_active_sync_returns_provider_result(
         session=session,
         workspace_id=1,
         settings=settings,
+        registry=registry,
     )
 
     canonical_sync.assert_called_once_with(
@@ -144,6 +148,7 @@ def test_active_sync_propagates_resolution_failure(
             workspace_id=1,
             settings=settings,
             full_sync=False,
+            registry=None,
         )
 
     reconcile.assert_called_once_with(

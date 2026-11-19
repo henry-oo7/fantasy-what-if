@@ -248,10 +248,13 @@ def test_handler_validates_before_synchronizing(
         synchronize,
     )
 
+    registry = MagicMock()
+
     handler = SynchronizationBackgroundJobHandler(
         session_factory=session_factory,
         settings=settings,
         full_sync=False,
+        registry=registry,
     )
     handler(snapshot())
 
@@ -265,16 +268,34 @@ def test_handler_validates_before_synchronizing(
         workspace_id=7,
         settings=settings,
         full_sync=False,
+        registry=registry,
     )
 
 
 def test_handler_registry_contains_sync_jobs_only() -> None:
+    registry = MagicMock()
+
     handlers = build_background_job_handlers(
         session_factory=MagicMock(),
         settings=SimpleNamespace(),
+        registry=registry,
     )
 
     assert set(handlers) == {
         (BackgroundJobType.INCREMENTAL_SEASON_SYNC),
         BackgroundJobType.FULL_SEASON_SYNC,
     }
+
+    incremental_handler = handlers[BackgroundJobType.INCREMENTAL_SEASON_SYNC]
+    full_handler = handlers[BackgroundJobType.FULL_SEASON_SYNC]
+
+    assert isinstance(
+        incremental_handler,
+        SynchronizationBackgroundJobHandler,
+    )
+    assert isinstance(
+        full_handler,
+        SynchronizationBackgroundJobHandler,
+    )
+    assert incremental_handler.registry is registry
+    assert full_handler.registry is registry

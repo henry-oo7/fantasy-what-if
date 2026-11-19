@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.core.settings import Settings
+from app.providers.registry import ProviderRegistry
 from app.services.provider_adapter_resolver import (
     resolve_active_provider_adapter,
 )
@@ -23,6 +24,7 @@ def synchronize_active_season(
     workspace_id: int,
     settings: Settings,
     full_sync: bool,
+    registry: ProviderRegistry | None = None,
 ) -> ProviderSyncResult:
     """Synchronize the active season through its resolved adapter."""
 
@@ -35,6 +37,7 @@ def synchronize_active_season(
         session=session,
         workspace_id=workspace_id,
         settings=settings,
+        registry=registry,
     )
 
     return synchronize_provider(
