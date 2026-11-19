@@ -7,12 +7,19 @@ import pytest
 from pydantic import SecretStr
 
 from app.core.settings import Settings
+from app.db.platform_enums import (
+    BackgroundJobStatus,
+)
 from app.scripts.sync_scheduler import (
     _wait_for_target,
-    list_active_workspace_ids,
+    enqueue_scheduled_batch,
+    enqueue_workspace_now,
     next_scheduled_time,
-    run_incremental_sync,
     run_scheduler,
+)
+from app.services.scheduled_synchronization_jobs import (
+    ScheduledSynchronizationBatch,
+    ScheduledSynchronizationJob,
 )
 
 
@@ -37,6 +44,17 @@ def create_settings(
         sync_schedule_hour=6,
         sync_schedule_minute=0,
         sync_scheduler_poll_seconds=5,
+    )
+
+
+def scheduled_for() -> datetime:
+    return datetime(
+        2026,
+        11,
+        25,
+        12,
+        0,
+        tzinfo=UTC,
     )
 
 
@@ -96,55 +114,25 @@ def test_small_delay_completes() -> None:
     )
 
 
-def test_active_workspace_ids_are_returned_in_query_order(
+def test_scheduled_batch_is_committed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    database_session = MagicMock()
-    database_session.scalars.return_value.all.return_value = [
-        3,
-        8,
-        21,
-    ]
-
-    session_context = MagicMock()
-    session_context.__enter__.return_value = database_session
-
-    session_factory = MagicMock(
-        return_value=session_context,
+    timestamp = scheduled_for()
+    batch = ScheduledSynchronizationBatch(
+        scheduled_for=timestamp,
+        jobs=(
+            ScheduledSynchronizationJob(
+                job_id=42,
+                workspace_id=1,
+                season_id=1,
+                status=(BackgroundJobStatus.PENDING),
+                existing=False,
+            ),
+        ),
     )
-
-    monkeypatch.setattr(
-        "app.scripts.sync_scheduler.SessionFactory",
-        session_factory,
+    enqueue = MagicMock(
+        return_value=batch,
     )
-
-    assert list_active_workspace_ids() == (
-        3,
-        8,
-        21,
-    )
-
-    database_session.scalars.assert_called_once()
-
-
-def test_incremental_sync_forwards_workspace_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    settings = create_settings(
-        enabled=True,
-    )
-    expected_result = SimpleNamespace(
-        current_week=9,
-        player_weeks=(7, 8),
-        teams_upserted=12,
-        matchups_upserted=72,
-        player_week_scores_upserted=400,
-    )
-
-    synchronize = MagicMock(
-        return_value=expected_result,
-    )
-
     database_session = MagicMock()
     session_context = MagicMock()
     session_context.__enter__.return_value = database_session
@@ -156,35 +144,111 @@ def test_incremental_sync_forwards_workspace_id(
         ),
     )
     monkeypatch.setattr(
-        "app.scripts.sync_scheduler.synchronize_active_season",
-        synchronize,
+        ("app.scripts.sync_scheduler.enqueue_scheduled_synchronization_batch"),
+        enqueue,
     )
 
-    result = run_incremental_sync(
-        settings,
+    result = enqueue_scheduled_batch(
+        scheduled_for=timestamp,
+    )
+
+    assert result is batch
+    enqueue.assert_called_once_with(
+        database_session,
+        scheduled_for=timestamp,
+    )
+    database_session.commit.assert_called_once()
+
+
+def test_batch_failure_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_context = MagicMock()
+    session_context.__enter__.return_value = MagicMock()
+
+    monkeypatch.setattr(
+        "app.scripts.sync_scheduler.SessionFactory",
+        MagicMock(
+            return_value=session_context,
+        ),
+    )
+    monkeypatch.setattr(
+        ("app.scripts.sync_scheduler.enqueue_scheduled_synchronization_batch"),
+        MagicMock(
+            side_effect=RuntimeError("Synthetic database failure."),
+        ),
+    )
+
+    result = enqueue_scheduled_batch(
+        scheduled_for=scheduled_for(),
+    )
+
+    assert result is None
+
+
+def test_immediate_job_resolves_active_season_and_commits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timestamp = scheduled_for()
+    database_session = MagicMock()
+    session_context = MagicMock()
+    session_context.__enter__.return_value = database_session
+    resolve_context = MagicMock(
+        return_value=SimpleNamespace(
+            season_id=17,
+        )
+    )
+    accepted = ScheduledSynchronizationJob(
+        job_id=84,
         workspace_id=42,
+        season_id=17,
+        status=BackgroundJobStatus.PENDING,
+        existing=False,
+    )
+    enqueue = MagicMock(
+        return_value=accepted,
     )
 
-    assert result is expected_result
+    monkeypatch.setattr(
+        "app.scripts.sync_scheduler.SessionFactory",
+        MagicMock(
+            return_value=session_context,
+        ),
+    )
+    monkeypatch.setattr(
+        ("app.scripts.sync_scheduler.resolve_active_season_context"),
+        resolve_context,
+    )
+    monkeypatch.setattr(
+        ("app.scripts.sync_scheduler.enqueue_scheduled_synchronization"),
+        enqueue,
+    )
 
-    synchronize.assert_called_once_with(
+    result = enqueue_workspace_now(
+        workspace_id=42,
+        scheduled_for=timestamp,
+    )
+
+    assert result is accepted
+    resolve_context.assert_called_once_with(
         session=database_session,
         workspace_id=42,
-        settings=settings,
-        full_sync=False,
     )
 
+    call = enqueue.call_args
 
-def test_workspace_sync_failure_is_isolated(
+    assert call.args == (database_session,)
+    assert call.kwargs["target"].workspace_id == 42
+    assert call.kwargs["target"].season_id == 17
+    assert call.kwargs["scheduled_for"] == timestamp
+    database_session.commit.assert_called_once()
+
+
+def test_immediate_job_failure_is_isolated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    settings = create_settings(
-        enabled=True,
-    )
-
-    database_session = MagicMock()
     session_context = MagicMock()
-    session_context.__enter__.return_value = database_session
+    session_context.__enter__.return_value = MagicMock()
 
     monkeypatch.setattr(
         "app.scripts.sync_scheduler.SessionFactory",
@@ -193,15 +257,15 @@ def test_workspace_sync_failure_is_isolated(
         ),
     )
     monkeypatch.setattr(
-        "app.scripts.sync_scheduler.synchronize_active_season",
+        ("app.scripts.sync_scheduler.resolve_active_season_context"),
         MagicMock(
-            side_effect=RuntimeError("Synthetic workspace failure."),
+            side_effect=RuntimeError("Unknown workspace."),
         ),
     )
 
-    result = run_incremental_sync(
-        settings,
-        workspace_id=42,
+    result = enqueue_workspace_now(
+        workspace_id=999_999,
+        scheduled_for=scheduled_for(),
     )
 
     assert result is None
