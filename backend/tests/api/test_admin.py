@@ -4,7 +4,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.api.admin_dependencies import (
-    get_synchronization_runner,
+    get_synchronization_job_enqueuer,
 )
 from app.api.auth_dependencies import (
     get_current_user,
@@ -12,11 +12,12 @@ from app.api.auth_dependencies import (
 )
 from app.db import model_registry  # noqa: F401
 from app.db.auth_models import User, UserRole
-from app.db.platform_enums import FantasyProvider
+from app.db.platform_enums import (
+    BackgroundJobStatus,
+)
 from app.main import app
-from app.services.provider_sync import ProviderSyncResult
-from app.services.sync_lock import (
-    SyncAlreadyRunningError,
+from app.services.admin_synchronization_jobs import (
+    AdministratorSynchronizationJob,
 )
 
 client = TestClient(app)
@@ -40,26 +41,17 @@ def create_user(
     )
 
 
-def fake_sync_result(
+def fake_job_enqueuer(
     *,
     workspace_id: int,
     full_sync: bool,
-) -> ProviderSyncResult:
+) -> AdministratorSynchronizationJob:
     assert workspace_id == 1
-    return ProviderSyncResult(
-        provider=FantasyProvider.ESPN,
-        season_id=1,
-        provider_league_id="529250970",
-        provider_season_id="2026",
-        matchup_weeks=tuple(range(1, 13)),
-        analytics_rebuilt=False,
-        current_week=9,
-        full_sync=full_sync,
-        player_weeks=(7, 8),
-        teams_upserted=12,
-        matchups_upserted=72,
-        fantasy_byes_upserted=0,
-        player_week_scores_upserted=400,
+
+    return AdministratorSynchronizationJob(
+        job_id=84 if full_sync else 42,
+        status=BackgroundJobStatus.PENDING,
+        existing=False,
     )
 
 
@@ -112,10 +104,10 @@ def test_admin_can_read_sync_status() -> None:
     assert payload["latest_run"]["status"] == "succeeded"
 
 
-def test_admin_can_trigger_incremental_sync() -> None:
+def test_admin_can_enqueue_incremental_sync() -> None:
     app.dependency_overrides[get_current_user] = override_admin
     app.dependency_overrides[require_session_csrf] = override_csrf
-    app.dependency_overrides[get_synchronization_runner] = lambda: fake_sync_result
+    app.dependency_overrides[get_synchronization_job_enqueuer] = lambda: fake_job_enqueuer
 
     try:
         response = client.post(
@@ -137,49 +129,73 @@ def test_admin_can_trigger_incremental_sync() -> None:
             None,
         )
         app.dependency_overrides.pop(
-            get_synchronization_runner,
+            get_synchronization_job_enqueuer,
             None,
         )
 
-    assert response.status_code == status.HTTP_200_OK
-
-    payload = response.json()
-
-    assert payload["provider"] == "espn"
-    assert payload["season_id"] == 1
-    assert payload["provider_league_id"] == "529250970"
-    assert payload["provider_season_id"] == "2026"
-    assert payload["full_sync"] is False
-    assert payload["player_weeks"] == [7, 8]
-    assert payload["teams_upserted"] == 12
+    assert response.status_code == (status.HTTP_202_ACCEPTED)
+    assert response.json() == {
+        "job_id": 42,
+        "status": "pending",
+        "existing": False,
+    }
 
 
-def test_admin_sync_response_accepts_nonnumeric_provider_ids() -> None:
-    def sleeper_runner(
+def test_admin_can_enqueue_full_sync() -> None:
+    app.dependency_overrides[get_current_user] = override_admin
+    app.dependency_overrides[require_session_csrf] = override_csrf
+    app.dependency_overrides[get_synchronization_job_enqueuer] = lambda: fake_job_enqueuer
+
+    try:
+        response = client.post(
+            "/api/admin/sync",
+            headers={
+                "Origin": "http://localhost:5173",
+            },
+            json={
+                "full_sync": True,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+        app.dependency_overrides.pop(
+            require_session_csrf,
+            None,
+        )
+        app.dependency_overrides.pop(
+            get_synchronization_job_enqueuer,
+            None,
+        )
+
+    assert response.status_code == (status.HTTP_202_ACCEPTED)
+    assert response.json() == {
+        "job_id": 84,
+        "status": "pending",
+        "existing": False,
+    }
+
+
+def test_admin_sync_returns_existing_active_job() -> None:
+    def existing_job(
         *,
         workspace_id: int,
         full_sync: bool,
-    ) -> ProviderSyncResult:
+    ) -> AdministratorSynchronizationJob:
         assert workspace_id == 1
-        return ProviderSyncResult(
-            provider=FantasyProvider.SLEEPER,
-            season_id=17,
-            provider_league_id="league-alpha",
-            provider_season_id="season-2026",
-            current_week=9,
-            full_sync=full_sync,
-            matchup_weeks=tuple(range(1, 9)),
-            player_weeks=(7, 8),
-            teams_upserted=12,
-            matchups_upserted=48,
-            fantasy_byes_upserted=0,
-            player_week_scores_upserted=384,
-            analytics_rebuilt=False,
+        assert full_sync is False
+
+        return AdministratorSynchronizationJob(
+            job_id=42,
+            status=BackgroundJobStatus.RUNNING,
+            existing=True,
         )
 
     app.dependency_overrides[get_current_user] = override_admin
     app.dependency_overrides[require_session_csrf] = override_csrf
-    app.dependency_overrides[get_synchronization_runner] = lambda: sleeper_runner
+    app.dependency_overrides[get_synchronization_job_enqueuer] = lambda: existing_job
 
     try:
         response = client.post(
@@ -201,24 +217,16 @@ def test_admin_sync_response_accepts_nonnumeric_provider_ids() -> None:
             None,
         )
         app.dependency_overrides.pop(
-            get_synchronization_runner,
+            get_synchronization_job_enqueuer,
             None,
         )
 
-    assert response.status_code == status.HTTP_200_OK
-
-    payload = response.json()
-
-    assert payload["provider"] == "sleeper"
-    assert payload["season_id"] == 17
-    assert payload["provider_league_id"] == "league-alpha"
-    assert payload["provider_season_id"] == "season-2026"
-    assert payload["current_week"] == 9
-    assert payload["full_sync"] is False
-    assert payload["player_weeks"] == [7, 8]
-    assert payload["teams_upserted"] == 12
-    assert payload["matchups_upserted"] == 48
-    assert payload["player_week_scores_upserted"] == 384
+    assert response.status_code == (status.HTTP_202_ACCEPTED)
+    assert response.json() == {
+        "job_id": 42,
+        "status": "running",
+        "existing": True,
+    }
 
 
 def test_member_cannot_trigger_sync() -> None:
@@ -246,50 +254,6 @@ def test_member_cannot_trigger_sync() -> None:
         )
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
-
-
-def test_sync_conflict_returns_409() -> None:
-    def locked_runner(
-        *,
-        workspace_id: int,
-        full_sync: bool,
-    ) -> ProviderSyncResult:
-        assert workspace_id == 1
-        del full_sync
-
-        raise SyncAlreadyRunningError(
-            "Another synchronization is already running for this league and season."
-        )
-
-    app.dependency_overrides[get_current_user] = override_admin
-    app.dependency_overrides[require_session_csrf] = override_csrf
-    app.dependency_overrides[get_synchronization_runner] = lambda: locked_runner
-
-    try:
-        response = client.post(
-            "/api/admin/sync",
-            headers={
-                "Origin": "http://localhost:5173",
-            },
-            json={
-                "full_sync": False,
-            },
-        )
-    finally:
-        app.dependency_overrides.pop(
-            get_current_user,
-            None,
-        )
-        app.dependency_overrides.pop(
-            require_session_csrf,
-            None,
-        )
-        app.dependency_overrides.pop(
-            get_synchronization_runner,
-            None,
-        )
-
-    assert response.status_code == status.HTTP_409_CONFLICT
 
 
 def test_admin_can_read_standings_tiebreaker_configuration() -> None:
@@ -392,3 +356,145 @@ def test_spectator_cannot_read_standings_tiebreaker_configuration() -> None:
         )
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+def fake_job_status_reader(
+    *,
+    job_id: int,
+    workspace_id: int,
+):
+    from app.db.platform_enums import (
+        BackgroundJobType,
+    )
+    from app.services.background_job_status import (
+        BackgroundJobStatusSnapshot,
+    )
+
+    assert workspace_id == 1
+
+    if job_id != 42:
+        return None
+
+    timestamp = datetime(
+        2026,
+        11,
+        19,
+        18,
+        0,
+        tzinfo=UTC,
+    )
+
+    return BackgroundJobStatusSnapshot(
+        job_id=42,
+        job_type=(BackgroundJobType.INCREMENTAL_SEASON_SYNC),
+        status=BackgroundJobStatus.RUNNING,
+        attempt_count=1,
+        maximum_attempts=5,
+        progress={
+            "stage": "fetching_matchups",
+        },
+        available_at=timestamp,
+        started_at=timestamp,
+        completed_at=None,
+        failed_at=None,
+        canceled_at=None,
+        safe_error_code=None,
+        safe_error_message=None,
+        retryable=None,
+    )
+
+
+def test_admin_can_read_workspace_job_status() -> None:
+    from app.api.admin_dependencies import (
+        get_background_job_status_reader,
+    )
+
+    app.dependency_overrides[get_current_user] = override_admin
+    app.dependency_overrides[get_background_job_status_reader] = lambda: fake_job_status_reader
+
+    try:
+        response = client.get("/api/admin/jobs/42")
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+        app.dependency_overrides.pop(
+            get_background_job_status_reader,
+            None,
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+
+    payload = response.json()
+
+    assert payload["job_id"] == 42
+    assert payload["job_type"] == ("incremental_season_sync")
+    assert payload["status"] == "running"
+    assert payload["attempt_count"] == 1
+    assert payload["maximum_attempts"] == 5
+    assert payload["progress"] == {
+        "stage": "fetching_matchups",
+    }
+    assert payload["completed_at"] is None
+    assert payload["safe_error_message"] is None
+
+    assert "payload" not in payload
+    assert "idempotency_key" not in payload
+    assert "claimed_by" not in payload
+    assert "claimed_at" not in payload
+    assert "lease_expires_at" not in payload
+
+
+def test_unknown_or_other_workspace_job_returns_404() -> None:
+    from app.api.admin_dependencies import (
+        get_background_job_status_reader,
+    )
+
+    app.dependency_overrides[get_current_user] = override_admin
+    app.dependency_overrides[get_background_job_status_reader] = lambda: fake_job_status_reader
+
+    try:
+        response = client.get("/api/admin/jobs/999")
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+        app.dependency_overrides.pop(
+            get_background_job_status_reader,
+            None,
+        )
+
+    assert response.status_code == (status.HTTP_404_NOT_FOUND)
+    assert response.json() == {
+        "detail": "Background job was not found.",
+    }
+
+
+def test_member_cannot_read_job_status() -> None:
+    app.dependency_overrides[get_current_user] = override_member
+
+    try:
+        response = client.get("/api/admin/jobs/42")
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+
+    assert response.status_code == (status.HTTP_403_FORBIDDEN)
+
+
+def test_invalid_job_id_is_rejected() -> None:
+    app.dependency_overrides[get_current_user] = override_admin
+
+    try:
+        response = client.get("/api/admin/jobs/0")
+    finally:
+        app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+
+    assert response.status_code == (status.HTTP_422_UNPROCESSABLE_CONTENT)

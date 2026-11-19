@@ -2,39 +2,39 @@ from typing import Protocol
 
 from app.core.settings import get_settings
 from app.db.session import SessionFactory
-from app.services.active_provider_sync import (
-    synchronize_active_season,
+from app.services.admin_synchronization_jobs import (
+    AdministratorSynchronizationJob,
+    enqueue_administrator_synchronization,
 )
-from app.services.provider_sync import ProviderSyncResult
 
 
-class SynchronizationRunner(Protocol):
+class SynchronizationJobEnqueuer(Protocol):
     def __call__(
         self,
         *,
         workspace_id: int,
         full_sync: bool,
-    ) -> ProviderSyncResult: ...
+    ) -> AdministratorSynchronizationJob: ...
 
 
-def run_synchronization(
+def enqueue_synchronization_job(
     *,
     workspace_id: int,
     full_sync: bool,
-) -> ProviderSyncResult:
-    settings = get_settings()
-
+) -> AdministratorSynchronizationJob:
     with SessionFactory() as session:
-        return synchronize_active_season(
-            session=session,
+        accepted = enqueue_administrator_synchronization(
+            session,
             workspace_id=workspace_id,
-            settings=settings,
             full_sync=full_sync,
         )
+        session.commit()
+
+    return accepted
 
 
-def get_synchronization_runner() -> SynchronizationRunner:
-    return run_synchronization
+def get_synchronization_job_enqueuer() -> SynchronizationJobEnqueuer:
+    return enqueue_synchronization_job
 
 
 class SeasonImporter(Protocol):
@@ -80,3 +80,39 @@ def get_season_importer() -> SeasonImporter:
     """Return the production season importer."""
 
     return import_season
+
+
+class BackgroundJobStatusReader(Protocol):
+    """Read one safe workspace-owned job status."""
+
+    def __call__(
+        self,
+        *,
+        job_id: int,
+        workspace_id: int,
+    ): ...
+
+
+def read_background_job_status(
+    *,
+    job_id: int,
+    workspace_id: int,
+):
+    """Read safe job state through a short database session."""
+
+    from app.services.background_job_status import (
+        get_background_job_status,
+    )
+
+    with SessionFactory() as session:
+        return get_background_job_status(
+            session,
+            job_id=job_id,
+            workspace_id=workspace_id,
+        )
+
+
+def get_background_job_status_reader() -> BackgroundJobStatusReader:
+    """Return the production workspace-scoped job reader."""
+
+    return read_background_job_status

@@ -31,18 +31,44 @@ export interface SyncStatus {
   latest_run: SyncRun | null;
 }
 
-export interface SyncResult {
-  provider: string;
-  season_id: number;
-  provider_league_id: string;
-  provider_season_id: string;
-  current_week: number;
-  full_sync: boolean;
-  player_weeks: number[];
-  teams_upserted: number;
-  matchups_upserted: number;
-  fantasy_byes_upserted: number;
-  player_week_scores_upserted: number;
+export type BackgroundJobStatus =
+  | "pending"
+  | "running"
+  | "retry_scheduled"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+
+export interface SyncJobAccepted {
+  job_id: number;
+  status: BackgroundJobStatus;
+  existing: boolean;
+}
+
+export interface BackgroundJobProgress {
+  stage?: string;
+  completed_units?: number;
+  total_units?: number;
+  [key: string]: unknown;
+}
+
+export interface BackgroundJob {
+  job_id: number;
+  job_type:
+    | "incremental_season_sync"
+    | "full_season_sync";
+  status: BackgroundJobStatus;
+  attempt_count: number;
+  maximum_attempts: number;
+  progress: BackgroundJobProgress | null;
+  available_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  failed_at: string | null;
+  canceled_at: string | null;
+  safe_error_code: string | null;
+  safe_error_message: string | null;
+  retryable: boolean | null;
 }
 
 
