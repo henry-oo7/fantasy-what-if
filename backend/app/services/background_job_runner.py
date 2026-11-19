@@ -5,11 +5,16 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from threading import Event
+from time import monotonic
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.platform_enums import BackgroundJobType
+from app.services.background_job_lease_recovery import (
+    BackgroundJobLeaseRecoveryResult,
+    recover_expired_background_jobs_committed,
+)
 from app.services.background_job_worker import (
     BackgroundJobExecutionResult,
     BackgroundJobHandler,
@@ -26,6 +31,9 @@ class BackgroundJobRunnerConfiguration:
     worker_id: str
     lease_duration: timedelta
     heartbeat_interval: timedelta
+    recovery_interval: timedelta
+    recovery_retry_delay: timedelta
+    recovery_batch_size: int
     poll_seconds: float
     database_backoff_seconds: float
 
@@ -41,6 +49,15 @@ class BackgroundJobRunnerConfiguration:
 
         if self.heartbeat_interval >= self.lease_duration:
             raise ValueError("heartbeat_interval must be shorter than lease_duration.")
+
+        if self.recovery_interval <= timedelta(0):
+            raise ValueError("recovery_interval must be positive.")
+
+        if self.recovery_retry_delay < timedelta(0):
+            raise ValueError("recovery_retry_delay cannot be negative.")
+
+        if self.recovery_batch_size < 1:
+            raise ValueError("recovery_batch_size must be positive.")
 
         if self.poll_seconds <= 0:
             raise ValueError("poll_seconds must be positive.")
@@ -58,22 +75,53 @@ def run_background_job_worker(
         BackgroundJobHandler,
     ],
     shutdown_event: Event,
-    execute_one: Callable[..., BackgroundJobExecutionResult] = (execute_one_background_job),
+    execute_one: Callable[
+        ...,
+        BackgroundJobExecutionResult,
+    ] = execute_one_background_job,
+    recover_expired: Callable[
+        ...,
+        BackgroundJobLeaseRecoveryResult,
+    ] = recover_expired_background_jobs_committed,
+    monotonic_time: Callable[[], float] = monotonic,
 ) -> None:
-    """Poll and execute jobs until shutdown is requested."""
+    """Poll, recover, and execute jobs until shutdown."""
 
     LOGGER.info(
-        "Background worker started: worker_id=%s, "
-        "poll_seconds=%s, lease_seconds=%s, "
-        "heartbeat_seconds=%s.",
+        "Background worker started: "
+        "worker_id=%s, poll_seconds=%s, "
+        "lease_seconds=%s, heartbeat_seconds=%s, "
+        "recovery_seconds=%s.",
         configuration.worker_id,
         configuration.poll_seconds,
         configuration.lease_duration.total_seconds(),
         configuration.heartbeat_interval.total_seconds(),
+        configuration.recovery_interval.total_seconds(),
     )
+
+    next_recovery_at = 0.0
 
     while not shutdown_event.is_set():
         try:
+            current_monotonic_time = monotonic_time()
+
+            if current_monotonic_time >= next_recovery_at:
+                recovery = recover_expired(
+                    session_factory=session_factory,
+                    retry_delay=(configuration.recovery_retry_delay),
+                    batch_size=(configuration.recovery_batch_size),
+                )
+                next_recovery_at = (
+                    current_monotonic_time + configuration.recovery_interval.total_seconds()
+                )
+
+                if recovery.recovered_count:
+                    LOGGER.warning(
+                        "Expired background-job leases recovered: retry_scheduled=%s, failed=%s.",
+                        recovery.retry_scheduled_count,
+                        recovery.failed_count,
+                    )
+
             result = execute_one(
                 session_factory=session_factory,
                 worker_id=configuration.worker_id,
@@ -116,7 +164,6 @@ def run_background_job_worker(
                 result.retry_scheduled,
                 result.failed,
             )
-
             continue
 
         if shutdown_event.wait(timeout=configuration.poll_seconds):

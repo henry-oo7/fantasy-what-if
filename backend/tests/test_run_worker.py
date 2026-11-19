@@ -22,6 +22,9 @@ def settings(
         background_worker_heartbeat_seconds=60,
         background_worker_poll_seconds=5,
         background_worker_database_backoff_seconds=10,
+        background_worker_recovery_interval_seconds=60,
+        background_worker_recovery_retry_delay_seconds=30,
+        background_worker_recovery_batch_size=100,
     )
 
 
@@ -134,5 +137,8 @@ def test_enabled_worker_builds_handlers_and_runner(
     assert configuration.worker_id == "worker-test-01"
     assert configuration.lease_duration.total_seconds() == 300
     assert configuration.heartbeat_interval.total_seconds() == 60
+    assert configuration.recovery_interval.total_seconds() == 60
+    assert configuration.recovery_retry_delay.total_seconds() == 30
+    assert configuration.recovery_batch_size == 100
     assert configuration.poll_seconds == 5
     assert configuration.database_backoff_seconds == 10

@@ -242,10 +242,63 @@ class BackgroundJobRepository:
                 BackgroundJob.lease_expires_at,
                 BackgroundJob.id,
             )
+            .with_for_update(
+                skip_locked=True,
+            )
             .limit(limit)
         ).all()
 
         return tuple(jobs)
+
+    def recover_expired_lease(
+        self,
+        job: BackgroundJob,
+        *,
+        retry_at: datetime,
+        now: datetime | None = None,
+    ) -> BackgroundJobStatus:
+        """Recover one locked running job with an expired lease."""
+
+        timestamp = now or datetime.now(UTC)
+
+        if job.status is not BackgroundJobStatus.RUNNING:
+            raise BackgroundJobRepositoryError(
+                "Only a running background job may have its expired lease recovered."
+            )
+
+        if job.lease_expires_at is None:
+            raise BackgroundJobRepositoryError(
+                "The running background job does not have a lease expiration."
+            )
+
+        if job.lease_expires_at >= timestamp:
+            raise BackgroundJobRepositoryError("The background job lease has not expired.")
+
+        safe_error_code = "worker_lease_expired"
+        safe_error_message = "The background worker stopped before the job completed."
+
+        job.claimed_at = None
+        job.lease_expires_at = None
+        job.claimed_by = None
+        job.started_at = None
+        job.completed_at = None
+        job.canceled_at = None
+        job.safe_error_code = safe_error_code
+        job.safe_error_message = safe_error_message
+
+        if job.attempt_count < job.maximum_attempts:
+            job.status = BackgroundJobStatus.RETRY_SCHEDULED
+            job.available_at = retry_at
+            job.failed_at = None
+            job.retryable = True
+        else:
+            job.status = BackgroundJobStatus.FAILED
+            job.failed_at = timestamp
+            job.retryable = False
+
+        self.session.flush()
+
+        return job.status
 
     def renew_lease(
         self,

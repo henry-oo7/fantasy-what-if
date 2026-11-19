@@ -30,6 +30,9 @@ def test_background_worker_defaults_are_conservative() -> None:
     assert settings.background_worker_lease_seconds == 300
     assert settings.background_worker_heartbeat_seconds == 60
     assert settings.background_worker_database_backoff_seconds == 10
+    assert settings.background_worker_recovery_interval_seconds == 60
+    assert settings.background_worker_recovery_retry_delay_seconds == 30
+    assert settings.background_worker_recovery_batch_size == 100
     assert settings.background_worker_id is None
 
 
@@ -40,6 +43,9 @@ def test_background_worker_settings_accept_valid_overrides() -> None:
         background_worker_lease_seconds=600,
         background_worker_heartbeat_seconds=90,
         background_worker_database_backoff_seconds=15,
+        background_worker_recovery_interval_seconds=120,
+        background_worker_recovery_retry_delay_seconds=45,
+        background_worker_recovery_batch_size=250,
         background_worker_id=" worker-dev-01 ",
     )
 
@@ -48,6 +54,9 @@ def test_background_worker_settings_accept_valid_overrides() -> None:
     assert settings.background_worker_lease_seconds == 600
     assert settings.background_worker_heartbeat_seconds == 90
     assert settings.background_worker_database_backoff_seconds == 15
+    assert settings.background_worker_recovery_interval_seconds == 120
+    assert settings.background_worker_recovery_retry_delay_seconds == 45
+    assert settings.background_worker_recovery_batch_size == 250
     assert settings.background_worker_id == "worker-dev-01"
 
 
@@ -67,6 +76,18 @@ def test_background_worker_settings_accept_valid_overrides() -> None:
         ),
         (
             "background_worker_database_backoff_seconds",
+            0,
+        ),
+        (
+            "background_worker_recovery_interval_seconds",
+            0,
+        ),
+        (
+            "background_worker_recovery_retry_delay_seconds",
+            -1,
+        ),
+        (
+            "background_worker_recovery_batch_size",
             0,
         ),
     ],

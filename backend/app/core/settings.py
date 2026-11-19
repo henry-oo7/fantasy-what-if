@@ -104,6 +104,21 @@ class Settings(BaseSettings):
         ge=1,
         le=300,
     )
+    background_worker_recovery_interval_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=60 * 60,
+    )
+    background_worker_recovery_retry_delay_seconds: int = Field(
+        default=30,
+        ge=0,
+        le=60 * 60,
+    )
+    background_worker_recovery_batch_size: int = Field(
+        default=100,
+        ge=1,
+        le=10_000,
+    )
     background_worker_id: str | None = None
 
     espn_s2: SecretStr | None = None
