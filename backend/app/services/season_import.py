@@ -179,6 +179,7 @@ def import_provider_season(
         encrypted_credentials=(connection.encrypted_credentials),
         key_version=connection.credential_version,
         expected_provider=connection.provider,
+        expected_schema_version=(connection.credential_schema_version),
     )
 
     temporary_values = dict(envelope.credentials.values)

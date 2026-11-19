@@ -15,6 +15,7 @@ from app.db.platform_models import (
     ProviderConnection,
 )
 from app.providers.credential_vault import (
+    CREDENTIAL_SCHEMA_VERSION,
     ProviderCredentialVault,
 )
 from app.providers.domain import ProviderCredentials
@@ -139,6 +140,7 @@ def configure_provider_connection(
         display_name=normalized_display_name,
         encrypted_credentials=encrypted_credentials,
         credential_version=(PROVIDER_CREDENTIAL_KEY_VERSION),
+        credential_schema_version=CREDENTIAL_SCHEMA_VERSION,
         is_active=True,
         last_validated_at=now or datetime.now(UTC),
         last_validation_error=None,

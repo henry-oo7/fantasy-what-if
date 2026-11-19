@@ -94,6 +94,27 @@ def test_encryption_uses_deterministic_plaintext() -> None:
     ).encode("utf-8")
 
 
+def test_recorded_schema_version_must_match_envelope() -> None:
+    key = make_key()
+    vault = ProviderCredentialVault(keys={1: key})
+    token = vault.encrypt(
+        provider=FantasyProvider.ESPN,
+        credentials=make_credentials(),
+        key_version=1,
+    )
+
+    with pytest.raises(
+        ProviderCredentialDecryptionError,
+        match="unsupported schema version",
+    ):
+        vault.decrypt(
+            encrypted_credentials=token,
+            key_version=1,
+            expected_provider=FantasyProvider.ESPN,
+            expected_schema_version=2,
+        )
+
+
 def test_wrong_key_is_rejected_safely() -> None:
     writer = ProviderCredentialVault(
         keys={

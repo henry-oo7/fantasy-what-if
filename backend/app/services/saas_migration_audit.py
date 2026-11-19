@@ -222,6 +222,7 @@ def audit_saas_migration_readiness(
                         encrypted_credentials=encrypted,
                         key_version=(active_connection.credential_version),
                         expected_provider=(active_connection.provider),
+                        expected_schema_version=(active_connection.credential_schema_version),
                     )
                     decryptable = True
                 except (

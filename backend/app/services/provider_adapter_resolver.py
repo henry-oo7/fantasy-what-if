@@ -153,6 +153,7 @@ def resolve_connection_credentials(
                 encrypted_credentials=encrypted,
                 key_version=(connection.credential_version),
                 expected_provider=(connection.provider),
+                expected_schema_version=(connection.credential_schema_version),
             )
         except ProviderCredentialConfigurationError as exc:
             raise ProviderAdapterResolutionError(
