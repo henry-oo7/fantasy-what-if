@@ -1,20 +1,25 @@
+"""Create durable synchronization jobs on the configured schedule."""
+
+from __future__ import annotations
+
 import argparse
 import logging
 import signal
 from datetime import UTC, datetime
 from threading import Event
 
-from sqlalchemy import select
-
 from app.core.settings import Settings, get_settings
-from app.db.platform_enums import InstallationStatus
-from app.db.platform_models import Installation
 from app.db.session import SessionFactory
-from app.services.active_provider_sync import (
-    synchronize_active_season,
+from app.services.active_season_context import (
+    resolve_active_season_context,
 )
-from app.services.provider_sync import ProviderSyncResult
-from app.services.sync_lock import SyncAlreadyRunningError
+from app.services.scheduled_synchronization_jobs import (
+    ScheduledSynchronizationBatch,
+    ScheduledSynchronizationJob,
+    ScheduledSynchronizationTarget,
+    enqueue_scheduled_synchronization,
+    enqueue_scheduled_synchronization_batch,
+)
 from app.services.sync_schedule import (
     calculate_next_sync_time,
     seconds_until,
@@ -25,19 +30,17 @@ SHUTDOWN_EVENT = Event()
 
 
 def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=("Run scheduled active-provider synchronization."))
-
+    parser = argparse.ArgumentParser(description=("Create durable scheduled synchronization jobs."))
     parser.add_argument(
         "--run-now",
         action="store_true",
-        help=("Run one workspace synchronization immediately and exit."),
+        help=("Queue one workspace synchronization immediately and exit."),
     )
     parser.add_argument(
         "--workspace-id",
         type=int,
         help=("Internal workspace ID. Required with --run-now."),
     )
-
     parser.add_argument(
         "--show-next-run",
         action="store_true",
@@ -55,7 +58,6 @@ def configure_logging(
         settings.app_log_level.upper(),
         logging.INFO,
     )
-
     logging.basicConfig(
         level=level,
         format=("%(asctime)s %(levelname)s %(name)s %(message)s"),
@@ -73,59 +75,80 @@ def install_signal_handlers() -> None:
     )
 
 
-def list_active_workspace_ids() -> tuple[int, ...]:
-    with SessionFactory() as session:
-        workspace_ids = session.scalars(
-            select(Installation.id)
-            .where(
-                Installation.status == InstallationStatus.ACTIVE,
-            )
-            .order_by(Installation.id)
-        ).all()
-
-    return tuple(workspace_ids)
-
-
-def run_incremental_sync(
-    settings: Settings,
+def enqueue_scheduled_batch(
     *,
-    workspace_id: int,
-) -> ProviderSyncResult | None:
-    LOGGER.info(
-        "Starting incremental synchronization: workspace_id=%s.",
-        workspace_id,
-    )
+    scheduled_for: datetime,
+) -> ScheduledSynchronizationBatch | None:
+    """Create one committed job batch for a schedule window."""
 
     try:
         with SessionFactory() as session:
-            result = synchronize_active_season(
-                session=session,
-                workspace_id=workspace_id,
-                settings=settings,
-                full_sync=False,
+            batch = enqueue_scheduled_synchronization_batch(
+                session,
+                scheduled_for=scheduled_for,
             )
-    except SyncAlreadyRunningError:
-        LOGGER.warning(
-            "Synchronization skipped because another process holds the league-season lock."
-        )
-        return None
+            session.commit()
     except Exception:
-        LOGGER.exception("Scheduled fantasy provider synchronization failed.")
+        LOGGER.exception(
+            "Scheduled synchronization job dispatch failed: scheduled_for=%s.",
+            scheduled_for.isoformat(),
+        )
         return None
 
     LOGGER.info(
-        "Synchronization succeeded: workspace_id=%s, "
-        "current_week=%s, player_weeks=%s, teams=%s, "
-        "matchups=%s, player_week_scores=%s.",
-        workspace_id,
-        result.current_week,
-        list(result.player_weeks),
-        result.teams_upserted,
-        result.matchups_upserted,
-        result.player_week_scores_upserted,
+        "Scheduled synchronization jobs committed: "
+        "scheduled_for=%s, total=%s, created=%s, "
+        "existing=%s.",
+        scheduled_for.isoformat(),
+        len(batch.jobs),
+        batch.created_count,
+        batch.existing_count,
     )
 
-    return result
+    return batch
+
+
+def enqueue_workspace_now(
+    *,
+    workspace_id: int,
+    scheduled_for: datetime,
+) -> ScheduledSynchronizationJob | None:
+    """Queue one eligible workspace without provider access."""
+
+    try:
+        with SessionFactory() as session:
+            context = resolve_active_season_context(
+                session=session,
+                workspace_id=workspace_id,
+            )
+            accepted = enqueue_scheduled_synchronization(
+                session,
+                target=ScheduledSynchronizationTarget(
+                    workspace_id=workspace_id,
+                    season_id=context.season_id,
+                ),
+                scheduled_for=scheduled_for,
+            )
+            session.commit()
+    except Exception:
+        LOGGER.exception(
+            "Immediate scheduled-job creation failed: workspace_id=%s.",
+            workspace_id,
+        )
+        return None
+
+    LOGGER.info(
+        "Immediate synchronization job committed: "
+        "workspace_id=%s, season_id=%s, job_id=%s, "
+        "status=%s, existing=%s.",
+        accepted.workspace_id,
+        accepted.season_id,
+        accepted.job_id,
+        accepted.status.value,
+        accepted.existing,
+    )
+
+    return accepted
 
 
 def next_scheduled_time(
@@ -179,7 +202,7 @@ def run_scheduler(
         )
 
         LOGGER.info(
-            "Next synchronization scheduled for %s.",
+            "Next synchronization job window is %s.",
             target.isoformat(),
         )
 
@@ -192,21 +215,9 @@ def run_scheduler(
         if SHUTDOWN_EVENT.is_set():
             break
 
-        workspace_ids = list_active_workspace_ids()
-
-        LOGGER.info(
-            "Dispatching sequential synchronization for %s active workspaces.",
-            len(workspace_ids),
+        enqueue_scheduled_batch(
+            scheduled_for=target,
         )
-
-        for workspace_id in workspace_ids:
-            if SHUTDOWN_EVENT.is_set():
-                break
-
-            run_incremental_sync(
-                settings,
-                workspace_id=workspace_id,
-            )
 
     LOGGER.info("Synchronization scheduler stopped.")
 
@@ -219,18 +230,15 @@ def _wait_for_target(
     remaining = delay_seconds
 
     while remaining > 0:
-        if SHUTDOWN_EVENT.wait(
-            timeout=min(
-                float(poll_seconds),
-                remaining,
-            )
-        ):
-            return True
-
-        remaining -= min(
+        wait_seconds = min(
             float(poll_seconds),
             remaining,
         )
+
+        if SHUTDOWN_EVENT.wait(timeout=wait_seconds):
+            return True
+
+        remaining -= wait_seconds
 
     return SHUTDOWN_EVENT.is_set()
 
@@ -265,21 +273,20 @@ def main() -> None:
         if arguments.workspace_id is None:
             raise SystemExit("--workspace-id is required with --run-now.")
 
-        result = run_incremental_sync(
-            settings,
+        accepted = enqueue_workspace_now(
             workspace_id=arguments.workspace_id,
+            scheduled_for=datetime.now(UTC),
         )
 
-        if result is None:
+        if accepted is None:
             raise SystemExit(1)
 
-        print("=== IMMEDIATE SYNC COMPLETE ===")
-        print(f"Provider: {result.provider.value}")
-        print(f"Provider league ID: {result.provider_league_id}")
-        print(f"Provider season ID: {result.provider_season_id}")
-        print(f"Internal season ID: {result.season_id}")
-        print(f"Current week: {result.current_week}")
-        print(f"Player weeks: {list(result.player_weeks)}")
+        print("=== IMMEDIATE SYNC JOB ACCEPTED ===")
+        print(f"Job ID: {accepted.job_id}")
+        print(f"Workspace ID: {accepted.workspace_id}")
+        print(f"Season ID: {accepted.season_id}")
+        print(f"Status: {accepted.status.value}")
+        print(f"Existing: {accepted.existing}")
         return
 
     run_scheduler(settings)
