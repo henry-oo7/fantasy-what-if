@@ -14,8 +14,12 @@ from app.db.platform_models import (
     ProviderConnection,
     ProviderLeagueClaim,
 )
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     CREDENTIAL_SCHEMA_VERSION,
+    ProviderCredentialConfigurationError,
     ProviderCredentialVault,
 )
 from app.providers.domain import ProviderCredentials
@@ -63,7 +67,7 @@ def replace_provider_credentials(
     *,
     workspace_id: int,
     submitted_credentials: ProviderCredentials,
-    credential_key: str,
+    credential_keyring: ProviderCredentialKeyring,
     registry: ProviderRegistry | None = None,
     now: datetime | None = None,
 ) -> ProviderCredentialReplacementResult:
@@ -201,20 +205,24 @@ def replace_provider_credentials(
             "The replacement credentials do not access the active season."
         )
 
+    if not credential_keyring.configured:
+        raise ProviderCredentialConfigurationError(
+            "Provider credential encryption is not configured."
+        )
+
     vault = ProviderCredentialVault(
-        keys={
-            connection.credential_version: credential_key,
-        }
+        keys=credential_keyring.keys,
     )
     encrypted_credentials = vault.encrypt(
         provider=connection.provider,
         credentials=replacement_credentials,
-        key_version=connection.credential_version,
+        key_version=credential_keyring.current_version,
     )
 
     timestamp = now or datetime.now(UTC)
 
     connection.encrypted_credentials = encrypted_credentials
+    connection.credential_version = credential_keyring.current_version
     connection.credential_schema_version = CREDENTIAL_SCHEMA_VERSION
     connection.last_validated_at = timestamp
     connection.last_validation_error = None

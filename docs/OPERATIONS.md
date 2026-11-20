@@ -191,7 +191,8 @@ Back up `.env` separately using encrypted storage.
 The database dump does not replace the need to preserve:
 
 - `APP_SECRET_KEY`
-- `PROVIDER_CREDENTIAL_KEY`
+- `PROVIDER_CREDENTIAL_KEYS`
+- `PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION`
 - `POSTGRES_PASSWORD`
 - The deployed `APP_VERSION`
 
@@ -543,7 +544,8 @@ Check:
 - `FRONTEND_ORIGIN`
 - `TRUSTED_ORIGINS`
 - `APP_SECRET_KEY`
-- `PROVIDER_CREDENTIAL_KEY`
+- `PROVIDER_CREDENTIAL_KEYS`
+- `PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION`
 - PostgreSQL credentials
 
 ### Frontend Is Unhealthy
@@ -662,6 +664,32 @@ Provider responses can fail because of:
 - Provider-side format changes
 
 Update provider credentials through the supported administration or setup flow.
+
+## Provider Credential Keyring
+
+`PROVIDER_CREDENTIAL_KEYS` is a JSON object whose property names are positive integer key versions and whose values are Fernet keys.
+
+A fresh SaaS deployment begins with one generated key:
+
+```text
+PROVIDER_CREDENTIAL_KEYS={"1":"<version-1-fernet-key>"}
+PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION=1
+```
+
+The current version is used for new workspace setup and provider credential replacement. A provider connection's stored `credential_version` selects the key used to decrypt its credential envelope.
+
+During a future rotation window, both old and new keys must remain configured:
+
+```text
+PROVIDER_CREDENTIAL_KEYS={"1":"<old-key>","2":"<new-key>"}
+PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION=2
+```
+
+This makes new writes use version 2 while version 1 remains available for existing envelopes. Do not remove version 1 until supported rotation tooling confirms that no provider connection still references it.
+
+Changing the Fantasy What-If keyring does not replace ESPN cookies or Yahoo OAuth tokens. It changes only the application encryption protecting those provider credentials in PostgreSQL.
+
+Store the complete keyring and its current-version setting in encrypted off-host backups. Losing the final copy of a referenced key makes those credential envelopes unrecoverable. Affected workspace administrators would then need to submit replacement provider credentials.
 
 ## Routine Maintenance Checklist
 

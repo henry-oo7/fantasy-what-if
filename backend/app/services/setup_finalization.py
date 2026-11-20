@@ -16,6 +16,9 @@ from app.db.platform_models import (
     Installation,
     ProviderConnection,
 )
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     ProviderCredentialVault,
 )
@@ -65,7 +68,7 @@ class SetupFinalizationResult:
 def finalize_installation_setup(
     session: Session,
     *,
-    credential_key: str,
+    credential_keyring: ProviderCredentialKeyring,
     registry: ProviderRegistry | None = None,
     now: datetime | None = None,
 ) -> SetupFinalizationResult:
@@ -137,9 +140,7 @@ def finalize_installation_setup(
         )
 
     vault = ProviderCredentialVault(
-        keys={
-            connection.credential_version: credential_key,
-        }
+        keys=credential_keyring.keys,
     )
 
     envelope = vault.decrypt(

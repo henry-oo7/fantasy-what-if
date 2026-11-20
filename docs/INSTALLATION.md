@@ -61,9 +61,15 @@ scripts/generate-production-env.sh \
 The generator creates:
 
 - A random application secret
-- A Fernet provider-credential encryption key
+- A versioned provider-credential keyring containing one generated Fernet key
 - A random PostgreSQL password
 - A private `.env` file with permissions set to `0600`
+
+The initial keyring contains version `1`, and
+`PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION=1` selects it for new
+provider credential encryption. Do not edit the generated JSON
+structure or remove a key version that is still referenced by a
+stored provider connection.
 
 Do not commit, email, or publicly share `.env`.
 
@@ -406,10 +412,10 @@ Back up all of the following:
 The following `.env` values are especially important:
 
 - `APP_SECRET_KEY`
-- `PROVIDER_CREDENTIAL_KEY`
+- `PROVIDER_CREDENTIAL_KEYS`
 - `POSTGRES_PASSWORD`
 
-Losing `PROVIDER_CREDENTIAL_KEY` prevents recovery of encrypted provider credentials from the database.
+Losing any key version still referenced by a provider connection prevents recovery of that connection's encrypted credentials from the database. Preserve both `PROVIDER_CREDENTIAL_KEYS` and `PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION` in encrypted off-host backups.
 
 ## Next Steps
 

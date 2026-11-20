@@ -18,6 +18,9 @@ from app.db.platform_models import (
     Installation,
     ProviderConnection,
 )
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     ProviderCredentialVault,
 )
@@ -72,7 +75,7 @@ def import_provider_season(
     session: Session,
     *,
     season_year: int,
-    credential_key: str,
+    credential_keyring: ProviderCredentialKeyring,
     registry: ProviderRegistry | None = None,
     now: datetime | None = None,
 ) -> SeasonImportResult:
@@ -170,9 +173,7 @@ def import_provider_season(
         raise SeasonImportUnavailableError("The provider connection has no stored credentials.")
 
     vault = ProviderCredentialVault(
-        keys={
-            connection.credential_version: credential_key,
-        }
+        keys=credential_keyring.keys,
     )
 
     envelope = vault.decrypt(

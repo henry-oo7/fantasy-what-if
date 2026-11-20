@@ -122,9 +122,15 @@ scripts/generate-production-env.sh \
 The generator creates:
 
 - A random application secret
-- A Fernet provider-credential encryption key
+- A versioned provider-credential keyring containing one generated Fernet key
 - A random PostgreSQL password
 - A private `.env` file with permissions set to `0600`
+
+The generated provider keyring begins with version `1`.
+`PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION` selects the key used for
+new encryption, while older configured versions remain available to
+decrypt provider credential envelopes created before a future
+rotation.
 
 Do not commit, email, or publicly share the generated `.env` file.
 

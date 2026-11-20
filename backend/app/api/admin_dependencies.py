@@ -66,9 +66,9 @@ def import_season(
     )
 
     settings = get_settings()
-    key_setting = settings.provider_credential_key
+    keyring = settings.provider_credential_keyring()
 
-    if key_setting is None:
+    if not keyring.configured:
         raise ProviderCredentialConfigurationError(
             "Provider credential encryption is not configured."
         )
@@ -77,7 +77,7 @@ def import_season(
         return import_provider_season(
             session,
             season_year=season_year,
-            credential_key=(key_setting.get_secret_value()),
+            credential_keyring=keyring,
         )
 
 
@@ -146,9 +146,9 @@ def replace_workspace_provider_credentials(
     )
 
     settings = get_settings()
-    key_setting = settings.provider_credential_key
+    keyring = settings.provider_credential_keyring()
 
-    if key_setting is None:
+    if not keyring.configured:
         raise ProviderCredentialConfigurationError(
             "Provider credential encryption is not configured."
         )
@@ -158,7 +158,7 @@ def replace_workspace_provider_credentials(
             session,
             workspace_id=workspace_id,
             submitted_credentials=credentials,
-            credential_key=key_setting.get_secret_value(),
+            credential_keyring=keyring,
         )
         session.commit()
         return result

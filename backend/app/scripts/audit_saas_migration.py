@@ -10,13 +10,12 @@ from app.services.saas_migration_audit import (
 
 def main() -> None:
     settings = get_settings()
-    key_setting = settings.provider_credential_key
-    credential_key = key_setting.get_secret_value() if key_setting is not None else None
+    keyring = settings.provider_credential_keyring()
 
     with SessionFactory() as session:
         audit = audit_saas_migration_readiness(
             session,
-            provider_credential_key=credential_key,
+            provider_credential_keyring=keyring,
         )
 
     print("=== SAAS MIGRATION READINESS AUDIT ===")

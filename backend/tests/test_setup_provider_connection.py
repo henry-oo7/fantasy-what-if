@@ -9,6 +9,9 @@ from app.db.platform_enums import (
     InstallationStatus,
 )
 from app.db.platform_models import Installation
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     ProviderCredentialVault,
 )
@@ -18,7 +21,6 @@ from app.providers.domain import (
 )
 from app.providers.registry import ProviderRegistry
 from app.services.setup_provider_connection import (
-    PROVIDER_CREDENTIAL_KEY_VERSION,
     SETUP_PROVIDER_LOCK_KEY,
     SetupProviderAlreadyConfiguredError,
     SetupProviderConnectionUnavailableError,
@@ -76,6 +78,19 @@ class FakeAdapter:
         weeks: tuple[int, ...],
     ):
         raise AssertionError("Roster retrieval is not used by this test.")
+
+
+def credential_keyring(
+    key: str,
+    *,
+    current_version: int = 1,
+) -> ProviderCredentialKeyring:
+    return ProviderCredentialKeyring(
+        keys={
+            current_version: key,
+        },
+        current_version=current_version,
+    )
 
 
 def credentials() -> ProviderCredentials:
@@ -144,7 +159,7 @@ def test_valid_credentials_are_encrypted_and_stored() -> None:
         provider=FantasyProvider.ESPN,
         display_name="  ESPN   League  ",
         credentials=credentials(),
-        credential_key=key,
+        credential_keyring=credential_keyring(key),
         registry=registry_with(
             FakeAdapter(
                 is_valid=True,
@@ -170,7 +185,7 @@ def test_valid_credentials_are_encrypted_and_stored() -> None:
 
     envelope = ProviderCredentialVault(
         keys={
-            PROVIDER_CREDENTIAL_KEY_VERSION: key,
+            connection.credential_version: key,
         }
     ).decrypt(
         encrypted_credentials=(connection.encrypted_credentials),
@@ -210,7 +225,7 @@ def test_invalid_provider_configuration_is_not_stored() -> None:
             provider=FantasyProvider.ESPN,
             display_name="ESPN",
             credentials=credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeAdapter(
                     is_valid=False,
@@ -237,7 +252,7 @@ def test_existing_connection_is_rejected() -> None:
             provider=FantasyProvider.ESPN,
             display_name="ESPN",
             credentials=credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeAdapter(
                     is_valid=True,
@@ -278,7 +293,7 @@ def test_exactly_one_installation_is_required(
             provider=FantasyProvider.ESPN,
             display_name="ESPN",
             credentials=credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeAdapter(
                     is_valid=True,
@@ -306,7 +321,7 @@ def test_active_installation_rejects_setup_connection() -> None:
             provider=FantasyProvider.ESPN,
             display_name="ESPN",
             credentials=credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeAdapter(
                     is_valid=True,

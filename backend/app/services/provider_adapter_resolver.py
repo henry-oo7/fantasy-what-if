@@ -15,6 +15,9 @@ from app.db.platform_models import (
     ProviderConnection,
 )
 from app.providers.base import ProviderAdapter
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyringConfigurationError,
+)
 from app.providers.credential_vault import (
     ProviderCredentialConfigurationError,
     ProviderCredentialVault,
@@ -137,25 +140,30 @@ def resolve_connection_credentials(
     encrypted = connection.encrypted_credentials
 
     if encrypted is not None:
-        key_setting = settings.provider_credential_key
-
-        if key_setting is None:
-            raise ProviderAdapterResolutionError(
-                "Stored provider credentials require PROVIDER_CREDENTIAL_KEY."
-            )
-
         try:
+            keyring = settings.provider_credential_keyring()
+
+            if not keyring.configured:
+                raise ProviderCredentialKeyringConfigurationError(
+                    "Provider credential encryption is not configured."
+                )
+
+            keyring.key_for_version(connection.credential_version)
+
             vault = ProviderCredentialVault(
-                keys={connection.credential_version: (key_setting.get_secret_value())}
+                keys=keyring.keys,
             )
 
             envelope = vault.decrypt(
                 encrypted_credentials=encrypted,
-                key_version=(connection.credential_version),
-                expected_provider=(connection.provider),
+                key_version=connection.credential_version,
+                expected_provider=connection.provider,
                 expected_schema_version=(connection.credential_schema_version),
             )
-        except ProviderCredentialConfigurationError as exc:
+        except (
+            ProviderCredentialConfigurationError,
+            ProviderCredentialKeyringConfigurationError,
+        ) as exc:
             raise ProviderAdapterResolutionError(
                 "Provider credential encryption is not configured correctly."
             ) from exc

@@ -17,6 +17,9 @@ from app.db.platform_models import (
     ProviderConnection,
     ProviderLeagueClaim,
 )
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     ProviderCredentialVault,
 )
@@ -37,6 +40,21 @@ from app.services.setup_finalization import (
     SetupFinalizationUnavailableError,
     finalize_installation_setup,
 )
+
+
+def credential_keyring(
+    key: str,
+    *,
+    current_version: int = 1,
+    historical_keys: dict[int, str] | None = None,
+) -> ProviderCredentialKeyring:
+    keys = dict(historical_keys or {})
+    keys[current_version] = key
+
+    return ProviderCredentialKeyring(
+        keys=keys,
+        current_version=current_version,
+    )
 
 
 class FakeProvider:
@@ -224,7 +242,7 @@ def test_finalization_activates_after_full_sync() -> None:
     ) as synchronize:
         result = finalize_installation_setup(
             session,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(),
             now=timestamp,
         )
@@ -293,7 +311,7 @@ def test_active_installation_cannot_be_finalized() -> None:
     ):
         finalize_installation_setup(
             session,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(),
         )
 
@@ -314,7 +332,7 @@ def test_existing_league_blocks_finalization() -> None:
     ):
         finalize_installation_setup(
             session,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(),
         )
 
@@ -342,7 +360,7 @@ def test_historical_finalization_completes_without_active_sync_season() -> None:
     ):
         finalize_installation_setup(
             session,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(
                 season_year=2025,
             ),
@@ -379,7 +397,7 @@ def test_future_finalization_is_rejected_before_database_inserts() -> None:
     ):
         finalize_installation_setup(
             session,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(
                 season_year=2027,
             ),
@@ -409,7 +427,7 @@ def test_claimed_provider_league_blocks_finalization() -> None:
     ):
         finalize_installation_setup(
             session,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(),
         )
 

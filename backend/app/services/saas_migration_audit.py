@@ -15,6 +15,10 @@ from app.db.platform_models import (
     ProviderConnection,
     ProviderLeagueClaim,
 )
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+    ProviderCredentialKeyringConfigurationError,
+)
 from app.providers.credential_vault import (
     ProviderCredentialConfigurationError,
     ProviderCredentialDecryptionError,
@@ -62,7 +66,7 @@ def _check(
 def audit_saas_migration_readiness(
     session: Session,
     *,
-    provider_credential_key: str | None,
+    provider_credential_keyring: ProviderCredentialKeyring,
 ) -> SaasMigrationAudit:
     """Inspect migration invariants without modifying database state."""
 
@@ -211,33 +215,32 @@ def audit_saas_migration_readiness(
         if encrypted and encrypted.strip():
             decryptable = False
 
-            if provider_credential_key is not None:
-                try:
-                    vault = ProviderCredentialVault(
-                        keys={
-                            active_connection.credential_version: provider_credential_key,
-                        }
-                    )
-                    vault.decrypt(
-                        encrypted_credentials=encrypted,
-                        key_version=(active_connection.credential_version),
-                        expected_provider=(active_connection.provider),
-                        expected_schema_version=(active_connection.credential_schema_version),
-                    )
-                    decryptable = True
-                except (
-                    ProviderCredentialConfigurationError,
-                    ProviderCredentialDecryptionError,
-                ):
-                    decryptable = False
+            try:
+                provider_credential_keyring.key_for_version(active_connection.credential_version)
+                vault = ProviderCredentialVault(
+                    keys=provider_credential_keyring.keys,
+                )
+                vault.decrypt(
+                    encrypted_credentials=encrypted,
+                    key_version=(active_connection.credential_version),
+                    expected_provider=(active_connection.provider),
+                    expected_schema_version=(active_connection.credential_schema_version),
+                )
+                decryptable = True
+            except (
+                ProviderCredentialConfigurationError,
+                ProviderCredentialDecryptionError,
+                ProviderCredentialKeyringConfigurationError,
+            ):
+                decryptable = False
 
-            _check(
-                checks,
-                name="credentials_decryptable",
-                passed=decryptable,
-                success=("Provider credentials decrypt successfully."),
-                failure=("Provider credentials could not be decrypted with the configured key."),
-            )
+        _check(
+            checks,
+            name="credentials_decryptable",
+            passed=decryptable,
+            success=("Provider credentials decrypt successfully."),
+            failure=("Provider credentials could not be decrypted with the configured key."),
+        )
 
     leagues = session.scalars(
         select(League).where(League.installation_id == installation.id).order_by(League.id)
