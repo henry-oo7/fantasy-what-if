@@ -15,6 +15,8 @@ import type {
   StandingsTiebreakerConfiguration,
   StandingsTiebreakerRule,
   BackgroundJob,
+  ReplaceProviderCredentialsRequest,
+  ReplaceProviderCredentialsResponse,
   SyncJobAccepted,
   SyncStatus,
 } from "../types/admin";
@@ -233,5 +235,18 @@ export async function pollBackgroundJob(
 
   throw new Error(
     "Synchronization is still running. Refresh the page to check its persisted job status.",
+  );
+}
+
+export function replaceProviderCredentials(
+  request: ReplaceProviderCredentialsRequest,
+  csrfToken: string,
+): Promise<ReplaceProviderCredentialsResponse> {
+  return patchJson<ReplaceProviderCredentialsResponse>(
+    "/admin/provider-credentials",
+    request,
+    {
+      csrfToken,
+    },
   );
 }

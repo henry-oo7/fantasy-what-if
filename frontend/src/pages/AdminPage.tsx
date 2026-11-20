@@ -19,6 +19,7 @@ import {
 import {
   adminQueryKeys,
   pollBackgroundJob,
+  replaceProviderCredentials,
   resetSpectatorPassword,
   runSynchronization,
   setSpectatorAccess,
@@ -118,6 +119,26 @@ export function AdminPage() {
   const [savingSpectator, setSavingSpectator] =
     useState(false);
 
+  const [providerEspnS2, setProviderEspnS2] =
+    useState("");
+  const [providerSwid, setProviderSwid] =
+    useState("");
+  const [
+    showProviderCredentials,
+    setShowProviderCredentials,
+  ] = useState(false);
+  const [
+    replacingProviderCredentials,
+    setReplacingProviderCredentials,
+  ] = useState(false);
+  const [
+    providerCredentialMessage,
+    setProviderCredentialMessage,
+  ] = useState<string | null>(null);
+  const [
+    providerCredentialError,
+    setProviderCredentialError,
+  ] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] =
     useState<string | null>(null);
   const [syncError, setSyncError] =
@@ -303,6 +324,61 @@ export function AdminPage() {
       );
     } finally {
       setSavingSpectator(false);
+    }
+  }
+
+  async function handleProviderCredentialReplacement() {
+    setProviderCredentialError(null);
+    setProviderCredentialMessage(null);
+
+    if (!csrfToken) {
+      setProviderCredentialError(
+        "Your administrator session does not have a CSRF token. Sign in again.",
+      );
+      return;
+    }
+
+    if (
+      !providerEspnS2.trim() ||
+      !providerSwid.trim()
+    ) {
+      setProviderCredentialError(
+        "Both ESPN_S2 and SWID credentials are required.",
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Replace the stored ESPN credentials? The new values must access this workspace's existing league and active season.",
+      )
+    ) {
+      return;
+    }
+
+    setReplacingProviderCredentials(true);
+
+    try {
+      const result = await replaceProviderCredentials(
+        {
+          espn_s2: providerEspnS2,
+          swid: providerSwid,
+        },
+        csrfToken,
+      );
+
+      setProviderEspnS2("");
+      setProviderSwid("");
+      setShowProviderCredentials(false);
+      setProviderCredentialMessage(
+        `ESPN credentials replaced and validated for season ${result.provider_season_id}.`,
+      );
+    } catch (currentError) {
+      setProviderCredentialError(
+        errorMessage(currentError),
+      );
+    } finally {
+      setReplacingProviderCredentials(false);
     }
   }
 
@@ -872,6 +948,132 @@ export function AdminPage() {
           </div>
 
         </dl>
+
+        <div className="admin-control-panel">
+          <div className="admin-control-heading">
+            <ShieldCheck aria-hidden="true" />
+
+            <div>
+              <h3>Replace ESPN credentials</h3>
+
+              <p>
+                Update the encrypted ESPN session values
+                when access expires. The replacement must
+                validate against this workspace&apos;s
+                existing claimed league and active season.
+              </p>
+
+              <p className="admin-credential-warning">
+                Treat ESPN_S2 and SWID like passwords. The
+                current stored values cannot be viewed here,
+                and a failed replacement leaves them
+                unchanged.
+              </p>
+            </div>
+          </div>
+
+          <div className="admin-password-grid">
+            <label htmlFor="provider-espn-s2">
+              ESPN_S2
+              <input
+                id="provider-espn-s2"
+                type={
+                  showProviderCredentials
+                    ? "text"
+                    : "password"
+                }
+                value={providerEspnS2}
+                autoComplete="off"
+                disabled={replacingProviderCredentials}
+                onChange={(event) => {
+                  setProviderEspnS2(
+                    event.target.value,
+                  );
+                }}
+              />
+            </label>
+
+            <label htmlFor="provider-swid">
+              SWID
+              <input
+                id="provider-swid"
+                type={
+                  showProviderCredentials
+                    ? "text"
+                    : "password"
+                }
+                value={providerSwid}
+                autoComplete="off"
+                placeholder="{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
+                disabled={replacingProviderCredentials}
+                onChange={(event) => {
+                  setProviderSwid(
+                    event.target.value,
+                  );
+                }}
+              />
+            </label>
+          </div>
+
+          <div className="admin-actions">
+            <button
+              type="button"
+              className="admin-secondary-button"
+              disabled={replacingProviderCredentials}
+              onClick={() => {
+                setShowProviderCredentials(
+                  (current) => !current,
+                );
+              }}
+            >
+              {showProviderCredentials ? (
+                <EyeOff aria-hidden="true" />
+              ) : (
+                <Eye aria-hidden="true" />
+              )}
+
+              {showProviderCredentials
+                ? "Hide credentials"
+                : "Show credentials"}
+            </button>
+
+            <button
+              type="button"
+              className="admin-primary-button"
+              disabled={
+                replacingProviderCredentials ||
+                !providerEspnS2.trim() ||
+                !providerSwid.trim()
+              }
+              onClick={() => {
+                void handleProviderCredentialReplacement();
+              }}
+            >
+              {replacingProviderCredentials
+                ? "Validating replacement..."
+                : "Validate and replace credentials"}
+            </button>
+          </div>
+        </div>
+
+        {providerCredentialMessage ? (
+          <p
+            className="admin-message"
+            role="status"
+          >
+            <CheckCircle2 aria-hidden="true" />
+            {providerCredentialMessage}
+          </p>
+        ) : null}
+
+        {providerCredentialError ? (
+          <p
+            className="admin-error"
+            role="alert"
+          >
+            {providerCredentialError}
+          </p>
+        ) : null}
 
         <div className="admin-control-panel">
           <div className="admin-control-heading">

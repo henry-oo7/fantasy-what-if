@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.api.admin_dependencies import (
     BackgroundJobStatusReader,
+    ProviderCredentialReplacer,
     SynchronizationJobEnqueuer,
     get_background_job_status_reader,
+    get_provider_credential_replacer,
     get_synchronization_job_enqueuer,
 )
 from app.api.auth_dependencies import (
@@ -36,6 +38,10 @@ from app.db.session import (
 from app.domain.standings_tiebreaker import (
     StandingsTiebreaker,
 )
+from app.providers.credential_vault import (
+    ProviderCredentialConfigurationError,
+)
+from app.providers.domain import ProviderCredentials
 from app.repositories.auth_repository import (
     DuplicateEmailError,
     DuplicateUsernameError,
@@ -53,6 +59,8 @@ from app.repositories.sync_repository import (
 from app.schemas.admin import (
     BackgroundJobStatusResponse,
     CreateSpectatorRequest,
+    ReplaceProviderCredentialsRequest,
+    ReplaceProviderCredentialsResponse,
     ResetSpectatorPasswordRequest,
     SetSpectatorAccessRequest,
     SetStandingsTiebreakerFallbackRequest,
@@ -71,6 +79,10 @@ from app.services.active_season_context import (
 )
 from app.services.provider_adapter_resolver import (
     resolve_active_provider_context,
+)
+from app.services.provider_credential_replacement import (
+    ProviderCredentialReplacementUnavailableError,
+    ProviderCredentialReplacementValidationError,
 )
 from app.services.spectator_account import (
     SpectatorAccountStateError,
@@ -597,4 +609,86 @@ def _build_sync_status_response(
             if latest_run is not None
             else None
         ),
+    )
+
+
+@router.patch("/provider-credentials")
+def replace_admin_provider_credentials(
+    payload: ReplaceProviderCredentialsRequest,
+    workspace_id: Annotated[
+        int,
+        Depends(get_current_workspace_id),
+    ],
+    _: Annotated[
+        None,
+        Depends(validate_request_origin),
+    ],
+    __: Annotated[
+        AuthenticationContext,
+        Depends(require_session_csrf),
+    ],
+    replace_credentials: Annotated[
+        ProviderCredentialReplacer,
+        Depends(get_provider_credential_replacer),
+    ],
+) -> ReplaceProviderCredentialsResponse:
+    """Validate and atomically replace active provider credentials."""
+
+    credential_values = {
+        key: value
+        for key, value in {
+            "espn_s2": payload.espn_s2,
+            "swid": payload.swid,
+        }.items()
+        if value.strip()
+    }
+
+    if set(credential_values) != {
+        "espn_s2",
+        "swid",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Both ESPN_S2 and SWID credentials are required.",
+        )
+
+    credentials = ProviderCredentials(
+        values=credential_values,
+    )
+
+    try:
+        result = replace_credentials(
+            workspace_id=workspace_id,
+            credentials=credentials,
+        )
+    except ProviderCredentialReplacementUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ProviderCredentialReplacementValidationError as exc:
+        raise HTTPException(
+            status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
+            detail=str(exc),
+        ) from exc
+    except ProviderCredentialConfigurationError as exc:
+        raise HTTPException(
+            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+            detail=("Provider credential encryption is not configured."),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
+            detail=str(exc),
+        ) from exc
+
+    return ReplaceProviderCredentialsResponse(
+        workspace_id=result.workspace_id,
+        connection_id=result.connection_id,
+        provider=result.provider,
+        provider_league_id=result.provider_league_id,
+        provider_season_id=result.provider_season_id,
+        credential_version=result.credential_version,
+        credential_schema_version=(result.credential_schema_version),
+        validated_at=result.validated_at,
     )

@@ -2,9 +2,14 @@ from typing import Protocol
 
 from app.core.settings import get_settings
 from app.db.session import SessionFactory
+from app.providers.domain import ProviderCredentials
 from app.services.admin_synchronization_jobs import (
     AdministratorSynchronizationJob,
     enqueue_administrator_synchronization,
+)
+from app.services.provider_credential_replacement import (
+    ProviderCredentialReplacementResult,
+    replace_provider_credentials,
 )
 
 
@@ -116,3 +121,50 @@ def get_background_job_status_reader() -> BackgroundJobStatusReader:
     """Return the production workspace-scoped job reader."""
 
     return read_background_job_status
+
+
+class ProviderCredentialReplacer(Protocol):
+    """Replace one workspace's active provider credentials."""
+
+    def __call__(
+        self,
+        *,
+        workspace_id: int,
+        credentials: ProviderCredentials,
+    ) -> ProviderCredentialReplacementResult: ...
+
+
+def replace_workspace_provider_credentials(
+    *,
+    workspace_id: int,
+    credentials: ProviderCredentials,
+) -> ProviderCredentialReplacementResult:
+    """Replace credentials using protected application settings."""
+
+    from app.providers.credential_vault import (
+        ProviderCredentialConfigurationError,
+    )
+
+    settings = get_settings()
+    key_setting = settings.provider_credential_key
+
+    if key_setting is None:
+        raise ProviderCredentialConfigurationError(
+            "Provider credential encryption is not configured."
+        )
+
+    with SessionFactory() as session:
+        result = replace_provider_credentials(
+            session,
+            workspace_id=workspace_id,
+            submitted_credentials=credentials,
+            credential_key=key_setting.get_secret_value(),
+        )
+        session.commit()
+        return result
+
+
+def get_provider_credential_replacer() -> ProviderCredentialReplacer:
+    """Return the production provider credential replacer."""
+
+    return replace_workspace_provider_credentials
