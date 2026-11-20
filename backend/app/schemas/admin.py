@@ -114,3 +114,23 @@ class SetStandingsTiebreakerFallbackRequest(BaseModel):
     """Administrator-selected fallback standings tiebreaker."""
 
     fallback_rule: str
+
+
+class ReplaceProviderCredentialsRequest(BaseModel):
+    """Replacement secrets for the active provider connection."""
+
+    espn_s2: str
+    swid: str
+
+
+class ReplaceProviderCredentialsResponse(BaseModel):
+    """Safe metadata returned after provider credential replacement."""
+
+    workspace_id: int
+    connection_id: int
+    provider: str
+    provider_league_id: str
+    provider_season_id: str
+    credential_version: int
+    credential_schema_version: int
+    validated_at: datetime

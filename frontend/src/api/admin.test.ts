@@ -13,6 +13,7 @@ import {
   getBackgroundJob,
   pollBackgroundJob,
   resetSpectatorPassword,
+  replaceProviderCredentials,
   runSynchronization,
   setSpectatorAccess,
   setStandingsTiebreakerFallback,
@@ -460,6 +461,60 @@ describe("admin API", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
+  });
+
+
+  it("replaces provider credentials through the protected admin route", async () => {
+    const response = {
+      workspace_id: 1,
+      connection_id: 30,
+      provider: "espn",
+      provider_league_id: "529250970",
+      provider_season_id: "2026",
+      credential_version: 1,
+      credential_schema_version: 1,
+      validated_at: "2026-11-20T15:00:00Z",
+    };
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(response),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await replaceProviderCredentials(
+      {
+        espn_s2: "replacement-cookie",
+        swid: "{replacement-swid}",
+      },
+      "csrf-token",
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    const [url, options] = fetchMock.mock.calls[0];
+    const headers = new Headers(options.headers);
+
+    expect(url).toBe("/api/admin/provider-credentials");
+    expect(options).toMatchObject({
+      method: "PATCH",
+      credentials: "include",
+      body: JSON.stringify({
+        espn_s2: "replacement-cookie",
+        swid: "{replacement-swid}",
+      }),
+    });
+    expect(headers.get("Content-Type")).toBe(
+      "application/json",
+    );
+    expect(headers.get("X-CSRF-Token")).toBe(
+      "csrf-token",
+    );
+
+    expect(result).toEqual(response);
+    expect(result).not.toHaveProperty("espn_s2");
+    expect(result).not.toHaveProperty("swid");
+    expect(result).not.toHaveProperty("encrypted_credentials");
   });
 
 });

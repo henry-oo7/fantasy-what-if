@@ -84,3 +84,19 @@ export interface StandingsTiebreakerConfiguration {
   effective_rule: StandingsTiebreakerRule | null;
   effective_rule_source: "provider" | "admin_fallback" | null;
 }
+
+export interface ReplaceProviderCredentialsRequest {
+  espn_s2: string;
+  swid: string;
+}
+
+export interface ReplaceProviderCredentialsResponse {
+  workspace_id: number;
+  connection_id: number;
+  provider: string;
+  provider_league_id: string;
+  provider_season_id: string;
+  credential_version: number;
+  credential_schema_version: number;
+  validated_at: string;
+}
