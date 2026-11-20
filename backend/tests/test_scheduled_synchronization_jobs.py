@@ -240,3 +240,126 @@ def test_batch_leaves_commit_control_with_caller(
     )
 
     assert database_session.in_transaction()
+
+
+def test_multi_workspace_batch_creates_isolated_jobs(
+    database_session: Session,
+) -> None:
+    from app.repositories.background_job_repository import (
+        BackgroundJobRepository,
+    )
+    from tests.support.multi_workspace_espn import (
+        create_multi_workspace_espn_fixture,
+    )
+
+    fixture = create_multi_workspace_espn_fixture(database_session)
+
+    targets = list_scheduled_synchronization_targets(database_session)
+
+    assert targets == (
+        ScheduledSynchronizationTarget(
+            workspace_id=fixture.first.workspace_id,
+            season_id=fixture.first.season_id,
+        ),
+        ScheduledSynchronizationTarget(
+            workspace_id=fixture.second.workspace_id,
+            season_id=fixture.second.season_id,
+        ),
+    )
+
+    batch = enqueue_scheduled_synchronization_batch(
+        database_session,
+        scheduled_for=scheduled_for(),
+    )
+
+    assert batch.created_count == 2
+    assert batch.existing_count == 0
+    assert tuple(
+        (
+            job.workspace_id,
+            job.season_id,
+        )
+        for job in batch.jobs
+    ) == (
+        (
+            fixture.first.workspace_id,
+            fixture.first.season_id,
+        ),
+        (
+            fixture.second.workspace_id,
+            fixture.second.season_id,
+        ),
+    )
+
+    first_job = database_session.get(
+        BackgroundJob,
+        batch.jobs[0].job_id,
+    )
+    second_job = database_session.get(
+        BackgroundJob,
+        batch.jobs[1].job_id,
+    )
+
+    assert first_job is not None
+    assert second_job is not None
+    assert first_job.id != second_job.id
+    assert first_job.workspace_id == (fixture.first.workspace_id)
+    assert second_job.workspace_id == (fixture.second.workspace_id)
+    assert first_job.payload == {
+        "season_id": fixture.first.season_id,
+        "full_sync": False,
+        "trigger": "scheduled",
+    }
+    assert second_job.payload == {
+        "season_id": fixture.second.season_id,
+        "full_sync": False,
+        "trigger": "scheduled",
+    }
+    assert first_job.idempotency_key == (
+        f"scheduled-sync:{fixture.first.workspace_id}:{fixture.first.season_id}:20261125T1200Z"
+    )
+    assert second_job.idempotency_key == (
+        f"scheduled-sync:{fixture.second.workspace_id}:{fixture.second.season_id}:20261125T1200Z"
+    )
+
+    prohibited_names = {
+        "credentials",
+        "encrypted_credentials",
+        "provider_credentials",
+        "espn_s2",
+        "swid",
+    }
+
+    for job in (
+        first_job,
+        second_job,
+    ):
+        payload_names = {str(name).casefold() for name in job.payload}
+
+        assert payload_names.isdisjoint(prohibited_names)
+
+    repository = BackgroundJobRepository(database_session)
+
+    assert (
+        repository.get_for_workspace(
+            job_id=first_job.id,
+            workspace_id=(fixture.second.workspace_id),
+        )
+        is None
+    )
+    assert (
+        repository.get_for_workspace(
+            job_id=second_job.id,
+            workspace_id=(fixture.first.workspace_id),
+        )
+        is None
+    )
+
+    repeated = enqueue_scheduled_synchronization_batch(
+        database_session,
+        scheduled_for=scheduled_for(),
+    )
+
+    assert repeated.created_count == 0
+    assert repeated.existing_count == 2
+    assert tuple(job.job_id for job in repeated.jobs) == tuple(job.job_id for job in batch.jobs)
