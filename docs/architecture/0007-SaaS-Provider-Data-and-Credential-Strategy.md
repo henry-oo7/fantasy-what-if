@@ -446,31 +446,15 @@ Database backups may retain encrypted historical values until backup expiration.
 
 The privacy and deletion documentation must explain this limitation.
 
-## Environment Credential Fallback
+## Workspace-Owned Provider Credentials
 
-The ESPN environment credential fallback exists for the current self-hosted transition.
+Shared ESPN environment credential fallback has been removed from normal application execution.
 
-Ordinary SaaS workspaces must not use:
+Every SaaS workspace must resolve provider credentials from its own encrypted `provider_connections` envelope. The active connection's recorded credential-key version selects the configured decryption key, and its credential-schema version validates the decrypted payload.
 
-```text
-ESPN_S2
-ESPN_SWID
-ESPN_LEAGUE_ID
-ESPN_SEASON
-```
+Setup and administrator credential replacement may accept ESPN credential fields from an authenticated request, but those values must be validated, encrypted, and stored for that workspace before later synchronization can use them.
 
-from shared application environment variables.
-
-Shared environment credentials would violate tenant isolation because multiple workspaces could resolve the same operator-level account.
-
-Environment fallback may remain temporarily for:
-
-- Migration compatibility
-- Operator diagnostic commands
-- Controlled development fixtures
-- Existing v1.0.1 migration verification
-
-The fallback must be removed or disabled before public SaaS registration.
+The application does not read shared provider credentials from `ESPN_S2`, `ESPN_SWID`, `ESPN_LEAGUE_ID`, or `ESPN_SEASON` environment variables. This prevents separate workspaces from silently resolving the same operator-level ESPN account.
 
 ## Provider Validation Contract
 
@@ -1185,7 +1169,7 @@ Migration must verify:
 9. Environment credential fallback is no longer required for normal execution.
 10. A synchronization succeeds using workspace-owned stored credentials.
 
-If the production provider connection lacks encrypted stored credentials, a controlled credential-capture step is required before environment fallback can be removed.
+If a provider connection lacks encrypted stored credentials, normal provider construction fails safely. The workspace administrator must submit replacement credentials through the supported credential-capture flow before synchronization can resume.
 
 ## Implementation Sequence
 

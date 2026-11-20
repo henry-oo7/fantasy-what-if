@@ -649,22 +649,13 @@ The provider contract receives decrypted credentials only during provider constr
 
 Credentials must not be stored on canonical domain objects.
 
-### ESPN Transition
+### ESPN Credential Storage
 
-During the transition, ESPN may read:
+ESPN credentials are submitted through the workspace setup or credential-replacement flow. They are encrypted before database storage and decrypted only while constructing the workspace's provider adapter.
 
-```text
-ESPN_LEAGUE_ID
-ESPN_SEASON
-ESPN_S2
-ESPN_SWID
-```
+Normal runtime resolution requires the active `provider_connections` record to contain a workspace-owned encrypted credential envelope. Shared application environment credentials are not a supported runtime source.
 
-These values may come from application settings.
-
-After credential encryption is implemented, the ESPN provider will read decrypted credentials from `provider_connections`.
-
-The canonical provider interface must remain unchanged during that transition.
+The canonical provider interface remains independent of credential storage and receives only normalized decrypted credentials.
 
 ### Sleeper
 

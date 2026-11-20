@@ -39,7 +39,7 @@ def test_active_sync_returns_provider_result(
         season_id=1,
         provider_connection_id=1,
         provider=FantasyProvider.ESPN,
-        credentials_source="environment_fallback",
+        credentials_source="stored",
     )
 
     fake_provider = SimpleNamespace(

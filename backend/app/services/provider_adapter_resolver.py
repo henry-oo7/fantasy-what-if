@@ -24,7 +24,6 @@ from app.providers.credential_vault import (
 )
 from app.providers.domain import ProviderCredentials
 from app.providers.espn import (
-    credentials_from_values,
     register_espn_provider,
 )
 from app.providers.registry import ProviderRegistry
@@ -135,7 +134,7 @@ def resolve_connection_credentials(
     ProviderCredentials,
     str,
 ]:
-    """Resolve stored credentials or a temporary environment fallback."""
+    """Resolve workspace-owned stored credentials."""
 
     encrypted = connection.encrypted_credentials
 
@@ -185,25 +184,6 @@ def resolve_connection_credentials(
         return (
             envelope.credentials,
             "stored",
-        )
-
-    if connection.provider is FantasyProvider.ESPN:
-        espn_s2 = settings.espn_s2
-        espn_swid = settings.espn_swid
-
-        if espn_s2 is None or espn_swid is None:
-            raise ProviderAdapterResolutionError(
-                "The ESPN environment fallback requires both ESPN_S2 and ESPN_SWID."
-            )
-
-        return (
-            credentials_from_values(
-                league_id=(season.league.provider_league_id),
-                season=season.provider_season_id,
-                espn_s2=(espn_s2.get_secret_value()),
-                swid=(espn_swid.get_secret_value()),
-            ),
-            "environment_fallback",
         )
 
     raise ProviderAdapterResolutionError(
