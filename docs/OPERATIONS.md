@@ -691,6 +691,43 @@ Changing the Fantasy What-If keyring does not replace ESPN cookies or Yahoo OAut
 
 Store the complete keyring and its current-version setting in encrypted off-host backups. Losing the final copy of a referenced key makes those credential envelopes unrecoverable. Affected workspace administrators would then need to submit replacement provider credentials.
 
+### Running Credential-Key Rotation
+
+Before rotation:
+
+1. Back up the complete existing keyring in encrypted off-host storage.
+2. Add the new Fernet key to `PROVIDER_CREDENTIAL_KEYS`.
+3. Set `PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION` to the new version.
+4. Keep every older key referenced by a provider connection in the keyring.
+5. Restart the backend containers so every process loads the updated keyring.
+
+Run one bounded rehearsal batch first:
+
+```bash
+cd backend
+
+uv run python -m app.scripts.rotate_provider_credential_keys \
+  --batch-size 25 \
+  --max-batches 1 \
+  --confirm-rotation
+```
+
+The command commits each batch independently. Re-running the same command is safe because connections already using the current version are excluded.
+
+After the rehearsal succeeds, continue until complete:
+
+```bash
+uv run python -m app.scripts.rotate_provider_credential_keys \
+  --batch-size 100 \
+  --confirm-rotation
+```
+
+Expected completion output includes `ROTATION COMPLETE` and confirms that no outdated encrypted credential envelopes remain.
+
+If a batch fails, its database transaction is rolled back. The previously decryptable envelopes and their recorded key versions remain unchanged. Correct the reported connection or keyring problem, then rerun the command.
+
+Do not remove an older key after rotation based only on the CLI exit status. Run the SaaS migration-readiness audit and confirm that no provider connection still records the retiring version before removing that key from deployment secrets.
+
 ## Routine Maintenance Checklist
 
 Monthly:
