@@ -40,9 +40,9 @@ def configure_setup_provider_connection(
     """Run provider configuration with application settings."""
 
     settings = get_settings()
-    key_setting = settings.provider_credential_key
+    keyring = settings.provider_credential_keyring()
 
-    if key_setting is None:
+    if not keyring.configured:
         raise ProviderCredentialConfigurationError(
             "Provider credential encryption is not configured."
         )
@@ -53,7 +53,7 @@ def configure_setup_provider_connection(
             provider=provider,
             display_name=display_name,
             credentials=credentials,
-            credential_key=(key_setting.get_secret_value()),
+            credential_keyring=keyring,
         )
 
         session.commit()
@@ -77,9 +77,9 @@ def finalize_setup() -> SetupFinalizationResult:
     """Finalize setup using configured credential encryption."""
 
     settings = get_settings()
-    key_setting = settings.provider_credential_key
+    keyring = settings.provider_credential_keyring()
 
-    if key_setting is None:
+    if not keyring.configured:
         raise ProviderCredentialConfigurationError(
             "Provider credential encryption is not configured."
         )
@@ -87,7 +87,7 @@ def finalize_setup() -> SetupFinalizationResult:
     with SessionFactory() as session:
         return finalize_installation_setup(
             session,
-            credential_key=(key_setting.get_secret_value()),
+            credential_keyring=keyring,
         )
 
 

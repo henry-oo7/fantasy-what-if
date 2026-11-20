@@ -59,11 +59,14 @@ uv run python -c \
 cd ..
 ```
 
-Store the result in:
+Store the result as version 1 in the JSON keyring:
 
 ```text
-PROVIDER_CREDENTIAL_KEY=
+PROVIDER_CREDENTIAL_KEYS={"1":"<generated-fernet-key>"}
+PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION=1
 ```
+
+PROVIDER_CREDENTIAL_KEYS maps positive integer versions to Fernet keys. PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION selects the key used for new provider credential encryption. Every version referenced by a stored provider connection must remain configured until supported rotation tooling has re-encrypted that connection.
 
 ## Start the Development Database
 

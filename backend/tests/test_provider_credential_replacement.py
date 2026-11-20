@@ -16,6 +16,9 @@ from app.db.platform_models import (
     ProviderConnection,
     ProviderLeagueClaim,
 )
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     ProviderCredentialVault,
 )
@@ -86,6 +89,21 @@ class FakeProvider:
 
     def fetch_weekly_rosters(self, **_):
         raise AssertionError("Credential replacement must not synchronize rosters.")
+
+
+def credential_keyring(
+    key: str,
+    *,
+    current_version: int = 1,
+    historical_keys: dict[int, str] | None = None,
+) -> ProviderCredentialKeyring:
+    keys = dict(historical_keys or {})
+    keys[current_version] = key
+
+    return ProviderCredentialKeyring(
+        keys=keys,
+        current_version=current_version,
+    )
 
 
 def replacement_credentials() -> ProviderCredentials:
@@ -222,7 +240,7 @@ def test_replacement_validates_identity_before_atomic_update() -> None:
         session,
         workspace_id=1,
         submitted_credentials=replacement_credentials(),
-        credential_key=key,
+        credential_keyring=credential_keyring(key),
         registry=registry_with(provider, captured),
         now=NOW,
     )
@@ -290,7 +308,7 @@ def test_invalid_credentials_preserve_existing_envelope() -> None:
             session,
             workspace_id=1,
             submitted_credentials=replacement_credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeProvider(is_valid=False),
                 captured,
@@ -328,7 +346,7 @@ def test_different_league_preserves_existing_envelope() -> None:
             session,
             workspace_id=1,
             submitted_credentials=replacement_credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeProvider(
                     returned_league_id="different-league",
@@ -368,7 +386,7 @@ def test_different_season_preserves_existing_envelope() -> None:
             session,
             workspace_id=1,
             submitted_credentials=replacement_credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeProvider(
                     returned_season_id="2025",
@@ -407,7 +425,7 @@ def test_claim_must_belong_to_active_workspace_and_league() -> None:
             session,
             workspace_id=1,
             submitted_credentials=replacement_credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeProvider(),
                 {},
@@ -430,7 +448,7 @@ def test_missing_active_context_is_rejected() -> None:
             session,
             workspace_id=999,
             submitted_credentials=replacement_credentials(),
-            credential_key=(Fernet.generate_key().decode("ascii")),
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             registry=registry_with(
                 FakeProvider(),
                 {},
@@ -438,3 +456,57 @@ def test_missing_active_context_is_rejected() -> None:
         )
 
     session.flush.assert_not_called()
+
+
+def test_replacement_upgrades_to_current_key_version() -> None:
+    (
+        installation,
+        league,
+        season,
+        connection,
+        claim,
+    ) = context_objects()
+    session = session_for(
+        installation=installation,
+        league=league,
+        season=season,
+        connection=connection,
+        claim=claim,
+    )
+    first_key = Fernet.generate_key().decode("ascii")
+    second_key = Fernet.generate_key().decode("ascii")
+
+    result = replace_provider_credentials(
+        session,
+        workspace_id=1,
+        submitted_credentials=replacement_credentials(),
+        credential_keyring=credential_keyring(
+            second_key,
+            current_version=2,
+            historical_keys={
+                1: first_key,
+            },
+        ),
+        registry=registry_with(
+            FakeProvider(),
+            {},
+        ),
+        now=NOW,
+    )
+
+    assert connection.credential_version == 2
+    assert result.credential_version == 2
+
+    envelope = ProviderCredentialVault(
+        keys={
+            1: first_key,
+            2: second_key,
+        }
+    ).decrypt(
+        encrypted_credentials=connection.encrypted_credentials,
+        key_version=2,
+        expected_provider=FantasyProvider.ESPN,
+        expected_schema_version=1,
+    )
+
+    assert envelope.credentials.values["espn_s2"] == ("replacement-cookie")

@@ -16,6 +16,9 @@ from app.db.platform_models import (
     Installation,
     ProviderConnection,
 )
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     ProviderCredentialVault,
 )
@@ -40,6 +43,21 @@ NOW = datetime(
     10,
     tzinfo=UTC,
 )
+
+
+def credential_keyring(
+    key: str,
+    *,
+    current_version: int = 1,
+    historical_keys: dict[int, str] | None = None,
+) -> ProviderCredentialKeyring:
+    keys = dict(historical_keys or {})
+    keys[current_version] = key
+
+    return ProviderCredentialKeyring(
+        keys=keys,
+        current_version=current_version,
+    )
 
 
 class FakeProvider:
@@ -236,7 +254,7 @@ def test_historical_import_is_completed_without_active_sync() -> None:
         result = import_provider_season(
             session,
             season_year=2025,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(
                 returned_year=2025,
                 captured=captured,
@@ -292,7 +310,7 @@ def test_current_import_becomes_active() -> None:
         result = import_provider_season(
             session,
             season_year=2026,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(
                 returned_year=2026,
                 captured={},
@@ -323,7 +341,7 @@ def test_duplicate_year_is_rejected_before_provider_creation() -> None:
         import_provider_season(
             session,
             season_year=2025,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(
                 returned_year=2025,
                 captured={},
@@ -345,7 +363,7 @@ def test_future_year_is_rejected_before_database_access() -> None:
         import_provider_season(
             session,
             season_year=2027,
-            credential_key="unused",
+            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             now=NOW,
         )
 
@@ -368,7 +386,7 @@ def test_provider_returning_different_year_is_rejected() -> None:
         import_provider_season(
             session,
             season_year=2025,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(
                 returned_year=2024,
                 captured={},
@@ -396,7 +414,7 @@ def test_import_uses_transaction_advisory_lock() -> None:
         import_provider_season(
             session,
             season_year=2025,
-            credential_key=key,
+            credential_keyring=credential_keyring(key),
             registry=registry(
                 returned_year=2025,
                 captured={},

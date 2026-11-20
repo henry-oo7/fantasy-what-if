@@ -14,8 +14,10 @@ from app.db.platform_models import (
     Installation,
     ProviderConnection,
 )
+from app.providers.credential_keyring import ProviderCredentialKeyring
 from app.providers.credential_vault import (
     CREDENTIAL_SCHEMA_VERSION,
+    ProviderCredentialConfigurationError,
     ProviderCredentialVault,
 )
 from app.providers.domain import ProviderCredentials
@@ -28,7 +30,6 @@ from app.services.provider_adapter_resolver import (
 )
 
 SETUP_PROVIDER_LOCK_KEY = 1_179_921_929
-PROVIDER_CREDENTIAL_KEY_VERSION = 1
 
 
 class SetupProviderConnectionError(RuntimeError):
@@ -53,7 +54,7 @@ def configure_provider_connection(
     provider: FantasyProvider,
     display_name: str,
     credentials: ProviderCredentials,
-    credential_key: str,
+    credential_keyring: ProviderCredentialKeyring,
     registry: ProviderRegistry | None = None,
     now: datetime | None = None,
 ) -> ProviderConnection:
@@ -114,16 +115,19 @@ def configure_provider_connection(
     if not validation.is_valid:
         raise SetupProviderValidationError(validation.safe_message)
 
+    if not credential_keyring.configured:
+        raise ProviderCredentialConfigurationError(
+            "Provider credential encryption is not configured."
+        )
+
     vault = ProviderCredentialVault(
-        keys={
-            PROVIDER_CREDENTIAL_KEY_VERSION: (credential_key),
-        }
+        keys=credential_keyring.keys,
     )
 
     encrypted_credentials = vault.encrypt(
         provider=provider,
         credentials=credentials,
-        key_version=(PROVIDER_CREDENTIAL_KEY_VERSION),
+        key_version=credential_keyring.current_version,
     )
 
     normalized_display_name = " ".join(display_name.strip().split())
@@ -139,7 +143,7 @@ def configure_provider_connection(
         provider=provider,
         display_name=normalized_display_name,
         encrypted_credentials=encrypted_credentials,
-        credential_version=(PROVIDER_CREDENTIAL_KEY_VERSION),
+        credential_version=(credential_keyring.current_version),
         credential_schema_version=CREDENTIAL_SCHEMA_VERSION,
         is_active=True,
         last_validated_at=now or datetime.now(UTC),

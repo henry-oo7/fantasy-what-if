@@ -13,6 +13,9 @@ from app.db.platform_models import (
     ProviderLeagueClaim,
 )
 from app.db.session import engine
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     ProviderCredentialVault,
 )
@@ -48,12 +51,16 @@ def database_session() -> Iterator[Session]:
 @pytest.fixture
 def migration_ready_database(
     database_session: Session,
-) -> tuple[Session, str]:
+) -> tuple[Session, ProviderCredentialKeyring]:
     credential_key = Fernet.generate_key().decode("ascii")
-    vault = ProviderCredentialVault(
+    keyring = ProviderCredentialKeyring(
         keys={
             1: credential_key,
-        }
+        },
+        current_version=1,
+    )
+    vault = ProviderCredentialVault(
+        keys=keyring.keys,
     )
 
     administrator = database_session.scalar(
@@ -114,7 +121,7 @@ def migration_ready_database(
 
     database_session.flush()
 
-    return database_session, credential_key
+    return database_session, keyring
 
 
 def check_by_name(
@@ -125,13 +132,13 @@ def check_by_name(
 
 
 def test_valid_v1_database_passes_migration_audit(
-    migration_ready_database: tuple[Session, str],
+    migration_ready_database: tuple[Session, ProviderCredentialKeyring],
 ) -> None:
-    session, credential_key = migration_ready_database
+    session, keyring = migration_ready_database
 
     audit = audit_saas_migration_readiness(
         session,
-        provider_credential_key=credential_key,
+        provider_credential_keyring=keyring,
     )
 
     assert audit.passed is True
@@ -140,9 +147,9 @@ def test_valid_v1_database_passes_migration_audit(
 
 
 def test_missing_administrator_email_blocks_migration(
-    migration_ready_database: tuple[Session, str],
+    migration_ready_database: tuple[Session, ProviderCredentialKeyring],
 ) -> None:
-    session, credential_key = migration_ready_database
+    session, keyring = migration_ready_database
 
     administrator = session.scalar(
         select(User).where(
@@ -157,7 +164,7 @@ def test_missing_administrator_email_blocks_migration(
 
     audit = audit_saas_migration_readiness(
         session,
-        provider_credential_key=credential_key,
+        provider_credential_keyring=keyring,
     )
 
     check = check_by_name(
@@ -171,13 +178,16 @@ def test_missing_administrator_email_blocks_migration(
 
 
 def test_missing_credential_key_blocks_migration(
-    migration_ready_database: tuple[Session, str],
+    migration_ready_database: tuple[Session, ProviderCredentialKeyring],
 ) -> None:
-    session, _ = migration_ready_database
+    session, _keyring = migration_ready_database
 
     audit = audit_saas_migration_readiness(
         session,
-        provider_credential_key=None,
+        provider_credential_keyring=ProviderCredentialKeyring(
+            keys={},
+            current_version=1,
+        ),
     )
 
     check = check_by_name(
@@ -191,9 +201,9 @@ def test_missing_credential_key_blocks_migration(
 
 
 def test_invalid_espn_league_identity_blocks_migration(
-    migration_ready_database: tuple[Session, str],
+    migration_ready_database: tuple[Session, ProviderCredentialKeyring],
 ) -> None:
-    session, credential_key = migration_ready_database
+    session, keyring = migration_ready_database
 
     league = session.scalar(
         select(League).where(
@@ -208,7 +218,7 @@ def test_invalid_espn_league_identity_blocks_migration(
 
     audit = audit_saas_migration_readiness(
         session,
-        provider_credential_key=credential_key,
+        provider_credential_keyring=keyring,
     )
 
     check = check_by_name(
@@ -222,9 +232,9 @@ def test_invalid_espn_league_identity_blocks_migration(
 
 
 def test_mismatched_provider_claim_identity_blocks_migration(
-    migration_ready_database: tuple[Session, str],
+    migration_ready_database: tuple[Session, ProviderCredentialKeyring],
 ) -> None:
-    session, credential_key = migration_ready_database
+    session, keyring = migration_ready_database
 
     claim = session.scalar(select(ProviderLeagueClaim))
 
@@ -234,7 +244,7 @@ def test_mismatched_provider_claim_identity_blocks_migration(
 
     audit = audit_saas_migration_readiness(
         session,
-        provider_credential_key=credential_key,
+        provider_credential_keyring=keyring,
     )
 
     check = check_by_name(
@@ -248,9 +258,9 @@ def test_mismatched_provider_claim_identity_blocks_migration(
 
 
 def test_unattached_provider_claim_blocks_migration(
-    migration_ready_database: tuple[Session, str],
+    migration_ready_database: tuple[Session, ProviderCredentialKeyring],
 ) -> None:
-    session, credential_key = migration_ready_database
+    session, keyring = migration_ready_database
 
     claim = session.scalar(select(ProviderLeagueClaim))
 
@@ -260,7 +270,7 @@ def test_unattached_provider_claim_blocks_migration(
 
     audit = audit_saas_migration_readiness(
         session,
-        provider_credential_key=credential_key,
+        provider_credential_keyring=keyring,
     )
 
     check = check_by_name(
@@ -271,3 +281,62 @@ def test_unattached_provider_claim_blocks_migration(
     assert audit.passed is False
     assert check.passed is False
     assert check.message == ("One or more provider identity claims are not attached to a league.")
+
+
+def test_historical_key_version_passes_migration_audit(
+    migration_ready_database: tuple[
+        Session,
+        ProviderCredentialKeyring,
+    ],
+) -> None:
+    session, first_keyring = migration_ready_database
+    second_key = Fernet.generate_key().decode("ascii")
+
+    keyring = ProviderCredentialKeyring(
+        keys={
+            1: first_keyring.key_for_version(1),
+            2: second_key,
+        },
+        current_version=2,
+    )
+
+    audit = audit_saas_migration_readiness(
+        session,
+        provider_credential_keyring=keyring,
+    )
+
+    check = check_by_name(
+        audit,
+        "credentials_decryptable",
+    )
+
+    assert check.passed is True
+
+
+def test_missing_historical_key_version_blocks_migration(
+    migration_ready_database: tuple[
+        Session,
+        ProviderCredentialKeyring,
+    ],
+) -> None:
+    session, _first_keyring = migration_ready_database
+
+    keyring = ProviderCredentialKeyring(
+        keys={
+            2: Fernet.generate_key().decode("ascii"),
+        },
+        current_version=2,
+    )
+
+    audit = audit_saas_migration_readiness(
+        session,
+        provider_credential_keyring=keyring,
+    )
+
+    check = check_by_name(
+        audit,
+        "credentials_decryptable",
+    )
+
+    assert check.passed is False
+    assert check.message == ("Provider credentials could not be decrypted with the configured key.")

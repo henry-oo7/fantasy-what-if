@@ -36,7 +36,13 @@ database_password="$(
     openssl rand -hex 32
 )"
 
-sed     -e "s|^APP_SECRET_KEY=generate-this-value$|APP_SECRET_KEY=${app_secret}|"     -e "s|^PROVIDER_CREDENTIAL_KEY=generate-this-value$|PROVIDER_CREDENTIAL_KEY=${provider_key}|"     -e "s|^POSTGRES_PASSWORD=generate-this-value$|POSTGRES_PASSWORD=${database_password}|"     "$template" > "$output"
+provider_keyring="{\"1\":\"${provider_key}\"}"
+
+sed \
+  -e "s|^APP_SECRET_KEY=generate-this-value$|APP_SECRET_KEY=${app_secret}|" \
+  -e "s|^PROVIDER_CREDENTIAL_KEYS=generate-this-value$|PROVIDER_CREDENTIAL_KEYS=${provider_keyring}|" \
+  -e "s|^POSTGRES_PASSWORD=generate-this-value$|POSTGRES_PASSWORD=${database_password}|" \
+  "$template" > "$output"
 
 chmod 600 "$output"
 

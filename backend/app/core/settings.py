@@ -124,7 +124,11 @@ class Settings(BaseSettings):
     espn_s2: SecretStr | None = None
     espn_swid: SecretStr | None = None
 
-    provider_credential_key: SecretStr | None = None
+    provider_credential_keys: SecretStr | None = None
+    provider_credential_current_key_version: int = Field(
+        default=1,
+        ge=1,
+    )
 
     database_url: str
     database_echo: bool = False
@@ -200,34 +204,38 @@ class Settings(BaseSettings):
 
         return SecretStr(secret)
 
-    @field_validator("provider_credential_key")
-    @classmethod
-    def validate_provider_credential_key(
-        cls,
-        value: SecretStr | None,
-    ) -> SecretStr | None:
-        """Validate an optional Fernet provider credential key."""
+    @model_validator(mode="after")
+    def validate_provider_credential_keyring(
+        self,
+    ) -> Settings:
+        """Validate legacy or versioned credential encryption settings."""
 
-        if value is None:
-            return None
-
-        normalized = value.get_secret_value().strip()
-
-        if not normalized:
-            return None
+        from app.providers.credential_keyring import (
+            ProviderCredentialKeyringConfigurationError,
+            build_provider_credential_keyring,
+        )
 
         try:
-            from cryptography.fernet import Fernet
+            build_provider_credential_keyring(
+                serialized_keys=self.provider_credential_keys,
+                current_version=(self.provider_credential_current_key_version),
+            )
+        except ProviderCredentialKeyringConfigurationError as exc:
+            raise ValueError(str(exc)) from exc
 
-            Fernet(normalized.encode("ascii"))
-        except (
-            TypeError,
-            ValueError,
-            UnicodeEncodeError,
-        ) as exc:
-            raise ValueError("PROVIDER_CREDENTIAL_KEY must be a valid Fernet key.") from exc
+        return self
 
-        return SecretStr(normalized)
+    def provider_credential_keyring(self):
+        """Return validated provider credential key configuration."""
+
+        from app.providers.credential_keyring import (
+            build_provider_credential_keyring,
+        )
+
+        return build_provider_credential_keyring(
+            serialized_keys=self.provider_credential_keys,
+            current_version=(self.provider_credential_current_key_version),
+        )
 
     @field_validator("espn_swid")
     @classmethod

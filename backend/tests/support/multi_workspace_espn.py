@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet
-from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +20,9 @@ from app.db.platform_models import (
     Installation,
     ProviderConnection,
     ProviderLeagueClaim,
+)
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
 )
 from app.providers.credential_vault import (
     ProviderCredentialVault,
@@ -68,12 +70,19 @@ class MultiWorkspaceEspnFixture:
     second: EspnWorkspaceFixture
 
     def settings(self):
-        """Return resolver-compatible settings for stored credentials."""
+        """Return resolver-compatible credential settings."""
 
         from types import SimpleNamespace
 
+        keyring = ProviderCredentialKeyring(
+            keys={
+                TEST_CREDENTIAL_VERSION: self.credential_key,
+            },
+            current_version=TEST_CREDENTIAL_VERSION,
+        )
+
         return SimpleNamespace(
-            provider_credential_key=SecretStr(self.credential_key),
+            provider_credential_keyring=lambda: keyring,
             espn_s2=None,
             espn_swid=None,
         )

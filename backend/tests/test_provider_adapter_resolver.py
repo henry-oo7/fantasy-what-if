@@ -12,6 +12,9 @@ from app.db.platform_models import (
     Installation,
     ProviderConnection,
 )
+from app.providers.credential_keyring import (
+    ProviderCredentialKeyring,
+)
 from app.providers.credential_vault import (
     ProviderCredentialVault,
 )
@@ -31,9 +34,27 @@ from app.services.provider_adapter_resolver import (
 def settings(
     *,
     key: str | None = None,
+    keys: dict[int, str] | None = None,
+    current_version: int = 1,
 ):
+    configured_keys = (
+        keys
+        if keys is not None
+        else (
+            {
+                1: key,
+            }
+            if key is not None
+            else {}
+        )
+    )
+    keyring = ProviderCredentialKeyring(
+        keys=configured_keys,
+        current_version=current_version,
+    )
+
     return SimpleNamespace(
-        provider_credential_key=(SecretStr(key) if key is not None else None),
+        provider_credential_keyring=lambda: keyring,
         espn_s2=SecretStr("environment-cookie"),
         espn_swid=SecretStr("{environment-swid}"),
     )
@@ -100,7 +121,10 @@ def test_environment_fallback_builds_espn_credentials() -> None:
 
 def test_environment_fallback_requires_both_secrets() -> None:
     incomplete_settings = SimpleNamespace(
-        provider_credential_key=None,
+        provider_credential_keyring=lambda: ProviderCredentialKeyring(
+            keys={},
+            current_version=1,
+        ),
         espn_s2=None,
         espn_swid=None,
     )
@@ -186,7 +210,7 @@ def test_stored_credentials_reject_mismatched_schema_metadata() -> None:
 def test_stored_credentials_require_key() -> None:
     with pytest.raises(
         ProviderAdapterResolutionError,
-        match="require",
+        match="not configured correctly",
     ):
         resolve_connection_credentials(
             connection=connection(
@@ -262,3 +286,112 @@ def test_active_context_types_are_constructible() -> None:
 
     assert installation.active_season_id == 1
     assert provider_connection.provider is FantasyProvider.ESPN
+
+
+def test_stored_credentials_use_historical_key_version() -> None:
+    first_key = Fernet.generate_key().decode("ascii")
+    second_key = Fernet.generate_key().decode("ascii")
+
+    encrypted = ProviderCredentialVault(
+        keys={
+            1: first_key,
+            2: second_key,
+        }
+    ).encrypt(
+        provider=FantasyProvider.ESPN,
+        credentials=ProviderCredentials(
+            values={
+                "league_id": "529250970",
+                "season": "2026",
+                "espn_s2": "historical-cookie",
+                "swid": "{historical-swid}",
+            }
+        ),
+        key_version=1,
+    )
+
+    credentials, source = resolve_connection_credentials(
+        connection=connection(
+            encrypted_credentials=encrypted,
+            credential_version=1,
+        ),
+        season=season(),
+        settings=settings(
+            keys={
+                1: first_key,
+                2: second_key,
+            },
+            current_version=2,
+        ),
+    )
+
+    assert source == "stored"
+    assert dict(credentials.values) == {
+        "espn_s2": "historical-cookie",
+        "league_id": "529250970",
+        "season": "2026",
+        "swid": "{historical-swid}",
+    }
+
+
+def test_stored_credentials_use_current_key_version() -> None:
+    first_key = Fernet.generate_key().decode("ascii")
+    second_key = Fernet.generate_key().decode("ascii")
+
+    encrypted = ProviderCredentialVault(
+        keys={
+            1: first_key,
+            2: second_key,
+        }
+    ).encrypt(
+        provider=FantasyProvider.ESPN,
+        credentials=ProviderCredentials(
+            values={
+                "league_id": "529250970",
+                "season": "2026",
+                "espn_s2": "current-cookie",
+                "swid": "{current-swid}",
+            }
+        ),
+        key_version=2,
+    )
+
+    credentials, source = resolve_connection_credentials(
+        connection=connection(
+            encrypted_credentials=encrypted,
+            credential_version=2,
+        ),
+        season=season(),
+        settings=settings(
+            keys={
+                1: first_key,
+                2: second_key,
+            },
+            current_version=2,
+        ),
+    )
+
+    assert source == "stored"
+    assert credentials.values["espn_s2"] == ("current-cookie")
+
+
+def test_missing_recorded_key_version_fails_safely() -> None:
+    second_key = Fernet.generate_key().decode("ascii")
+
+    with pytest.raises(
+        ProviderAdapterResolutionError,
+        match="not configured correctly",
+    ):
+        resolve_connection_credentials(
+            connection=connection(
+                encrypted_credentials="ciphertext",
+                credential_version=1,
+            ),
+            season=season(),
+            settings=settings(
+                keys={
+                    2: second_key,
+                },
+                current_version=2,
+            ),
+        )
