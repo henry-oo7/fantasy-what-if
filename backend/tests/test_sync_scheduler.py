@@ -35,8 +35,6 @@ def create_settings(
         trusted_origins="http://localhost:5173",
         session_cookie_name="fantasy_session",
         session_cookie_secure=False,
-        espn_s2=SecretStr("test-espn-s2"),
-        espn_swid=SecretStr("{test-swid}"),
         database_url=("postgresql+psycopg://user:password@database:5432/fantasy"),
         sync_scheduler_enabled=enabled,
         sync_schedule_timezone="America/Chicago",

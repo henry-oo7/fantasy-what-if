@@ -121,9 +121,6 @@ class Settings(BaseSettings):
     )
     background_worker_id: str | None = None
 
-    espn_s2: SecretStr | None = None
-    espn_swid: SecretStr | None = None
-
     provider_credential_keys: SecretStr | None = None
     provider_credential_current_key_version: int = Field(
         default=1,
@@ -185,25 +182,6 @@ class Settings(BaseSettings):
 
         return normalized
 
-    @field_validator(
-        "espn_s2",
-        "espn_swid",
-    )
-    @classmethod
-    def normalize_optional_espn_secret(
-        cls,
-        value: SecretStr | None,
-    ) -> SecretStr | None:
-        if value is None:
-            return None
-
-        secret = value.get_secret_value().strip()
-
-        if not secret:
-            return None
-
-        return SecretStr(secret)
-
     @model_validator(mode="after")
     def validate_provider_credential_keyring(
         self,
@@ -237,7 +215,6 @@ class Settings(BaseSettings):
             current_version=(self.provider_credential_current_key_version),
         )
 
-    @field_validator("espn_swid")
     @classmethod
     def normalize_swid(
         cls,

@@ -103,44 +103,19 @@ def test_registry_contains_espn() -> None:
     assert isinstance(adapter, EspnProvider)
 
 
-def test_environment_fallback_builds_espn_credentials() -> None:
-    credentials, source = resolve_connection_credentials(
-        connection=connection(),
-        season=season(),
-        settings=settings(),
-    )
-
-    assert source == "environment_fallback"
-    assert dict(credentials.values) == {
-        "espn_s2": "environment-cookie",
-        "league_id": "529250970",
-        "season": "2026",
-        "swid": "{environment-swid}",
-    }
-
-
-def test_environment_fallback_requires_both_secrets() -> None:
-    incomplete_settings = SimpleNamespace(
-        provider_credential_keyring=lambda: ProviderCredentialKeyring(
-            keys={},
-            current_version=1,
-        ),
-        espn_s2=None,
-        espn_swid=None,
-    )
-
+def test_espn_connection_requires_workspace_owned_storage() -> None:
     with pytest.raises(
         ProviderAdapterResolutionError,
-        match="requires both",
+        match="does not have stored credentials",
     ):
         resolve_connection_credentials(
             connection=connection(),
             season=season(),
-            settings=incomplete_settings,
+            settings=settings(),
         )
 
 
-def test_stored_credentials_take_precedence() -> None:
+def test_stored_credentials_are_used() -> None:
     key = Fernet.generate_key().decode("ascii")
     vault = ProviderCredentialVault(
         keys={
