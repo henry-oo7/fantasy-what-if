@@ -17,6 +17,7 @@ from app.auth.security import (
 )
 from app.db.auth_models import (
     AuthSession,
+    SessionRevocationReason,
     User,
     UserRole,
 )
@@ -259,13 +260,16 @@ def log_in_user(
 
     session_repository = SessionRepository(session)
 
-    if user.role is UserRole.ADMIN:
-        session_repository.revoke_all_user_sessions(
-            user_id=user.id,
-            now=now,
-        )
+    # Administrators keep exactly one active session; replacement locks the
+    # user row and revokes prior sessions with the ``replaced`` reason.
+    # Spectator sessions remain concurrent.
+    create_session = (
+        session_repository.replace_user_sessions
+        if user.role is UserRole.ADMIN
+        else session_repository.create_session
+    )
 
-    created: CreatedSession = session_repository.create_session(
+    created: CreatedSession = create_session(
         user=user,
         lifetime_hours=session_lifetime_hours,
         ip_address=ip_address,
@@ -307,6 +311,7 @@ def log_out_user(
 
     return repository.revoke_session_by_token(
         session_token,
+        reason=SessionRevocationReason.LOGOUT,
         now=now,
     )
 

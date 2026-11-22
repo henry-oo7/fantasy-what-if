@@ -3,6 +3,7 @@ from enum import StrEnum
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
@@ -23,6 +24,20 @@ from app.db.mixins import TimestampMixin
 class UserRole(StrEnum):
     SPECTATOR = "spectator"
     ADMIN = "admin"
+
+
+class SessionRevocationReason(StrEnum):
+    """Why one authentication session was revoked.
+
+    Each value has a current call site. ``replaced`` is the only reason
+    disclosed to the client, as the ``session_replaced`` error code.
+    """
+
+    REPLACED = "replaced"
+    LOGOUT = "logout"
+    PASSWORD_RESET = "password_reset"
+    SPECTATOR_PASSWORD_RESET = "spectator_password_reset"
+    SPECTATOR_DISABLED = "spectator_disabled"
 
 
 class User(TimestampMixin, Base):
@@ -226,6 +241,10 @@ class AuthSession(Base):
             "user_id",
             "expires_at",
         ),
+        CheckConstraint(
+            "revocation_reason IS NULL OR revoked_at IS NOT NULL",
+            name="ck_auth_sessions_revocation_reason_requires_revoked_at",
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -276,6 +295,15 @@ class AuthSession(Base):
         DateTime(timezone=True),
         nullable=True,
         index=True,
+    )
+
+    revocation_reason: Mapped[SessionRevocationReason | None] = mapped_column(
+        Enum(
+            SessionRevocationReason,
+            name="session_revocation_reason",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
     )
 
     ip_address: Mapped[str | None] = mapped_column(

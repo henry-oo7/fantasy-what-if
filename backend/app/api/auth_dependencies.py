@@ -26,7 +26,26 @@ from app.db.session import SessionFactory
 from app.repositories.session_repository import (
     ResolvedSession,
     SessionRepository,
+    SessionResolutionFailure,
 )
+
+SESSION_REPLACED_CODE = "session_replaced"
+SESSION_REPLACED_DETAIL = (
+    "This administrator account was signed in from another device. Sign in again to continue."
+)
+
+
+class SessionReplacedError(RuntimeError):
+    """The presented administrator session was replaced by a newer login.
+
+    The response discloses only the stable code and safe message, never
+    the replacing device, address, user agent, browser, or location.
+    """
+
+    def __init__(self) -> None:
+        self.detail = SESSION_REPLACED_DETAIL
+        self.code = SESSION_REPLACED_CODE
+        super().__init__(SESSION_REPLACED_DETAIL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +79,11 @@ def get_authentication_context(
     with SessionFactory() as database_session:
         repository = SessionRepository(database_session)
 
-        resolved = repository.resolve_session(session_token)
+        resolution = repository.resolve_session_state(session_token)
+        resolved = resolution.resolved
+
+        if resolution.failure is SessionResolutionFailure.REPLACED:
+            raise SessionReplacedError()
 
         if resolved is None:
             raise HTTPException(

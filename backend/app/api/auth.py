@@ -44,7 +44,7 @@ from app.auth.csrf import (
 )
 from app.auth.security import InvalidPasswordError
 from app.core.settings import Settings, get_settings
-from app.db.auth_models import UserRole
+from app.db.auth_models import SessionRevocationReason, UserRole
 from app.db.platform_enums import (
     InstallationStatus,
     OnboardingStage,
@@ -624,7 +624,10 @@ def logout(
             )
 
             repository = SessionRepository(session)
-            repository.revoke_session(stored_session)
+            repository.revoke_session(
+                stored_session,
+                reason=SessionRevocationReason.LOGOUT,
+            )
             session.commit()
 
     clear_authentication_cookies(

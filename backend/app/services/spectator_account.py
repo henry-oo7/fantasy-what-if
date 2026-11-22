@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.security import hash_password
 from app.db import model_registry  # noqa: F401
-from app.db.auth_models import User, UserRole
+from app.db.auth_models import SessionRevocationReason, User, UserRole
 from app.repositories.auth_repository import (
     AuthenticationRepository,
     normalize_display_name,
@@ -143,6 +143,7 @@ def reset_spectator_password(
 
     revoked_count = SessionRepository(session).revoke_all_user_sessions(
         user_id=spectator.id,
+        reason=SessionRevocationReason.SPECTATOR_PASSWORD_RESET,
         now=now or datetime.now(UTC),
     )
 
@@ -173,6 +174,7 @@ def set_spectator_active(
     if not is_active:
         revoked_count = SessionRepository(session).revoke_all_user_sessions(
             user_id=spectator.id,
+            reason=SessionRevocationReason.SPECTATOR_DISABLED,
             now=now or datetime.now(UTC),
         )
 

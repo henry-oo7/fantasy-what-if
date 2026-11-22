@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.auth.security import verify_password
-from app.db.auth_models import User, UserRole
+from app.db.auth_models import SessionRevocationReason, User, UserRole
 from app.repositories.auth_repository import (
     AuthenticationRepository,
 )
@@ -169,6 +169,7 @@ def test_password_reset_hashes_and_revokes_sessions() -> None:
 
     session_repository_type.return_value.revoke_all_user_sessions.assert_called_once_with(
         user_id=stored.id,
+        reason=SessionRevocationReason.SPECTATOR_PASSWORD_RESET,
         now=timestamp,
     )
 
@@ -187,6 +188,10 @@ def test_disabling_spectator_revokes_sessions() -> None:
 
     assert result.is_active is False
     assert revoked == 2
+    revoke_call = session_repository_type.return_value.revoke_all_user_sessions.call_args
+
+    assert revoke_call.kwargs["user_id"] == stored.id
+    assert revoke_call.kwargs["reason"] is SessionRevocationReason.SPECTATOR_DISABLED
 
 
 def test_enabling_spectator_does_not_revoke_sessions() -> None:
