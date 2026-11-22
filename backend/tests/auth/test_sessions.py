@@ -18,6 +18,7 @@ from app.auth.security import (
 )
 from app.db.auth_models import (
     AuthSession,
+    SessionRevocationReason,
     User,
     UserRole,
 )
@@ -257,11 +258,14 @@ def test_all_user_sessions_can_be_revoked(
 
     revoked_count = repository.revoke_all_user_sessions(
         user_id=user.id,
+        reason=SessionRevocationReason.PASSWORD_RESET,
     )
 
     assert revoked_count == 2
     assert repository.resolve_session(first.session_token) is None
     assert repository.resolve_session(second.session_token) is None
+    assert first.auth_session.revocation_reason is SessionRevocationReason.PASSWORD_RESET
+    assert second.auth_session.revocation_reason is SessionRevocationReason.PASSWORD_RESET
 
 
 def test_expired_sessions_can_be_deleted(

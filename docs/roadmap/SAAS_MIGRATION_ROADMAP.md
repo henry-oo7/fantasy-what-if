@@ -752,7 +752,7 @@ Implement bounded cleanup for:
 
 The registration-foundation slice deliberately defers the following work. Each item has a required completion point.
 
-- **Session-replacement signaling:** The `session_replaced` application error and a persisted session revocation reason, including its migration, are deferred to the next session-lifecycle slice. Until then, a replaced administrator session receives the generic unauthenticated response.
+- **Session-replacement signaling:** Implemented by the session-lifecycle slice. Every session revocation now persists an explicit reason in `auth_sessions.revocation_reason` (`replaced`, `logout`, `password_reset`, `spectator_password_reset`, or `spectator_disabled`). A replaced, unexpired administrator session receives HTTP 401 with the stable `session_replaced` code. Every other failure, including rows revoked before the reason column existed, keeps the generic unauthenticated response.
 - **Durable asynchronous email delivery and response-timing equality:** Verification and password-reset email delivery currently runs synchronously after commit. Durable asynchronous delivery and timing equality for enumeration-sensitive routes are required before public registration opens.
 - **Audit-event infrastructure:** Structured identity audit events required by ADR 0005 are required before public SaaS launch.
 

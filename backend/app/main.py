@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.api.admin import router as admin_router
 from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
-from app.api.auth_dependencies import WorkspaceAccessError
+from app.api.auth_dependencies import SessionReplacedError, WorkspaceAccessError
 from app.api.leagues import router as leagues_router
 from app.api.registration import router as registration_router
 from app.api.setup import router as setup_router
@@ -28,6 +28,7 @@ from app.services.season_lifecycle_reconciliation import (
     reconcile_stale_active_season,
 )
 from app.workspace_access_errors import (
+    session_replaced_exception_handler,
     workspace_access_exception_handler,
 )
 
@@ -78,6 +79,10 @@ app.add_exception_handler(
 app.add_exception_handler(
     WorkspaceAccessError,
     workspace_access_exception_handler,
+)
+app.add_exception_handler(
+    SessionReplacedError,
+    session_replaced_exception_handler,
 )
 app.add_exception_handler(
     Exception,

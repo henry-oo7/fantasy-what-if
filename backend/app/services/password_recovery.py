@@ -10,7 +10,7 @@ from app.auth.security import (
     generate_account_token,
     hash_password,
 )
-from app.db.auth_models import User, UserRole
+from app.db.auth_models import SessionRevocationReason, User, UserRole
 from app.repositories.account_token_repository import (
     AccountTokenRepository,
 )
@@ -117,6 +117,7 @@ def reset_administrator_password(
     )
     revoked_sessions = SessionRepository(session).revoke_all_user_sessions(
         user_id=user.id,
+        reason=SessionRevocationReason.PASSWORD_RESET,
         now=current_time,
     )
 
