@@ -1,0 +1,66 @@
+import { ApiError } from "../api/client";
+
+export const SESSION_REPLACED_MESSAGE =
+  "This administrator account was signed in from another device. Sign in again to continue.";
+
+export const PASSWORD_RESET_COMPLETED_MESSAGE =
+  "Your password has been reset. Sign in with your administrator email.";
+
+export const CONNECTION_ERROR_MESSAGE =
+  "Unable to reach Fantasy What-If. Check your connection and try again.";
+
+/** Human-readable wait time from a Retry-After value in seconds. */
+export function formatRetryAfter(
+  seconds: number | null,
+): string {
+  if (seconds === null || seconds <= 0) {
+    return "a few minutes";
+  }
+
+  if (seconds < 60) {
+    return seconds === 1 ? "1 second" : `${seconds} seconds`;
+  }
+
+  const minutes = Math.ceil(seconds / 60);
+
+  return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+}
+
+/**
+ * Throttle message built from Retry-After only.
+ *
+ * Internal throttle buckets and identifiers are never shown.
+ */
+export function throttledMessage(
+  error: ApiError,
+  action: string,
+): string {
+  return `Too many ${action} attempts. Try again in ${formatRetryAfter(
+    error.retryAfterSeconds,
+  )}.`;
+}
+
+/**
+ * Safe fallback for an unexpected failure.
+ *
+ * Raw exception messages and response bodies are never shown; an
+ * ApiError detail is shown only when the backend supplied a stable code,
+ * because coded responses carry deliberately user-safe messages.
+ */
+export function unexpectedErrorMessage(
+  error: unknown,
+): string {
+  if (error instanceof ApiError) {
+    if (error.code !== null) {
+      return error.detail;
+    }
+
+    if (error.status >= 500) {
+      return "Fantasy What-If is temporarily unavailable. Try again shortly.";
+    }
+
+    return "The request could not be completed. Check the form and try again.";
+  }
+
+  return CONNECTION_ERROR_MESSAGE;
+}

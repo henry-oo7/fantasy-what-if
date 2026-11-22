@@ -20,6 +20,19 @@ interface InstallationRouteGuardProps {
 }
 
 
+/**
+ * SaaS account routes never depend on legacy single-installation setup.
+ */
+const SAAS_ACCOUNT_PATHS: ReadonlySet<string> = new Set([
+  "/login",
+  "/register",
+  "/verify-email",
+  "/forgot-password",
+  "/reset-password",
+  "/onboarding",
+]);
+
+
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     return error.detail;
@@ -100,16 +113,31 @@ export function InstallationRouteGuard({
   const isSetupRoute =
     location.pathname === "/setup";
 
-  const isLoginRoute =
-    location.pathname === "/login";
+  // Legacy setup applies only while a legacy installation exists or the
+  // one-time bootstrap is genuinely available. A SaaS deployment with no
+  // legacy installation reports setup_required with bootstrap unavailable
+  // and must reach the ordinary authenticated application.
+  const legacySetupApplies =
+    setup.installation_exists ||
+    setup.bootstrap_available;
+
+  if (SAAS_ACCOUNT_PATHS.has(location.pathname)) {
+    return children;
+  }
+
+  if (isSetupRoute && !legacySetupApplies) {
+    return (
+      <Navigate
+        to="/"
+        replace
+      />
+    );
+  }
 
   if (
     setup.status !== "active" &&
-    !isSetupRoute &&
-    !(
-      setup.administrator_configured &&
-      isLoginRoute
-    )
+    legacySetupApplies &&
+    !isSetupRoute
   ) {
     return (
       <Navigate

@@ -108,7 +108,9 @@ export function SetupPage() {
         csrf.csrf_token,
       );
 
-      await auth.loginUser({
+      // Legacy single-installation bootstrap only: the bootstrapped
+      // administrator may not have an email address.
+      await auth.loginLegacyUsername({
         username,
         password,
       });
