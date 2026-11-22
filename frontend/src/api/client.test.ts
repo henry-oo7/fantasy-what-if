@@ -7,9 +7,12 @@ import {
 } from "vitest";
 
 import {
+  ApiError,
   apiRequest,
   getJson,
+  parseRetryAfter,
   postJson,
+  subscribeToApiErrors,
 } from "./client";
 
 describe("API client", () => {
@@ -152,5 +155,106 @@ describe("API client", () => {
           "Request failed with status 502.",
       }),
     );
+  });
+
+  it("exposes code, retryable, and Retry-After from coded errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            detail: "Registration is temporarily unavailable. Try again later.",
+            code: "registration_throttled",
+            retryable: true,
+          }),
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/json",
+              "Retry-After": "300",
+            },
+          },
+        ),
+      ),
+    );
+
+    const error = await postJson("/registration", {}).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      status: 429,
+      code: "registration_throttled",
+      retryable: true,
+      retryAfterSeconds: 300,
+    });
+  });
+
+  it("never surfaces non-string validation details as the message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            detail: [{ loc: ["body", "email"], msg: "value is not a valid email" }],
+          }),
+          {
+            status: 422,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      ),
+    );
+
+    await expect(postJson("/test", {})).rejects.toMatchObject({
+      status: 422,
+      detail: "Request failed with status 422.",
+      code: null,
+      retryable: null,
+      retryAfterSeconds: null,
+    });
+  });
+
+  it.each([
+    ["120", 120],
+    [" 5 ", 5],
+    [null, null],
+    ["", null],
+    ["-1", null],
+    ["Wed, 21 Oct 2015 07:28:00 GMT", null],
+    ["999999999", 86400],
+  ])("parses Retry-After %j as %j", (value, expected) => {
+    expect(parseRetryAfter(value)).toBe(expected);
+  });
+
+  it("notifies error listeners unless the request opts out", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              detail: "Authentication is required.",
+            }),
+            { status: 401, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    const listener = vi.fn();
+    const unsubscribe = subscribeToApiErrors(listener);
+
+    await expect(getJson("/auth/me")).rejects.toBeInstanceOf(ApiError);
+    await expect(
+      postJson("/auth/admin/login", {}, { reportErrors: false }),
+    ).rejects.toBeInstanceOf(ApiError);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0][0]).toMatchObject({ status: 401 });
+
+    unsubscribe();
+    await expect(getJson("/auth/me")).rejects.toBeInstanceOf(ApiError);
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });

@@ -4,20 +4,35 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import {
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 import {
   getCurrentUser,
-  login,
+  loginAdministrator as requestAdministratorLogin,
+  loginLegacyUsername as requestLegacyUsernameLogin,
+  loginSpectator as requestSpectatorLogin,
   logout,
-  requestPreAuthCsrf,
+  probeActiveWorkspace,
 } from "../api/auth";
-import { ApiError } from "../api/client";
+import {
+  ApiError,
+  subscribeToApiErrors,
+} from "../api/client";
+import { setupQueryKeys } from "../api/setup";
 import type {
+  AdministratorLoginRequest,
   AuthenticatedUser,
-  LoginRequest,
+  AuthenticationNotice,
+  LegacyUsernameLoginRequest,
+  SpectatorLoginRequest,
+  WorkspaceAccess,
 } from "../types/auth";
 
 type AuthenticationStatus =
@@ -26,16 +41,34 @@ type AuthenticationStatus =
   | "anonymous"
   | "error";
 
+export interface EstablishedSession {
+  user: AuthenticatedUser;
+  workspaceAccess: WorkspaceAccess;
+}
+
 interface AuthenticationContextValue {
   status: AuthenticationStatus;
   user: AuthenticatedUser | null;
   csrfToken: string | null;
   error: string | null;
-  loginUser: (
-    request: LoginRequest,
-  ) => Promise<AuthenticatedUser>;
+  workspaceAccess: WorkspaceAccess;
+  notice: AuthenticationNotice | null;
+  loginAdministrator: (
+    request: AdministratorLoginRequest,
+  ) => Promise<EstablishedSession>;
+  loginSpectator: (
+    request: SpectatorLoginRequest,
+  ) => Promise<EstablishedSession>;
+  /** Legacy single-installation setup bootstrap only. */
+  loginLegacyUsername: (
+    request: LegacyUsernameLoginRequest,
+  ) => Promise<EstablishedSession>;
+  /** Adopt the session cookie set by a successful email verification. */
+  adoptVerifiedSession: () => Promise<EstablishedSession>;
   logoutUser: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  showNotice: (notice: AuthenticationNotice) => void;
+  clearNotice: () => void;
 }
 
 interface AuthenticationProviderProps {
@@ -75,16 +108,58 @@ function errorMessage(error: unknown): string {
     return error.detail;
   }
 
-  if (error instanceof Error) {
-    return error.message;
+  return "Unable to verify your session. Check your connection and try again.";
+}
+
+/**
+ * Query roots that hold public, unauthenticated data. Everything else is
+ * treated as authenticated workspace data and removed when the session
+ * ends or changes, so unclassified future keys are removed by default.
+ */
+const PUBLIC_QUERY_ROOTS: ReadonlySet<unknown> = new Set([
+  setupQueryKeys.all[0],
+]);
+
+function purgeAuthenticatedQueries(queryClient: QueryClient): void {
+  const isAuthenticatedQuery = (query: { queryKey: readonly unknown[] }) =>
+    !PUBLIC_QUERY_ROOTS.has(query.queryKey[0]);
+
+  // Cancel in-flight fetches so a late response cannot repopulate the
+  // cache, then remove the data synchronously before any rerender.
+  void queryClient.cancelQueries({ predicate: isAuthenticatedQuery });
+  queryClient.removeQueries({ predicate: isAuthenticatedQuery });
+  queryClient.getMutationCache().clear();
+}
+
+function identityKey(user: AuthenticatedUser): string {
+  return `${user.role}:${user.id}`;
+}
+
+function workspaceAccessFromError(
+  error: ApiError,
+  role: AuthenticatedUser["role"] | undefined,
+): WorkspaceAccess | null {
+  if (error.status !== 403) {
+    return null;
   }
 
-  return "An unexpected authentication error occurred.";
+  if (error.code === "workspace_suspended") {
+    return "suspended";
+  }
+
+  if (error.code === "workspace_inactive") {
+    // Administrator login succeeds for an inactive workspace only during
+    // resumable SaaS onboarding, so this administrator is provisional.
+    return role === "admin" ? "provisional" : "inactive";
+  }
+
+  return null;
 }
 
 export function AuthProvider({
   children,
 }: AuthenticationProviderProps) {
+  const queryClient = useQueryClient();
   const [status, setStatus] =
     useState<AuthenticationStatus>("loading");
   const [user, setUser] =
@@ -93,32 +168,136 @@ export function AuthProvider({
     useState<string | null>(null);
   const [error, setError] =
     useState<string | null>(null);
+  const [workspaceAccess, setWorkspaceAccess] =
+    useState<WorkspaceAccess>("checking");
+  const [notice, setNotice] =
+    useState<AuthenticationNotice | null>(null);
 
-  const refreshUser = useCallback(async () => {
-    try {
+  const userRef = useRef<AuthenticatedUser | null>(null);
+  // Identity whose data the query cache may currently hold.
+  const cachedIdentityRef = useRef<string | null>(null);
+  const workspaceAccessRef = useRef<WorkspaceAccess>("checking");
+
+  const purgeCache = useCallback(() => {
+    purgeAuthenticatedQueries(queryClient);
+    cachedIdentityRef.current = null;
+  }, [queryClient]);
+
+  /**
+   * Apply a workspace lifecycle result. Entering a blocked state removes
+   * cached workspace data once; repeated identical results do nothing.
+   */
+  const applyWorkspaceAccess = useCallback(
+    (access: WorkspaceAccess) => {
+      const previous = workspaceAccessRef.current;
+      workspaceAccessRef.current = access;
+
+      if (
+        (access === "suspended" || access === "inactive") &&
+        previous !== access
+      ) {
+        purgeCache();
+      }
+
+      setWorkspaceAccess(access);
+    },
+    [purgeCache],
+  );
+
+  const clearSession = useCallback(() => {
+    // Purge synchronously before state changes, so no rerender can show
+    // the previous identity's workspace data.
+    purgeCache();
+    workspaceAccessRef.current = "checking";
+    userRef.current = null;
+    setUser(null);
+    setCsrfToken(null);
+    setError(null);
+    setWorkspaceAccess("checking");
+    setStatus("anonymous");
+  }, [purgeCache]);
+
+  const resolveWorkspaceAccess = useCallback(
+    async (
+      currentUser: AuthenticatedUser,
+    ): Promise<WorkspaceAccess> => {
+      try {
+        await probeActiveWorkspace();
+
+        return "active";
+      } catch (probeError) {
+        if (probeError instanceof ApiError) {
+          const access = workspaceAccessFromError(
+            probeError,
+            currentUser.role,
+          );
+
+          if (access !== null) {
+            return access;
+          }
+        }
+
+        // Other failures are not lifecycle decisions. Allow the
+        // application to load and report its own data errors.
+        return "active";
+      }
+    },
+    [],
+  );
+
+  const establishSession = useCallback(
+    async (): Promise<EstablishedSession> => {
       const currentUser = await getCurrentUser();
+      const nextIdentity = identityKey(currentUser);
 
+      // A different identity must never see the previous identity's
+      // cached data. Re-establishing the same identity keeps the cache.
+      if (
+        cachedIdentityRef.current !== null &&
+        cachedIdentityRef.current !== nextIdentity
+      ) {
+        purgeCache();
+      }
+
+      cachedIdentityRef.current = nextIdentity;
+      userRef.current = currentUser;
+      workspaceAccessRef.current = "checking";
       setUser(currentUser);
       setCsrfToken(readSessionCsrfToken());
       setError(null);
+      setWorkspaceAccess("checking");
       setStatus("authenticated");
+
+      const access = await resolveWorkspaceAccess(currentUser);
+
+      applyWorkspaceAccess(access);
+
+      return {
+        user: currentUser,
+        workspaceAccess: access,
+      };
+    },
+    [applyWorkspaceAccess, purgeCache, resolveWorkspaceAccess],
+  );
+
+  const refreshUser = useCallback(async () => {
+    try {
+      await establishSession();
     } catch (currentError) {
       if (
         currentError instanceof ApiError &&
         currentError.status === 401
       ) {
-        setUser(null);
-        setCsrfToken(null);
-        setError(null);
-        setStatus("anonymous");
+        clearSession();
         return;
       }
 
+      userRef.current = null;
       setUser(null);
       setError(errorMessage(currentError));
       setStatus("error");
     }
-  }, []);
+  }, [clearSession, establishSession]);
 
   useEffect(() => {
     // Session discovery synchronizes React state with
@@ -127,47 +306,105 @@ export function AuthProvider({
     void refreshUser();
   }, [refreshUser]);
 
-  const loginUser = useCallback(
-    async (
-      request: LoginRequest,
-    ): Promise<AuthenticatedUser> => {
-      const preAuthCsrf =
-        await requestPreAuthCsrf();
+  useEffect(
+    () =>
+      subscribeToApiErrors((apiError) => {
+        if (apiError.status === 401) {
+          // The backend sends session_replaced only for this browser's
+          // own replaced session, so show it even when the replacement
+          // is discovered by the first /me after a reload. Public account
+          // endpoints never report errors here.
+          if (apiError.code === "session_replaced") {
+            clearSession();
+            setNotice("session_replaced");
+            return;
+          }
 
-      const response = await login(
-        request,
-        preAuthCsrf.csrf_token,
-      );
+          if (userRef.current !== null) {
+            clearSession();
+          }
 
-      setUser(response.user);
-      setCsrfToken(response.csrf_token);
-      setError(null);
-      setStatus("authenticated");
+          return;
+        }
 
-      return response.user;
-    },
-    [],
+        const access = workspaceAccessFromError(
+          apiError,
+          userRef.current?.role,
+        );
+
+        if (access !== null && userRef.current !== null) {
+          applyWorkspaceAccess(access);
+        }
+      }),
+    [applyWorkspaceAccess, clearSession],
   );
+
+  const loginAdministrator = useCallback(
+    async (
+      request: AdministratorLoginRequest,
+    ): Promise<EstablishedSession> => {
+      await requestAdministratorLogin(request);
+      setNotice(null);
+
+      return establishSession();
+    },
+    [establishSession],
+  );
+
+  const loginSpectator = useCallback(
+    async (
+      request: SpectatorLoginRequest,
+    ): Promise<EstablishedSession> => {
+      await requestSpectatorLogin(request);
+      setNotice(null);
+
+      return establishSession();
+    },
+    [establishSession],
+  );
+
+  const loginLegacyUsername = useCallback(
+    async (
+      request: LegacyUsernameLoginRequest,
+    ): Promise<EstablishedSession> => {
+      await requestLegacyUsernameLogin(request);
+      setNotice(null);
+
+      return establishSession();
+    },
+    [establishSession],
+  );
+
+  const adoptVerifiedSession = useCallback(async () => {
+    setNotice(null);
+
+    return establishSession();
+  }, [establishSession]);
 
   const logoutUser = useCallback(async () => {
     const currentCsrf =
       csrfToken ?? readSessionCsrfToken();
 
-    if (!currentCsrf) {
-      setUser(null);
-      setStatus("anonymous");
-      return;
-    }
-
     try {
-      await logout(currentCsrf);
+      if (currentCsrf) {
+        await logout(currentCsrf);
+      }
     } finally {
-      setUser(null);
-      setCsrfToken(null);
-      setError(null);
-      setStatus("anonymous");
+      setNotice(null);
+      clearSession();
     }
-  }, [csrfToken]);
+  }, [clearSession, csrfToken]);
+
+  const showNotice = useCallback(
+    (nextNotice: AuthenticationNotice) => {
+      setNotice(nextNotice);
+    },
+    [],
+  );
+
+  const clearNotice = useCallback(() => {
+    setNotice(null);
+  }, []);
 
   const value = useMemo<AuthenticationContextValue>(
     () => ({
@@ -175,18 +412,32 @@ export function AuthProvider({
       user,
       csrfToken,
       error,
-      loginUser,
+      workspaceAccess,
+      notice,
+      loginAdministrator,
+      loginSpectator,
+      loginLegacyUsername,
+      adoptVerifiedSession,
       logoutUser,
       refreshUser,
+      showNotice,
+      clearNotice,
     }),
     [
       status,
       user,
       csrfToken,
       error,
-      loginUser,
+      workspaceAccess,
+      notice,
+      loginAdministrator,
+      loginSpectator,
+      loginLegacyUsername,
+      adoptVerifiedSession,
       logoutUser,
       refreshUser,
+      showNotice,
+      clearNotice,
     ],
   );
 
