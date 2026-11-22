@@ -15,6 +15,34 @@ class InstallationStatus(StrEnum):
     ACTIVE = "active"
 
 
+class RegistrationMode(StrEnum):
+    OPEN = "open"
+    CLOSED = "closed"
+    MAINTENANCE = "maintenance"
+
+
+class WorkspaceRegistrationStatus(StrEnum):
+    PROVISIONAL = "provisional"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    DELETION_PENDING = "deletion_pending"
+    DELETED = "deleted"
+
+
+class OnboardingStage(StrEnum):
+    REGISTRATION_PENDING = "registration_pending"
+    EMAIL_VERIFICATION_PENDING = "email_verification_pending"
+    PROVIDER_SETUP_PENDING = "provider_setup_pending"
+    LEAGUE_CLAIM_PENDING = "league_claim_pending"
+    INITIAL_SYNC_PENDING = "initial_sync_pending"
+    INITIAL_SYNC_RUNNING = "initial_sync_running"
+    SPECTATOR_SETUP_PENDING = "spectator_setup_pending"
+    COMPLETE = "complete"
+    PROVIDER_VALIDATION_FAILED = "provider_validation_failed"
+    LEAGUE_CLAIM_CONFLICT = "league_claim_conflict"
+    INITIAL_SYNC_FAILED = "initial_sync_failed"
+
+
 class SeasonStatus(StrEnum):
     DRAFT = "draft"
     ACTIVE = "active"

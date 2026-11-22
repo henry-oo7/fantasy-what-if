@@ -74,7 +74,10 @@ def configure_provider_connection(
     )
 
     installations = session.scalars(
-        select(Installation).order_by(Installation.id).with_for_update()
+        select(Installation)
+        .where(Installation.registration_status.is_(None))
+        .order_by(Installation.id)
+        .with_for_update()
     ).all()
 
     if len(installations) != 1:

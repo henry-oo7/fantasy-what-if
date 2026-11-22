@@ -1,10 +1,14 @@
 """Dependency-injected setup operations."""
 
-from typing import Protocol
+from typing import Annotated, Protocol
 
+from fastapi import Depends, HTTPException, status
+
+from app.api.auth_dependencies import require_admin_user
 from app.core.settings import get_settings
+from app.db.auth_models import User
 from app.db.platform_enums import FantasyProvider
-from app.db.platform_models import ProviderConnection
+from app.db.platform_models import Installation, ProviderConnection
 from app.db.session import SessionFactory
 from app.providers.credential_vault import (
     ProviderCredentialConfigurationError,
@@ -17,6 +21,43 @@ from app.services.setup_finalization import (
 from app.services.setup_provider_connection import (
     configure_provider_connection,
 )
+
+LEGACY_SETUP_UNAVAILABLE_DETAIL = "Legacy setup is unavailable for this workspace."
+
+
+def require_legacy_setup_workspace(
+    user: Annotated[
+        User,
+        Depends(require_admin_user),
+    ],
+) -> int:
+    """Allow legacy setup mutations only for legacy installations.
+
+    SaaS-managed workspaces (non-null ``registration_status``) must use
+    the SaaS onboarding flow and may never drive the legacy setup routes.
+    """
+
+    workspace_id = user.workspace_id
+
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication is required.",
+        )
+
+    with SessionFactory() as session:
+        workspace = session.get(
+            Installation,
+            workspace_id,
+        )
+
+    if workspace is None or workspace.registration_status is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=LEGACY_SETUP_UNAVAILABLE_DETAIL,
+        )
+
+    return workspace.id
 
 
 class SetupProviderConnectionConfigurator(Protocol):

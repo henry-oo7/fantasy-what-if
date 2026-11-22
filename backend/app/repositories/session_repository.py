@@ -65,6 +65,39 @@ class SessionRepository:
             csrf_token=csrf_token,
         )
 
+    def replace_user_sessions(
+        self,
+        *,
+        user: User,
+        lifetime_hours: int,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        now: datetime | None = None,
+    ) -> CreatedSession:
+        """Atomically make a new session the user's only active session.
+
+        The user row is locked with ``SELECT ... FOR UPDATE`` before
+        revocation so concurrent replacements serialize. Under READ
+        COMMITTED, the revocation statement of a waiting transaction sees
+        sessions committed by the transaction that held the lock, so at most
+        one session remains active.
+        """
+
+        self.session.execute(select(User.id).where(User.id == user.id).with_for_update())
+
+        self.revoke_all_user_sessions(
+            user_id=user.id,
+            now=now,
+        )
+
+        return self.create_session(
+            user=user,
+            lifetime_hours=lifetime_hours,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            now=now,
+        )
+
     def resolve_session(
         self,
         raw_session_token: str,

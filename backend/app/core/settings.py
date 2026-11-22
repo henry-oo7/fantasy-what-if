@@ -14,6 +14,8 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+from app.db.platform_enums import RegistrationMode
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 ENV_FILE = PROJECT_ROOT / ".env"
 
@@ -56,6 +58,48 @@ class Settings(BaseSettings):
     )
     login_lockout_minutes: int = Field(
         default=15,
+        ge=1,
+        le=24 * 60,
+    )
+
+    registration_mode: RegistrationMode = RegistrationMode.CLOSED
+    registration_submission_maximum_requests: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+    )
+    registration_submission_window_minutes: int = Field(
+        default=60,
+        ge=1,
+        le=24 * 60,
+    )
+    email_verification_lifetime_hours: int = Field(
+        default=24,
+        ge=1,
+        le=24 * 7,
+    )
+    verification_resend_maximum_requests: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+    )
+    verification_resend_window_minutes: int = Field(
+        default=60,
+        ge=1,
+        le=24 * 60,
+    )
+    password_reset_lifetime_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=24 * 60,
+    )
+    password_reset_maximum_requests: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+    )
+    password_reset_window_minutes: int = Field(
+        default=60,
         ge=1,
         le=24 * 60,
     )

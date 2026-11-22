@@ -14,6 +14,7 @@ USERNAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$")
 
 SESSION_TOKEN_BYTES = 48
 CSRF_TOKEN_BYTES = 32
+ACCOUNT_TOKEN_BYTES = 32
 INVITATION_TOKEN_BYTES = 32
 
 
@@ -94,6 +95,12 @@ def generate_session_token() -> str:
 
 def generate_csrf_token() -> str:
     return token_urlsafe(CSRF_TOKEN_BYTES)
+
+
+def generate_account_token() -> str:
+    """Generate a verification or password-reset token."""
+
+    return token_urlsafe(ACCOUNT_TOKEN_BYTES)
 
 
 def hash_token(token: str) -> str:

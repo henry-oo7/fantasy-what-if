@@ -87,14 +87,17 @@ The service must provide public administrator registration when registration is 
 
 Registration must collect:
 
-- Username
 - Display name
 - Email address
 - Password
 - Password confirmation
+- Workspace display name when required
+- Workspace slug or slug preference
 - Acceptance of required legal terms when those terms are introduced
 
-The service must normalize username and email values before uniqueness checks.
+The service must normalize email and workspace-slug values before uniqueness checks.
+
+The current schema still requires a `users.username` value. Registration generates an internal unique value for that column. The value is not collected from the registrant, is never returned by registration responses, and must not become a public SaaS login dependency.
 
 Password handling must retain the existing Argon2 hashing behavior.
 
@@ -894,7 +897,7 @@ The SaaS foundation is not ready for implementation completion until automated t
 10. Workspace A cannot read Workspace B's season.
 11. Workspace A cannot trigger Workspace B's synchronization.
 12. A spectator cannot use administrator endpoints.
-13. Existing v1.0.1 data migrates into the first workspace.
+13. A new hosted deployment initializes without migrating v1 installation data.
 14. ESPN synchronization still passes its contract tests.
 15. Registration works at 320 CSS pixels.
 16. Backup restoration has been tested.

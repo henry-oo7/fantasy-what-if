@@ -22,6 +22,7 @@ from app.api.admin_dependencies import (
 from app.api.auth_dependencies import (
     AuthenticationContext,
     get_current_workspace_id,
+    require_active_workspace,
     require_admin_user,
     require_session_csrf,
 )
@@ -100,6 +101,7 @@ router = APIRouter(
     tags=["administration"],
     dependencies=[
         Depends(require_admin_user),
+        Depends(require_active_workspace),
     ],
 )
 

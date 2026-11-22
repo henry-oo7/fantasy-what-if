@@ -9,6 +9,7 @@ from app.api.auth_dependencies import (
 )
 from app.api.setup_dependencies import (
     get_setup_provider_configurator,
+    require_legacy_setup_workspace,
 )
 from app.db.auth_models import User, UserRole
 from app.db.platform_enums import FantasyProvider
@@ -92,10 +93,12 @@ def apply_overrides(
     app.dependency_overrides[get_current_user] = user
     app.dependency_overrides[require_session_csrf] = override_csrf
     app.dependency_overrides[get_setup_provider_configurator] = lambda: configurator
+    app.dependency_overrides[require_legacy_setup_workspace] = lambda: 1
 
 
 def clear_overrides() -> None:
     for dependency in (
+        require_legacy_setup_workspace,
         get_current_user,
         require_session_csrf,
         get_setup_provider_configurator,

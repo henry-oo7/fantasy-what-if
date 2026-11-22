@@ -23,6 +23,7 @@ from app.api.setup_dependencies import (
     SetupProviderConnectionConfigurator,
     get_setup_finalizer,
     get_setup_provider_configurator,
+    require_legacy_setup_workspace,
 )
 from app.auth.security import (
     InvalidPasswordError,
@@ -203,6 +204,10 @@ def create_setup_provider_connection(
         SetupProviderConnectionConfigurator,
         Depends(get_setup_provider_configurator),
     ],
+    ____: Annotated[
+        int,
+        Depends(require_legacy_setup_workspace),
+    ],
 ) -> SetupProviderConnectionResponse:
     """Validate and store one encrypted provider connection."""
 
@@ -288,6 +293,10 @@ def finalize_setup_installation(
     finalizer: Annotated[
         SetupFinalizer,
         Depends(get_setup_finalizer),
+    ],
+    ____: Annotated[
+        int,
+        Depends(require_legacy_setup_workspace),
     ],
 ) -> SetupFinalizationResponse:
     """Synchronize and activate the configured installation."""

@@ -1,0 +1,1259 @@
+import threading
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from uuid import uuid4
+
+import pytest
+from fastapi import status
+from fastapi.testclient import TestClient
+from sqlalchemy import delete, select
+
+from app.api.auth_dependencies import get_current_user
+from app.api.registration_dependencies import (
+    get_transactional_email_sender,
+)
+from app.core.settings import get_settings
+from app.db.auth_models import (
+    AuthSession,
+    EmailVerificationToken,
+    RegistrationRateLimit,
+    User,
+)
+from app.db.platform_enums import (
+    OnboardingStage,
+    RegistrationMode,
+    WorkspaceRegistrationStatus,
+)
+from app.db.platform_models import Installation
+from app.db.session import SessionFactory
+from app.main import app
+from app.notifications.transactional_email import (
+    TransactionalEmailDeliveryError,
+)
+from app.services.administrator_registration import (
+    register_provisional_administrator,
+)
+
+TRUSTED_ORIGIN = "http://localhost:5173"
+
+
+class CapturingEmailSender:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, str]] = []
+
+    def send_email_verification(
+        self,
+        *,
+        recipient_email: str,
+        recipient_display_name: str,
+        verification_token: str,
+    ) -> None:
+        self.messages.append(
+            {
+                "recipient_email": recipient_email,
+                "recipient_display_name": (recipient_display_name),
+                "verification_token": verification_token,
+            }
+        )
+
+
+class FailingEmailSender:
+    def send_email_verification(
+        self,
+        *,
+        recipient_email: str,
+        recipient_display_name: str,
+        verification_token: str,
+    ) -> None:
+        del (
+            recipient_email,
+            recipient_display_name,
+            verification_token,
+        )
+
+        raise TransactionalEmailDeliveryError("Synthetic delivery failure.")
+
+
+@pytest.fixture(autouse=True)
+def isolate_registration_rate_limit_rows() -> Iterator[None]:
+    """Remove rate-limit rows created by each test.
+
+    API tests share one TestClient source address, so the source-scoped
+    registration_submission bucket would otherwise leak across tests.
+    """
+
+    with SessionFactory() as session:
+        existing_ids = set(session.scalars(select(RegistrationRateLimit.id)).all())
+
+    try:
+        yield
+    finally:
+        with SessionFactory() as session:
+            cleanup = delete(RegistrationRateLimit)
+
+            if existing_ids:
+                cleanup = cleanup.where(RegistrationRateLimit.id.not_in(existing_ids))
+
+            session.execute(cleanup)
+            session.commit()
+
+
+@pytest.fixture
+def client() -> Iterator[TestClient]:
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.pop(
+        get_transactional_email_sender,
+        None,
+    )
+    app.dependency_overrides.pop(
+        get_settings,
+        None,
+    )
+
+
+def issue_csrf(
+    client: TestClient,
+) -> str:
+    response = client.get("/api/auth/csrf")
+
+    assert response.status_code == status.HTTP_200_OK
+
+    return response.json()["csrf_token"]
+
+
+def registration_payload() -> dict[str, str]:
+    suffix = uuid4().hex[:12]
+
+    return {
+        "workspace_name": "API Registration League",
+        "workspace_slug": f"api-register-{suffix}",
+        "display_name": "API Administrator",
+        "email": f"api-register-{suffix}@example.com",
+        "password": "correct horse battery staple",
+    }
+
+
+def open_registration_settings():
+    settings = get_settings().model_copy(
+        update={
+            "registration_mode": RegistrationMode.OPEN,
+        }
+    )
+
+    return settings
+
+
+def delete_registration(
+    *,
+    email: str,
+) -> None:
+    with SessionFactory() as session:
+        user = session.scalar(select(User).where(User.normalized_email == email))
+
+        if user is None:
+            return
+
+        workspace_id = user.workspace_id
+        session.delete(user)
+        session.flush()
+
+        if workspace_id is not None:
+            workspace = session.get(
+                Installation,
+                workspace_id,
+            )
+
+            if workspace is not None:
+                session.delete(workspace)
+
+        session.commit()
+
+
+def test_registration_requires_pre_auth_csrf(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/registration",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+        },
+        json=registration_payload(),
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == {
+        "detail": "CSRF validation failed.",
+    }
+
+
+def test_registration_rejects_untrusted_origin(
+    client: TestClient,
+) -> None:
+    csrf_token = issue_csrf(client)
+
+    response = client.post(
+        "/api/registration",
+        headers={
+            "Origin": "https://attacker.example",
+            "X-CSRF-Token": csrf_token,
+        },
+        json=registration_payload(),
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == {
+        "detail": "Request origin is not allowed.",
+    }
+
+
+def test_closed_registration_returns_stable_error(
+    client: TestClient,
+) -> None:
+    csrf_token = issue_csrf(client)
+
+    response = client.post(
+        "/api/registration",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+            "X-CSRF-Token": csrf_token,
+        },
+        json=registration_payload(),
+    )
+
+    assert response.status_code == (status.HTTP_503_SERVICE_UNAVAILABLE)
+    assert response.json() == {
+        "detail": "Registration is unavailable.",
+        "code": "registration_unavailable",
+        "retryable": False,
+    }
+
+
+def test_open_registration_commits_before_email_delivery(
+    client: TestClient,
+) -> None:
+    payload = registration_payload()
+    sender = CapturingEmailSender()
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
+
+    csrf_token = issue_csrf(client)
+
+    try:
+        response = client.post(
+            "/api/registration",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": csrf_token,
+            },
+            json=payload,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == {
+            "workspace_slug": payload["workspace_slug"],
+            "registration_status": "provisional",
+            "onboarding_stage": ("email_verification_pending"),
+            "verification_required": True,
+        }
+
+        serialized = response.text
+
+        assert payload["password"] not in serialized
+        assert "verification_token" not in serialized
+        assert "username" not in serialized
+
+        assert len(sender.messages) == 1
+        message = sender.messages[0]
+
+        assert message["recipient_email"] == payload["email"]
+        assert message["recipient_display_name"] == (payload["display_name"])
+        assert message["verification_token"]
+
+        with SessionFactory() as session:
+            user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
+
+            assert user is not None
+            assert user.workspace_id is not None
+
+            workspace = session.get(
+                Installation,
+                user.workspace_id,
+            )
+
+            assert workspace is not None
+            assert workspace.slug == payload["workspace_slug"]
+
+            token = session.scalar(
+                select(EmailVerificationToken).where(EmailVerificationToken.user_id == user.id)
+            )
+
+            assert token is not None
+            assert message["verification_token"] != token.token_hash
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def test_email_failure_preserves_provisional_registration(
+    client: TestClient,
+) -> None:
+    payload = registration_payload()
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: FailingEmailSender()
+
+    csrf_token = issue_csrf(client)
+
+    try:
+        response = client.post(
+            "/api/registration",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": csrf_token,
+            },
+            json=payload,
+        )
+
+        assert response.status_code == (status.HTTP_503_SERVICE_UNAVAILABLE)
+        assert response.json() == {
+            "detail": (
+                "Registration was saved, but the verification "
+                "email could not be delivered. Request another "
+                "verification email to continue."
+            ),
+            "code": "email_delivery_unavailable",
+            "retryable": True,
+        }
+
+        with SessionFactory() as session:
+            user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
+
+            assert user is not None
+            assert user.workspace_id is not None
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def test_duplicate_slug_returns_stable_conflict(
+    client: TestClient,
+) -> None:
+    first = registration_payload()
+    second = registration_payload()
+    second["workspace_slug"] = first["workspace_slug"]
+    sender = CapturingEmailSender()
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
+
+    try:
+        for payload in (first, second):
+            csrf_token = issue_csrf(client)
+            response = client.post(
+                "/api/registration",
+                headers={
+                    "Origin": TRUSTED_ORIGIN,
+                    "X-CSRF-Token": csrf_token,
+                },
+                json=payload,
+            )
+
+            if payload is first:
+                assert response.status_code == (status.HTTP_201_CREATED)
+            else:
+                assert response.status_code == (status.HTTP_409_CONFLICT)
+                assert response.json() == {
+                    "detail": ("That workspace slug is unavailable."),
+                    "code": "registration_conflict",
+                    "retryable": False,
+                }
+    finally:
+        delete_registration(
+            email=first["email"],
+        )
+        delete_registration(
+            email=second["email"],
+        )
+
+
+def test_registration_response_never_exposes_internal_username(
+    client: TestClient,
+) -> None:
+    payload = registration_payload()
+    sender = CapturingEmailSender()
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
+
+    csrf_token = issue_csrf(client)
+
+    try:
+        response = client.post(
+            "/api/registration",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": csrf_token,
+            },
+            json=payload,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert "username" not in response.json()
+        assert "administrator_id" not in response.json()
+        assert "verification_token" not in response.json()
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def register_for_verification(
+    client: TestClient,
+    *,
+    sender: CapturingEmailSender,
+) -> tuple[dict[str, str], str]:
+    payload = registration_payload()
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
+
+    csrf_token = issue_csrf(client)
+    response = client.post(
+        "/api/registration",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+            "X-CSRF-Token": csrf_token,
+        },
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert len(sender.messages) == 1
+
+    return (
+        payload,
+        sender.messages[0]["verification_token"],
+    )
+
+
+def test_email_verification_requires_pre_auth_csrf(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/registration/verify-email",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+        },
+        json={
+            "token": "synthetic-verification-token",
+        },
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == {
+        "detail": "CSRF validation failed.",
+    }
+
+
+def test_email_verification_rejects_untrusted_origin(
+    client: TestClient,
+) -> None:
+    csrf_token = issue_csrf(client)
+
+    response = client.post(
+        "/api/registration/verify-email",
+        headers={
+            "Origin": "https://attacker.example",
+            "X-CSRF-Token": csrf_token,
+        },
+        json={
+            "token": "synthetic-verification-token",
+        },
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == {
+        "detail": "Request origin is not allowed.",
+    }
+
+
+def test_email_verification_creates_onboarding_session(
+    client: TestClient,
+) -> None:
+    sender = CapturingEmailSender()
+    payload, verification_token = register_for_verification(
+        client,
+        sender=sender,
+    )
+
+    csrf_token = issue_csrf(client)
+
+    try:
+        response = client.post(
+            "/api/registration/verify-email",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": csrf_token,
+            },
+            json={
+                "token": verification_token,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "workspace_slug": payload["workspace_slug"],
+            "display_name": payload["display_name"],
+            "email": payload["email"],
+            "role": "admin",
+            "registration_status": "provisional",
+            "onboarding_stage": "provider_setup_pending",
+            "csrf_token": response.json()["csrf_token"],
+        }
+
+        assert response.json()["csrf_token"]
+        assert "username" not in response.json()
+        assert "administrator_id" not in response.json()
+        assert "verification_token" not in response.json()
+        assert verification_token not in response.text
+
+        assert "fantasy_session" in client.cookies
+        assert "fantasy_session_csrf" in client.cookies
+        assert "fantasy_preauth_csrf" not in client.cookies
+
+        with SessionFactory() as session:
+            administrator = session.scalar(
+                select(User).where(User.normalized_email == payload["email"])
+            )
+
+            assert administrator is not None
+            assert administrator.email_verified_at is not None
+            assert administrator.workspace_id is not None
+
+            workspace = session.get(
+                Installation,
+                administrator.workspace_id,
+            )
+
+            assert workspace is not None
+            assert workspace.registration_status.value == ("provisional")
+            assert workspace.onboarding_stage.value == ("provider_setup_pending")
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def test_email_verification_token_is_single_use_at_api_boundary(
+    client: TestClient,
+) -> None:
+    sender = CapturingEmailSender()
+    payload, verification_token = register_for_verification(
+        client,
+        sender=sender,
+    )
+
+    first_csrf = issue_csrf(client)
+
+    try:
+        first = client.post(
+            "/api/registration/verify-email",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": first_csrf,
+            },
+            json={
+                "token": verification_token,
+            },
+        )
+
+        assert first.status_code == status.HTTP_200_OK
+
+        client.cookies.clear()
+        second_csrf = issue_csrf(client)
+
+        second = client.post(
+            "/api/registration/verify-email",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": second_csrf,
+            },
+            json={
+                "token": verification_token,
+            },
+        )
+
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert second.json() == {
+            "detail": ("The email verification link is invalid or expired."),
+            "code": "invalid_email_verification",
+            "retryable": False,
+        }
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def test_invalid_email_verification_returns_stable_error(
+    client: TestClient,
+) -> None:
+    csrf_token = issue_csrf(client)
+
+    response = client.post(
+        "/api/registration/verify-email",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+            "X-CSRF-Token": csrf_token,
+        },
+        json={
+            "token": "invalid-verification-token",
+        },
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {
+        "detail": ("The email verification link is invalid or expired."),
+        "code": "invalid_email_verification",
+        "retryable": False,
+    }
+
+
+def test_verified_onboarding_session_cannot_access_analytics(
+    client: TestClient,
+) -> None:
+    sender = CapturingEmailSender()
+    payload, verification_token = register_for_verification(
+        client,
+        sender=sender,
+    )
+
+    csrf_token = issue_csrf(client)
+
+    try:
+        verification = client.post(
+            "/api/registration/verify-email",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": csrf_token,
+            },
+            json={
+                "token": verification_token,
+            },
+        )
+
+        assert verification.status_code == status.HTTP_200_OK
+
+        inherited_user_override = app.dependency_overrides.pop(
+            get_current_user,
+            None,
+        )
+
+        try:
+            analytics_response = client.get("/api/analytics/all-play")
+        finally:
+            if inherited_user_override is not None:
+                app.dependency_overrides[get_current_user] = inherited_user_override
+
+        assert analytics_response.status_code == (status.HTTP_403_FORBIDDEN)
+        assert analytics_response.json() == {
+            "detail": "Workspace access is unavailable.",
+            "code": "workspace_inactive",
+            "retryable": False,
+        }
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def resend_verification(
+    client: TestClient,
+    *,
+    email: str,
+):
+    csrf_token = issue_csrf(client)
+
+    return client.post(
+        "/api/registration/resend-verification",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+            "X-CSRF-Token": csrf_token,
+        },
+        json={
+            "email": email,
+        },
+    )
+
+
+def test_verification_resend_requires_pre_auth_csrf(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/registration/resend-verification",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+        },
+        json={
+            "email": "administrator@example.com",
+        },
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == {
+        "detail": "CSRF validation failed.",
+    }
+
+
+def test_verification_resend_rejects_untrusted_origin(
+    client: TestClient,
+) -> None:
+    csrf_token = issue_csrf(client)
+
+    response = client.post(
+        "/api/registration/resend-verification",
+        headers={
+            "Origin": "https://attacker.example",
+            "X-CSRF-Token": csrf_token,
+        },
+        json={
+            "email": "administrator@example.com",
+        },
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == {
+        "detail": "Request origin is not allowed.",
+    }
+
+
+def test_verification_resend_replaces_prior_token(
+    client: TestClient,
+) -> None:
+    sender = CapturingEmailSender()
+    payload, original_token = register_for_verification(
+        client,
+        sender=sender,
+    )
+
+    try:
+        response = resend_verification(
+            client,
+            email=payload["email"],
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json() == {
+            "detail": (
+                "If an eligible administrator account exists "
+                "for that email address, verification "
+                "instructions have been sent."
+            ),
+            "code": "verification_resend_accepted",
+        }
+
+        assert len(sender.messages) == 2
+        replacement_token = sender.messages[-1]["verification_token"]
+
+        assert replacement_token != original_token
+        assert replacement_token not in response.text
+
+        client.cookies.clear()
+        original_csrf = issue_csrf(client)
+
+        original_response = client.post(
+            "/api/registration/verify-email",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": original_csrf,
+            },
+            json={
+                "token": original_token,
+            },
+        )
+
+        assert original_response.status_code == (status.HTTP_400_BAD_REQUEST)
+
+        replacement_csrf = issue_csrf(client)
+        replacement_response = client.post(
+            "/api/registration/verify-email",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": replacement_csrf,
+            },
+            json={
+                "token": replacement_token,
+            },
+        )
+
+        assert replacement_response.status_code == (status.HTTP_200_OK)
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def test_unknown_email_receives_same_resend_response(
+    client: TestClient,
+) -> None:
+    sender = CapturingEmailSender()
+
+    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
+
+    response = resend_verification(
+        client,
+        email=f"missing-{uuid4().hex}@example.com",
+    )
+
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    assert response.json() == {
+        "detail": (
+            "If an eligible administrator account exists "
+            "for that email address, verification "
+            "instructions have been sent."
+        ),
+        "code": "verification_resend_accepted",
+    }
+    assert sender.messages == []
+
+
+def test_verified_email_receives_same_resend_response(
+    client: TestClient,
+) -> None:
+    sender = CapturingEmailSender()
+    payload, verification_token = register_for_verification(
+        client,
+        sender=sender,
+    )
+
+    csrf_token = issue_csrf(client)
+
+    try:
+        verification = client.post(
+            "/api/registration/verify-email",
+            headers={
+                "Origin": TRUSTED_ORIGIN,
+                "X-CSRF-Token": csrf_token,
+            },
+            json={
+                "token": verification_token,
+            },
+        )
+
+        assert verification.status_code == status.HTTP_200_OK
+        delivered_count = len(sender.messages)
+
+        client.cookies.clear()
+        response = resend_verification(
+            client,
+            email=payload["email"],
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["code"] == ("verification_resend_accepted")
+        assert len(sender.messages) == delivered_count
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def test_verification_resend_is_limited_after_three_requests(
+    client: TestClient,
+) -> None:
+    email = f"limited-{uuid4().hex}@example.com"
+
+    responses = [
+        resend_verification(
+            client,
+            email=email,
+        )
+        for _ in range(4)
+    ]
+
+    for response in responses[:3]:
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["code"] == ("verification_resend_accepted")
+
+    blocked = responses[3]
+
+    assert blocked.status_code == (status.HTTP_429_TOO_MANY_REQUESTS)
+    assert blocked.json() == {
+        "detail": ("Verification resend is temporarily unavailable. Try again later."),
+        "code": "verification_resend_throttled",
+        "retryable": True,
+    }
+
+    retry_after = int(blocked.headers["Retry-After"])
+
+    assert 1 <= retry_after <= 60 * 60
+
+
+def test_resend_delivery_failure_remains_enumeration_safe(
+    client: TestClient,
+) -> None:
+    sender = CapturingEmailSender()
+    payload, _ = register_for_verification(
+        client,
+        sender=sender,
+    )
+
+    app.dependency_overrides[get_transactional_email_sender] = lambda: FailingEmailSender()
+
+    try:
+        response = resend_verification(
+            client,
+            email=payload["email"],
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["code"] == ("verification_resend_accepted")
+        assert "delivery" not in response.text.casefold()
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def post_registration(
+    client: TestClient,
+    payload: dict[str, str],
+    csrf_token: str | None = None,
+):
+    return client.post(
+        "/api/registration",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+            "X-CSRF-Token": csrf_token or issue_csrf(client),
+        },
+        json=payload,
+    )
+
+
+def registration_row_counts(
+    *,
+    email: str,
+    slugs: tuple[str, ...],
+) -> tuple[int, int, int]:
+    with SessionFactory() as session:
+        users = session.scalars(select(User).where(User.normalized_email == email)).all()
+        user_ids = [user.id for user in users]
+        workspace_count = len(
+            session.scalars(select(Installation).where(Installation.normalized_slug.in_(slugs)))
+            .unique()
+            .all()
+        )
+        token_count = (
+            len(
+                session.scalars(
+                    select(EmailVerificationToken).where(
+                        EmailVerificationToken.user_id.in_(user_ids)
+                    )
+                ).all()
+            )
+            if user_ids
+            else 0
+        )
+
+    return workspace_count, len(user_ids), token_count
+
+
+def test_duplicate_email_registration_is_indistinguishable(
+    client: TestClient,
+) -> None:
+    first = registration_payload()
+    second = registration_payload()
+    second["email"] = first["email"]
+    sender = CapturingEmailSender()
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
+
+    try:
+        created = post_registration(client, first)
+        assert created.status_code == status.HTTP_201_CREATED
+        before = registration_row_counts(
+            email=first["email"],
+            slugs=(first["workspace_slug"], second["workspace_slug"]),
+        )
+        assert before == (1, 1, 1)
+
+        duplicate = post_registration(client, second)
+
+        assert duplicate.status_code == created.status_code
+        assert duplicate.headers["content-type"] == created.headers["content-type"]
+        assert duplicate.json() == {
+            **created.json(),
+            "workspace_slug": second["workspace_slug"],
+        }
+        assert set(duplicate.json()) == set(created.json())
+        assert (
+            registration_row_counts(
+                email=first["email"],
+                slugs=(first["workspace_slug"], second["workspace_slug"]),
+            )
+            == before
+        )
+        # No informational email is sent yet for duplicate attempts.
+        assert len(sender.messages) == 1
+    finally:
+        delete_registration(email=first["email"])
+
+
+def test_duplicate_slug_still_returns_conflict_with_duplicate_email(
+    client: TestClient,
+) -> None:
+    first = registration_payload()
+    second = registration_payload()
+    second["email"] = first["email"]
+    second["workspace_slug"] = first["workspace_slug"]
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: CapturingEmailSender()
+
+    try:
+        assert post_registration(client, first).status_code == status.HTTP_201_CREATED
+
+        response = post_registration(client, second)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["code"] == "registration_conflict"
+        assert response.json()["detail"] == "That workspace slug is unavailable."
+    finally:
+        delete_registration(email=first["email"])
+
+
+def test_concurrent_duplicate_email_registrations_create_one_identity(
+    client: TestClient,
+) -> None:
+    del client
+    email = registration_payload()["email"]
+    payloads = [registration_payload() for _ in range(2)]
+
+    for payload in payloads:
+        payload["email"] = email
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: CapturingEmailSender()
+
+    browsers = [TestClient(app) for _ in payloads]
+    barrier = threading.Barrier(len(payloads))
+
+    def submit(index: int):
+        browser = browsers[index]
+        csrf_token = issue_csrf(browser)
+        barrier.wait(timeout=10)
+
+        return post_registration(browser, payloads[index], csrf_token)
+
+    try:
+        with ThreadPoolExecutor(max_workers=len(payloads)) as executor:
+            responses = list(executor.map(submit, range(len(payloads))))
+
+        assert [response.status_code for response in responses] == [
+            status.HTTP_201_CREATED,
+            status.HTTP_201_CREATED,
+        ]
+
+        for response, payload in zip(responses, payloads, strict=True):
+            assert response.json() == {
+                "workspace_slug": payload["workspace_slug"],
+                "registration_status": "provisional",
+                "onboarding_stage": "email_verification_pending",
+                "verification_required": True,
+            }
+
+        assert registration_row_counts(
+            email=email,
+            slugs=tuple(payload["workspace_slug"] for payload in payloads),
+        ) == (1, 1, 1)
+    finally:
+        for browser in browsers:
+            browser.close()
+
+        delete_registration(email=email)
+
+
+def test_registration_submissions_are_throttled_per_source(
+    client: TestClient,
+) -> None:
+    payloads = [registration_payload() for _ in range(6)]
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+    app.dependency_overrides[get_transactional_email_sender] = lambda: CapturingEmailSender()
+
+    try:
+        for payload in payloads[:5]:
+            assert post_registration(client, payload).status_code == status.HTTP_201_CREATED
+
+        over_limit = payloads[5]
+        response = post_registration(client, over_limit)
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert int(response.headers["Retry-After"]) > 0
+        assert response.json() == {
+            "detail": "Registration is temporarily unavailable. Try again later.",
+            "code": "registration_throttled",
+            "retryable": True,
+        }
+        assert registration_row_counts(
+            email=over_limit["email"],
+            slugs=(over_limit["workspace_slug"],),
+        ) == (0, 0, 0)
+    finally:
+        for payload in payloads:
+            delete_registration(email=payload["email"])
+
+
+def test_registration_throttle_applies_before_mode_and_validation(
+    client: TestClient,
+) -> None:
+    # Closed mode and invalid input still count against the source bucket,
+    # so the limit is enforced before any lookup or state creation.
+    for _ in range(5):
+        response = post_registration(client, registration_payload())
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    response = post_registration(client, registration_payload())
+
+    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+def committed_provisional_registration(
+    *,
+    workspace_status: WorkspaceRegistrationStatus = WorkspaceRegistrationStatus.PROVISIONAL,
+    onboarding_stage: OnboardingStage = OnboardingStage.EMAIL_VERIFICATION_PENDING,
+) -> tuple[dict[str, str], str]:
+    payload = registration_payload()
+
+    with SessionFactory() as session:
+        result = register_provisional_administrator(
+            session,
+            registration_mode=RegistrationMode.OPEN,
+            workspace_name=payload["workspace_name"],
+            workspace_slug=payload["workspace_slug"],
+            administrator_display_name=payload["display_name"],
+            administrator_email=payload["email"],
+            administrator_password=payload["password"],
+            verification_lifetime_hours=24,
+        )
+        result.workspace.registration_status = workspace_status
+        result.workspace.onboarding_stage = onboarding_stage
+        session.commit()
+
+    return payload, result.verification.raw_token
+
+
+def verification_state(email: str) -> tuple[object, ...]:
+    with SessionFactory() as session:
+        user = session.scalar(select(User).where(User.normalized_email == email))
+        assert user is not None
+        workspace = session.get(Installation, user.workspace_id)
+        assert workspace is not None
+        tokens = session.scalars(
+            select(EmailVerificationToken.used_at).where(EmailVerificationToken.user_id == user.id)
+        ).all()
+        sessions = session.scalars(select(AuthSession.id).where(AuthSession.user_id == user.id))
+
+        return (
+            user.email_verified_at,
+            workspace.registration_status,
+            workspace.onboarding_stage,
+            tuple(tokens),
+            len(sessions.all()),
+        )
+
+
+def post_verification(client: TestClient, token: str, csrf_token: str | None = None):
+    return client.post(
+        "/api/registration/verify-email",
+        headers={
+            "Origin": TRUSTED_ORIGIN,
+            "X-CSRF-Token": csrf_token or issue_csrf(client),
+        },
+        json={"token": token},
+    )
+
+
+@pytest.mark.parametrize(
+    ("workspace_status", "onboarding_stage"),
+    [
+        (WorkspaceRegistrationStatus.ACTIVE, OnboardingStage.EMAIL_VERIFICATION_PENDING),
+        (WorkspaceRegistrationStatus.SUSPENDED, OnboardingStage.EMAIL_VERIFICATION_PENDING),
+        (WorkspaceRegistrationStatus.PROVISIONAL, OnboardingStage.PROVIDER_SETUP_PENDING),
+    ],
+)
+def test_verification_outside_pending_provisional_state_is_rejected(
+    client: TestClient,
+    workspace_status: WorkspaceRegistrationStatus,
+    onboarding_stage: OnboardingStage,
+) -> None:
+    payload, token = committed_provisional_registration(
+        workspace_status=workspace_status,
+        onboarding_stage=onboarding_stage,
+    )
+
+    try:
+        before = verification_state(payload["email"])
+
+        response = post_verification(client, token)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json() == {
+            "detail": "Email verification is unavailable.",
+            "code": "email_verification_unavailable",
+            "retryable": False,
+        }
+        assert verification_state(payload["email"]) == before
+        assert before[0] is None
+        assert before[3] == (None,)
+        assert before[4] == 0
+    finally:
+        delete_registration(email=payload["email"])
+
+
+def test_concurrent_verification_of_one_token_creates_one_session(
+    client: TestClient,
+) -> None:
+    del client
+    payload, token = committed_provisional_registration()
+    browsers = [TestClient(app) for _ in range(2)]
+    barrier = threading.Barrier(len(browsers))
+
+    def verify(index: int):
+        browser = browsers[index]
+        csrf_token = issue_csrf(browser)
+        barrier.wait(timeout=10)
+
+        return post_verification(browser, token, csrf_token)
+
+    try:
+        with ThreadPoolExecutor(max_workers=len(browsers)) as executor:
+            responses = list(executor.map(verify, range(len(browsers))))
+
+        assert sorted(response.status_code for response in responses) == [
+            status.HTTP_200_OK,
+            status.HTTP_400_BAD_REQUEST,
+        ]
+
+        with SessionFactory() as session:
+            user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
+            assert user is not None
+            active = session.scalars(
+                select(AuthSession).where(
+                    AuthSession.user_id == user.id,
+                    AuthSession.revoked_at.is_(None),
+                )
+            ).all()
+
+        assert len(active) == 1
+    finally:
+        for browser in browsers:
+            browser.close()
+
+        delete_registration(email=payload["email"])

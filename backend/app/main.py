@@ -9,7 +9,9 @@ from sqlalchemy import select
 from app.api.admin import router as admin_router
 from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
+from app.api.auth_dependencies import WorkspaceAccessError
 from app.api.leagues import router as leagues_router
+from app.api.registration import router as registration_router
 from app.api.setup import router as setup_router
 from app.core.settings import get_settings
 from app.db.platform_enums import InstallationStatus
@@ -24,6 +26,9 @@ from app.security_headers import (
 )
 from app.services.season_lifecycle_reconciliation import (
     reconcile_stale_active_season,
+)
+from app.workspace_access_errors import (
+    workspace_access_exception_handler,
 )
 
 settings = get_settings()
@@ -71,6 +76,10 @@ app.add_exception_handler(
     validation_exception_handler,
 )
 app.add_exception_handler(
+    WorkspaceAccessError,
+    workspace_access_exception_handler,
+)
+app.add_exception_handler(
     Exception,
     unexpected_exception_handler,
 )
@@ -99,6 +108,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(registration_router)
 app.include_router(setup_router)
 app.include_router(admin_router)
 app.include_router(leagues_router)

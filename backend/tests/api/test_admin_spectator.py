@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth_dependencies import (
     get_current_user,
+    require_active_workspace,
     require_session_csrf,
 )
 from app.api.security import validate_request_origin
@@ -74,6 +75,7 @@ def apply_overrides(
     session: MagicMock,
 ) -> None:
     app.dependency_overrides[get_current_user] = override_admin
+    app.dependency_overrides[require_active_workspace] = lambda: 1
     app.dependency_overrides[require_session_csrf] = override_csrf
     app.dependency_overrides[validate_request_origin] = override_origin
     app.dependency_overrides[get_database_session] = session_override(session)
@@ -82,6 +84,7 @@ def apply_overrides(
 def clear_overrides() -> None:
     for dependency in (
         get_current_user,
+        require_active_workspace,
         require_session_csrf,
         validate_request_origin,
         get_database_session,
