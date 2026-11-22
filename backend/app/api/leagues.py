@@ -15,6 +15,7 @@ from app.api.auth_dependencies import (
     AuthenticationContext,
     get_current_user,
     get_current_workspace_id,
+    require_active_workspace,
     require_admin_user,
     require_session_csrf,
 )
@@ -56,6 +57,7 @@ router = APIRouter(
     tags=["leagues"],
     dependencies=[
         Depends(get_current_user),
+        Depends(require_active_workspace),
     ],
 )
 

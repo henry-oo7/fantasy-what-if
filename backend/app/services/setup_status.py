@@ -1,4 +1,9 @@
-"""Resolve the public installation setup state."""
+"""Resolve the public installation setup state.
+
+Only legacy installations (``registration_status IS NULL``) participate in
+the one-time setup lifecycle. SaaS-managed workspaces are excluded so that
+provisional registrations never make the global setup query fail.
+"""
 
 from dataclasses import dataclass
 
@@ -40,7 +45,11 @@ def resolve_setup_state(
 ) -> SetupState:
     """Resolve setup progress without exposing private data."""
 
-    installations = session.scalars(select(Installation).order_by(Installation.id)).all()
+    installations = session.scalars(
+        select(Installation)
+        .where(Installation.registration_status.is_(None))
+        .order_by(Installation.id)
+    ).all()
 
     if len(installations) > 1:
         raise SetupStateError("Multiple installations are configured.")
@@ -75,7 +84,12 @@ def resolve_setup_state(
 
     spectator_count = int(
         session.scalar(
-            select(func.count()).select_from(User).where(User.role == UserRole.SPECTATOR)
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.role == UserRole.SPECTATOR,
+                User.workspace_id == installation.id,
+            )
         )
         or 0
     )

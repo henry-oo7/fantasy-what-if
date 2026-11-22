@@ -33,6 +33,8 @@ from app.db.platform_enums import (
     BackgroundJobType,
     FantasyProvider,
     InstallationStatus,
+    OnboardingStage,
+    WorkspaceRegistrationStatus,
 )
 
 if TYPE_CHECKING:
@@ -91,6 +93,28 @@ class Installation(TimestampMixin, Base):
         nullable=False,
         default=InstallationStatus.SETUP_REQUIRED,
         server_default=(InstallationStatus.SETUP_REQUIRED.value),
+    )
+
+    registration_status: Mapped[WorkspaceRegistrationStatus | None] = mapped_column(
+        Enum(
+            WorkspaceRegistrationStatus,
+            name="workspace_registration_status",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
+        default=None,
+        index=True,
+    )
+
+    onboarding_stage: Mapped[OnboardingStage | None] = mapped_column(
+        Enum(
+            OnboardingStage,
+            name="onboarding_stage",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
+        default=None,
+        index=True,
     )
 
     setup_started_at: Mapped[datetime | None] = mapped_column(

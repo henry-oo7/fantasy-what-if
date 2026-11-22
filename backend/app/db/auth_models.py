@@ -122,6 +122,102 @@ class User(TimestampMixin, Base):
     )
 
 
+class EmailVerificationToken(Base):
+    __tablename__ = "email_verification_tokens"
+    __table_args__ = (
+        UniqueConstraint(
+            "token_hash",
+            name="uq_email_verification_tokens_token_hash",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "users.id",
+            name="fk_email_verification_tokens_user_id_users",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    token_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        UniqueConstraint(
+            "token_hash",
+            name="uq_password_reset_tokens_token_hash",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "users.id",
+            name="fk_password_reset_tokens_user_id_users",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    token_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
     __table_args__ = (
@@ -248,4 +344,53 @@ class LoginAttempt(Base):
     locked_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+
+class RegistrationRateLimit(Base):
+    """Privacy-preserving limit state for one public action."""
+
+    __tablename__ = "registration_rate_limits"
+    __table_args__ = (
+        UniqueConstraint(
+            "action",
+            "identity_hash",
+            name=("uq_registration_rate_limits_action_identity"),
+        ),
+        Index(
+            "ix_registration_rate_limits_last_request_at",
+            "last_request_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    action: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    identity_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    request_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    last_request_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
     )

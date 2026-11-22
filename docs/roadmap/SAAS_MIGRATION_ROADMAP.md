@@ -48,29 +48,13 @@ When implementation reveals a conflict or missing decision, update the governing
 
 ## Migration Principles
 
-### Preserve the v1.0.1 Installation
+### New Hosted Deployment
 
-The existing production installation becomes the first League Workspace.
+The hosted multi-workspace SaaS is initialized as a new deployment.
 
-The migration must preserve:
+Existing version-1 single-installation databases are not migrated, backfilled, or preserved as League Workspaces in the hosted deployment.
 
-- Existing installation ID
-- Administrator
-- Shared spectator
-- Password hashes
-- Provider connection
-- Encrypted provider credentials
-- Claimed ESPN league
-- Imported seasons
-- Teams
-- Matchups
-- Player-week scores
-- Analytics results
-- Synchronization history
-- Active league
-- Active season
-- Playoff settings
-- Administrator fallback settings
+Backfill steps that remain in earlier phases apply only to development databases that still contain a legacy installation. They are not a production requirement.
 
 ### Add Before Removing
 
@@ -180,7 +164,7 @@ Before leaving Phase 0, confirm:
 - Spectator sessions may be concurrent.
 - Provider league claims are globally exclusive by provider and normalized league ID.
 - PostgreSQL-backed jobs are the initial queue.
-- Existing production data becomes the first workspace.
+- The hosted SaaS initializes as a new deployment without migrating v1 installation data.
 - Public registration remains disabled during migration.
 
 ### Exit Criteria
@@ -300,9 +284,7 @@ installations.slug
 installations.normalized_slug
 ```
 
-Backfill a unique slug for the existing production workspace.
-
-The production slug must be selected and verified before migration.
+Development databases that still contain a legacy installation receive a development slug during migration. The hosted SaaS deployment starts empty and requires no production slug backfill.
 
 ### Account Constraints
 
@@ -342,7 +324,7 @@ Do not remove the existing username field in this phase.
 
 ### Exit Criteria
 
-- Existing production data migrates into one valid workspace.
+- Existing development data migrates into one valid workspace. The hosted SaaS deployment requires no production data migration.
 - Workspace ownership is non-null for every user.
 - Cardinality constraints pass.
 - The application still operates using compatibility paths.
@@ -377,6 +359,22 @@ password
 During migration, the application may temporarily support the existing username login behind a compatibility boundary.
 
 The compatibility boundary must have a documented removal phase.
+
+The legacy username administrator-login path is temporary and must be
+removed after all of the following conditions are satisfied:
+
+- No supported administrator depends on username login. The hosted SaaS
+  deployment does not migrate v1 installation administrators.
+- The web frontend uses only `POST /api/auth/admin/login` for administrator login.
+- Administrator password recovery uses the normalized email identity.
+- No supported client submits administrator usernames.
+- Compatibility telemetry shows no legitimate administrator use of
+  `POST /api/auth/login` through the documented sunset window.
+- Username-login tests, schemas, service paths, and frontend types are
+  removed together in an explicit compatibility-cleanup release.
+
+The compatibility route must not be extended to newly registered SaaS
+administrators or treated as a permanent public authentication contract.
 
 ### Spectator Login
 
@@ -546,9 +544,11 @@ Implement and test normalization for:
 
 Sleeper and Yahoo may remain unavailable in the UI until integrations are complete.
 
-### Production Backfill
+### Development Backfill
 
-Create the ESPN claim for the existing production League Workspace.
+The hosted SaaS deployment starts empty and requires no production claim backfill.
+
+Development databases that still contain a legacy league may derive its ESPN claim.
 
 The migration must fail safely if the claim cannot be derived or conflicts.
 
@@ -577,7 +577,7 @@ No partial losing workspace state remains
 
 ### Exit Criteria
 
-- Existing production league has a claim.
+- Legacy leagues in development databases have claims. The hosted deployment requires no claim backfill.
 - Duplicate claims are rejected atomically.
 - Different providers may use the same textual ID.
 - Safe conflict response is tested.
@@ -747,6 +747,14 @@ Implement bounded cleanup for:
 - Initial synchronization runs through the worker.
 - Workspace activation validates all invariants.
 - Registration remains disabled in production.
+
+### Explicit Deferrals From the Registration Foundation
+
+The registration-foundation slice deliberately defers the following work. Each item has a required completion point.
+
+- **Session-replacement signaling:** The `session_replaced` application error and a persisted session revocation reason, including its migration, are deferred to the next session-lifecycle slice. Until then, a replaced administrator session receives the generic unauthenticated response.
+- **Durable asynchronous email delivery and response-timing equality:** Verification and password-reset email delivery currently runs synchronously after commit. Durable asynchronous delivery and timing equality for enumeration-sensitive routes are required before public registration opens.
+- **Audit-event infrastructure:** Structured identity audit events required by ADR 0005 are required before public SaaS launch.
 
 ## Phase 8: ESPN SaaS Hardening
 
@@ -1378,7 +1386,7 @@ git status --short --branch
 
 For every ownership or identity migration:
 
-1. Restore a production-like v1.0.1 database.
+1. Create or reuse a disposable PostgreSQL database. Never use the normal development or production database.
 2. Run the pre-migration audit.
 3. Apply migrations.
 4. Run post-migration validation.
@@ -1397,7 +1405,7 @@ A vertical slice is complete only when:
 - Product behavior matches the requirements.
 - Architecture remains consistent with accepted ADRs.
 - Database migration is included when required.
-- Migration works from the latest production baseline.
+- Migration upgrades, downgrades to base, and re-upgrades cleanly on a disposable database.
 - Backend tests pass.
 - Frontend tests pass.
 - Cross-tenant tests pass when applicable.
@@ -1443,7 +1451,7 @@ The SaaS migration is complete when:
 8. Provider leagues are claimed atomically.
 9. Duplicate claims reveal no owner information.
 10. Synchronization runs through background jobs.
-11. Existing v1.0.1 data remains intact.
+11. The hosted deployment initializes without migrating v1 installation data.
 12. ESPN is stable for multiple tenants.
 13. Sleeper is operational.
 14. Yahoo is operational with secure OAuth.

@@ -17,6 +17,11 @@ from app.auth.csrf import CSRF_HEADER_NAME
 from app.auth.security import csrf_tokens_match
 from app.core.settings import Settings, get_settings
 from app.db.auth_models import AuthSession, User, UserRole
+from app.db.platform_enums import (
+    InstallationStatus,
+    WorkspaceRegistrationStatus,
+)
+from app.db.platform_models import Installation
 from app.db.session import SessionFactory
 from app.repositories.session_repository import (
     ResolvedSession,
@@ -166,3 +171,68 @@ def require_session_csrf(
         )
 
     return context
+
+
+class WorkspaceAccessError(RuntimeError):
+    """Authenticated workspace access is not permitted."""
+
+    def __init__(
+        self,
+        *,
+        detail: str,
+        code: str,
+    ) -> None:
+        self.detail = detail
+        self.code = code
+        super().__init__(detail)
+
+
+def require_active_workspace(
+    user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+) -> int:
+    """Require an active workspace for ordinary application access."""
+
+    workspace_id = user.workspace_id
+
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication is required.",
+        )
+
+    with SessionFactory() as session:
+        workspace = session.get(
+            Installation,
+            workspace_id,
+        )
+
+    if workspace is None:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.",
+            code="workspace_inactive",
+        )
+
+    if workspace.registration_status is WorkspaceRegistrationStatus.SUSPENDED:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.",
+            code="workspace_suspended",
+        )
+
+    legacy_active = (
+        workspace.registration_status is None and workspace.status is InstallationStatus.ACTIVE
+    )
+    saas_active = (
+        workspace.registration_status is WorkspaceRegistrationStatus.ACTIVE
+        and workspace.status is InstallationStatus.ACTIVE
+    )
+
+    if not legacy_active and not saas_active:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.",
+            code="workspace_inactive",
+        )
+
+    return workspace.id

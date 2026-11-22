@@ -9,6 +9,7 @@ from app.api.admin_dependencies import (
 )
 from app.api.auth_dependencies import (
     get_current_user,
+    require_active_workspace,
     require_session_csrf,
 )
 from app.db.auth_models import User, UserRole
@@ -82,6 +83,7 @@ def apply_overrides(
     current_user=admin_user,
 ) -> None:
     app.dependency_overrides[get_current_user] = current_user
+    app.dependency_overrides[require_active_workspace] = lambda: 1
     app.dependency_overrides[require_session_csrf] = allow_csrf
     app.dependency_overrides[get_season_importer] = lambda: importer
 
@@ -89,6 +91,7 @@ def apply_overrides(
 def clear_overrides() -> None:
     for dependency in (
         get_current_user,
+        require_active_workspace,
         require_session_csrf,
         get_season_importer,
     ):

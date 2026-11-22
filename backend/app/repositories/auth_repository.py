@@ -47,6 +47,25 @@ class AuthenticationRepository:
 
         return self.session.scalar(select(User).where(func.lower(User.email) == normalized_email))
 
+    def get_administrator_by_email(
+        self,
+        email: str,
+    ) -> User | None:
+        """Return the administrator owning one normalized email.
+
+        Uses the indexed ``normalized_email`` column and the administrator
+        role, matching the ``uq_users_admin_normalized_email`` constraint.
+        """
+
+        normalized_email = normalize_email(email)
+
+        return self.session.scalar(
+            select(User).where(
+                User.normalized_email == normalized_email,
+                User.role == UserRole.ADMIN,
+            )
+        )
+
     def username_exists(
         self,
         username: str,
