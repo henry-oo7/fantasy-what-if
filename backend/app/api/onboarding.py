@@ -8,14 +8,29 @@ from fastapi.responses import JSONResponse
 from app.api.auth_dependencies import (
     AuthenticationContext,
     WorkspaceAccessError,
+    get_authentication_context,
     require_session_csrf,
 )
 from app.api.registration import normalize_request_source
 from app.api.security import validate_request_origin
+from app.auth.cookies import clear_authentication_cookies
 from app.core.settings import Settings, get_settings
 from app.db.session import SessionFactory
 from app.providers.espn.league_access import HttpGet
-from app.schemas.onboarding import ProviderValidationRequest, ProviderValidationResponse
+from app.schemas.onboarding import (
+    ProviderClaimRequest,
+    ProviderClaimResponse,
+    ProviderTargetResponse,
+    ProviderValidationRequest,
+    ProviderValidationResponse,
+)
+from app.services.league_claim import (
+    LEAGUE_ALREADY_CLAIMED_DETAIL,
+    LeagueAlreadyClaimedError,
+    ValidatedTarget,
+    claim_validated_league,
+    read_validated_target,
+)
 from app.services.provider_onboarding import (
     ProviderOnboardingError,
     ProviderWorkspaceAccessError,
@@ -120,4 +135,92 @@ def validate_provider(
         provider="espn",
         access_mode=outcome.access_mode,
         onboarding_stage=outcome.onboarding_stage,
+    )
+
+
+def _error_response(exc: ProviderOnboardingError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "code": exc.code, "retryable": exc.retryable},
+    )
+
+
+def _target_response(target: ValidatedTarget) -> ProviderTargetResponse:
+    return ProviderTargetResponse(
+        provider=target.provider.value,
+        league_id=target.league_id,
+        season_year=target.season_year,
+        access_mode=target.access_mode,
+    )
+
+
+@router.get("/provider/target", response_model=ProviderTargetResponse)
+def read_provider_target(
+    context: Annotated[AuthenticationContext, Depends(get_authentication_context)],
+) -> ProviderTargetResponse | JSONResponse:
+    """Return the safe validated target awaiting claim confirmation.
+
+    Never includes credentials, ciphertext, key versions or request metadata.
+    """
+
+    try:
+        with SessionFactory() as session:
+            target = read_validated_target(
+                session, user_id=context.user_id, workspace_id=context.workspace_id
+            )
+    except ProviderWorkspaceAccessError as exc:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.", code=exc.code
+        ) from exc
+    except ProviderOnboardingError as exc:
+        return _error_response(exc)
+
+    return _target_response(target)
+
+
+@router.post("/provider/claim", response_model=ProviderClaimResponse)
+def claim_provider_league(
+    context: Annotated[AuthenticationContext, Depends(require_session_csrf)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    _: Annotated[None, Depends(validate_request_origin)],
+    payload: ProviderClaimRequest | None = None,
+) -> ProviderClaimResponse | JSONResponse:
+    """Connect the validated league to this workspace.
+
+    A duplicate claim deletes the losing provisional registration, clears
+    the authentication cookies and returns 409 without disclosing anything
+    about the existing workspace.
+    """
+
+    del payload
+
+    try:
+        with SessionFactory() as session:
+            target = claim_validated_league(
+                session, user_id=context.user_id, workspace_id=context.workspace_id
+            )
+    except ProviderWorkspaceAccessError as exc:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.", code=exc.code
+        ) from exc
+    except ProviderOnboardingError as exc:
+        return _error_response(exc)
+    except LeagueAlreadyClaimedError:
+        response = JSONResponse(
+            status_code=409,
+            content={
+                "detail": LEAGUE_ALREADY_CLAIMED_DETAIL,
+                "code": "provider_league_already_claimed",
+                "retryable": False,
+            },
+        )
+        clear_authentication_cookies(response, settings=settings)
+
+        return response
+
+    return ProviderClaimResponse(
+        status="claimed",
+        code="provider_league_claimed",
+        onboarding_stage="initial_sync_pending",
+        target=_target_response(target),
     )

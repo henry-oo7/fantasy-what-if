@@ -152,11 +152,14 @@ class ProviderValidationOutcome:
     onboarding_stage: OnboardingStage
 
 
-def authorize_provider_validation(
+def authorize_onboarding_administrator(
     session: Session,
     *,
     user_id: int,
     workspace_id: int,
+    allowed_stages: frozenset[OnboardingStage],
+    forbidden_code: str,
+    stage_invalid: Callable[[], ProviderOnboardingError],
     lock: bool = False,
 ) -> Installation:
     """Require a verified administrator of a provisional workspace at an allowed stage."""
@@ -172,7 +175,7 @@ def authorize_provider_validation(
     ):
         raise _error(
             403,
-            "provider_validation_forbidden",
+            forbidden_code,
             "Only a verified workspace administrator can connect a league.",
             retryable=False,
         )
@@ -193,10 +196,30 @@ def authorize_provider_validation(
     if workspace.registration_status is not WorkspaceRegistrationStatus.PROVISIONAL:
         raise ProviderWorkspaceAccessError("workspace_inactive")
 
-    if workspace.onboarding_stage not in PROVIDER_VALIDATION_STAGES:
-        raise onboarding_stage_invalid()
+    if workspace.onboarding_stage not in allowed_stages:
+        raise stage_invalid()
 
     return workspace
+
+
+def authorize_provider_validation(
+    session: Session,
+    *,
+    user_id: int,
+    workspace_id: int,
+    lock: bool = False,
+) -> Installation:
+    """Authorization for the provider-validation step."""
+
+    return authorize_onboarding_administrator(
+        session,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        allowed_stages=PROVIDER_VALIDATION_STAGES,
+        forbidden_code="provider_validation_forbidden",
+        stage_invalid=onboarding_stage_invalid,
+        lock=lock,
+    )
 
 
 def record_validation_attempt(

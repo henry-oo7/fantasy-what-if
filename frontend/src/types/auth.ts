@@ -166,4 +166,5 @@ export type WorkspaceAccess =
 /** Messages shown on the login page after a lifecycle event. */
 export type AuthenticationNotice =
   | "session_replaced"
-  | "password_reset_completed";
+  | "password_reset_completed"
+  | "league_already_claimed";

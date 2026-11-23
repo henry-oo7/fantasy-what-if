@@ -308,6 +308,8 @@ The rejected transaction must not leave behind:
 
 Security and abuse audit records may be retained separately if they do not create tenant-owned application state.
 
+Validation and claim are separate steps. Validation confirms access; the claim happens only after the administrator explicitly confirms the validated target. The losing registration is removed in the same transaction that detects the conflict, its authentication cookies are cleared, and the browser shows a public outcome page with Administrator sign in and Spectator sign in actions. The response discloses no owner identity, email, workspace slug, claim identifier or account detail.
+
 ### FR-13: Duplicate-Claim Privacy
 
 Duplicate-claim responses must not expose:

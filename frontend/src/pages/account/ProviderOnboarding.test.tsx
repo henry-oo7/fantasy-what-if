@@ -39,6 +39,8 @@ const ALLOWED_PATHS = new Set([
   "/api/setup/status",
   "/api/auth/me",
   "/api/onboarding/provider/validate",
+  // Safe read of the validated target on the claim step; never a claim.
+  "/api/onboarding/provider/target",
 ]);
 
 const VALIDATED_PUBLIC = {
@@ -73,6 +75,12 @@ afterEach(() => {
 
 function provisional(api: ApiMock, stage: OnboardingStage = "provider_setup_pending") {
   signInAs(api, ADMIN_USER, "provisional", { onboardingStage: stage });
+  api.reply("GET /api/onboarding/provider/target", 200, {
+    provider: "espn",
+    league_id: "424242",
+    season_year: 2024,
+    access_mode: "public",
+  });
 }
 
 async function openOnboarding(stage: OnboardingStage = "provider_setup_pending") {
@@ -399,10 +407,12 @@ describe("resume", () => {
     expect(document.body.textContent).not.toContain("provider_validation_failed");
   });
 
-  it("league_claim_pending shows only the next-step placeholder", async () => {
+  it("league_claim_pending shows the claim step, never the provider form", async () => {
     const { api } = await openOnboarding("league_claim_pending");
 
     expect(screen.getByText(LEAGUE_ACCESS_VALIDATED_MESSAGE)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Confirm your league" })).toBeInTheDocument();
+    expect(api.calls("POST /api/onboarding/provider/claim")).toHaveLength(0);
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Check league access/ })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("league_claim_pending");

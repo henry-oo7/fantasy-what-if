@@ -70,3 +70,25 @@ class ProviderValidationResponse(BaseModel):
     provider: Literal["espn"]
     access_mode: ProviderAccessMode | None
     onboarding_stage: OnboardingStage
+
+
+class ProviderTargetResponse(BaseModel):
+    """Safe validated target. Never includes credentials or key versions."""
+
+    provider: Literal["espn"]
+    league_id: str
+    season_year: int
+    access_mode: ProviderAccessMode
+
+
+class ProviderClaimRequest(BaseModel):
+    """Empty confirmation body. Ownership is never accepted from the browser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProviderClaimResponse(BaseModel):
+    status: Literal["claimed"]
+    code: Literal["provider_league_claimed"]
+    onboarding_stage: Literal["initial_sync_pending"]
+    target: ProviderTargetResponse

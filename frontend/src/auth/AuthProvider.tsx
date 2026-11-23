@@ -66,6 +66,12 @@ interface AuthenticationContextValue {
   /** Adopt the session cookie set by a successful email verification. */
   adoptVerifiedSession: () => Promise<EstablishedSession>;
   logoutUser: () => Promise<void>;
+  /**
+   * End a session the server has already removed (for example a losing
+   * duplicate league claim), clearing state and cached data without a
+   * logout request.
+   */
+  endSession: (notice?: AuthenticationNotice) => void;
   refreshUser: () => Promise<void>;
   showNotice: (notice: AuthenticationNotice) => void;
   clearNotice: () => void;
@@ -372,6 +378,15 @@ export function AuthProvider({
     }
   }, [clearSession, csrfToken]);
 
+  const endSession = useCallback(
+    (nextNotice?: AuthenticationNotice) => {
+      // clearSession purges cached workspace data synchronously first.
+      clearSession();
+      setNotice(nextNotice ?? null);
+    },
+    [clearSession],
+  );
+
   const showNotice = useCallback(
     (nextNotice: AuthenticationNotice) => {
       setNotice(nextNotice);
@@ -396,6 +411,7 @@ export function AuthProvider({
       loginLegacyUsername,
       adoptVerifiedSession,
       logoutUser,
+      endSession,
       refreshUser,
       showNotice,
       clearNotice,
@@ -412,6 +428,7 @@ export function AuthProvider({
       loginLegacyUsername,
       adoptVerifiedSession,
       logoutUser,
+      endSession,
       refreshUser,
       showNotice,
       clearNotice,

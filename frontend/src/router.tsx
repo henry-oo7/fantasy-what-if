@@ -9,6 +9,7 @@ import { AppShell } from "./components/layout/AppShell";
 import { AdminPage } from "./pages/AdminPage";
 import { AllPlayPage } from "./pages/AllPlayPage";
 import { ForgotPasswordPage } from "./pages/account/ForgotPasswordPage";
+import { LeagueAlreadyConnectedPage } from "./pages/account/LeagueAlreadyConnectedPage";
 import { LoginPage } from "./pages/account/LoginPage";
 import { RegisterPage } from "./pages/account/RegisterPage";
 import { ResetPasswordPage } from "./pages/account/ResetPasswordPage";
@@ -58,6 +59,9 @@ function ApplicationRoutes() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
 
       <Route path="/onboarding" element={<OnboardingRoute />} />
+
+      {/* Public outcome of a losing duplicate claim; the session is gone. */}
+      <Route path="/league-already-connected" element={<LeagueAlreadyConnectedPage />} />
 
       <Route
         element={

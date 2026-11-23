@@ -57,7 +57,11 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [mode, setMode] = useState<LoginMode>("administrator");
+  const [mode, setMode] = useState<LoginMode>(() =>
+    (location.state as { mode?: unknown } | null)?.mode === "spectator"
+      ? "spectator"
+      : "administrator",
+  );
   const [email, setEmail] = useState("");
   const [workspaceSlug, setWorkspaceSlug] = useState("");
   const [password, setPassword] = useState("");

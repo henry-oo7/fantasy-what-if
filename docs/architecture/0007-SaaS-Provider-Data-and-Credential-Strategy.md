@@ -515,7 +515,7 @@ Validation does not require `isLeagueManager`, a team-owner match, or a commissi
 
 The validated target is stored on the workspace's single active `provider_connections` row: `provider_league_id`, `provider_season_year`, and `access_mode` (`public` or `private`). Public rows carry no ciphertext and no credential key version. Private rows carry ciphertext and the current key version. Database constraints enforce these states, and a partial unique index allows at most one active connection per workspace, regardless of provider.
 
-The authoritative claim created in the next slice is unique by `provider` plus the normalized provider League ID. Season is not part of claim uniqueness.
+The authoritative claim is unique by `provider` plus the normalized provider League ID. Season is not part of claim uniqueness. Validation and claim are separate steps: the claim is created only after the administrator confirms the validated target, and it requires no League or Season row (`provider_league_claims.league_id` is attached later by synchronization). Duplicate claims disclose no existing workspace details.
 
 ### Sleeper
 

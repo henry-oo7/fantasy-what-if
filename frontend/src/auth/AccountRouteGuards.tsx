@@ -69,9 +69,15 @@ export function OnboardingRoute() {
   }
 
   if (auth.status !== "authenticated" || auth.user === null) {
+    // A losing duplicate claim removed this registration: show the public
+    // outcome rather than a generic sign-in page.
     return (
       <Navigate
-        to="/login"
+        to={
+          auth.notice === "league_already_claimed"
+            ? "/league-already-connected"
+            : "/login"
+        }
         replace
       />
     );

@@ -711,3 +711,34 @@
 .credential-fields .auth-link-button {
   justify-self: start;
 }
+
+/* Onboarding claim confirmation */
+.league-target {
+  display: grid;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+}
+
+.league-target div {
+  display: grid;
+  grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.league-target div + div {
+  border-top: 1px solid var(--color-border);
+}
+
+.league-target dt {
+  color: var(--color-text-muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.league-target dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
