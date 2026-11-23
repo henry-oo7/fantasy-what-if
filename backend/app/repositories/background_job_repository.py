@@ -13,6 +13,9 @@ from app.db.platform_enums import (
     BackgroundJobType,
 )
 from app.db.platform_models import BackgroundJob
+from app.notifications.delivery_job_contract import (
+    validate_transactional_email_job_payload,
+)
 
 ACTIVE_JOB_STATUSES = (
     BackgroundJobStatus.PENDING,
@@ -45,7 +48,11 @@ class EnqueueBackgroundJobResult:
 
 
 class BackgroundJobRepository:
-    """Persist and atomically claim workspace-owned jobs."""
+    """Persist and atomically claim durable jobs.
+
+    Jobs are workspace-owned; only unscoped transactional-email jobs have no
+    workspace, and workspace-keyed reads never match them.
+    """
 
     def __init__(
         self,
@@ -56,7 +63,7 @@ class BackgroundJobRepository:
     def enqueue(
         self,
         *,
-        workspace_id: int,
+        workspace_id: int | None,
         job_type: BackgroundJobType,
         payload: dict[str, Any],
         idempotency_key: str | None = None,
@@ -65,8 +72,14 @@ class BackgroundJobRepository:
         maximum_attempts: int = 5,
         available_at: datetime | None = None,
     ) -> EnqueueBackgroundJobResult:
-        if workspace_id < 1:
+        if workspace_id is None:
+            if job_type is not BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY:
+                raise ValueError("Only transactional-email jobs may omit workspace_id.")
+        elif workspace_id < 1:
             raise ValueError("workspace_id must be positive.")
+
+        if job_type is BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY:
+            validate_transactional_email_job_payload(payload)
 
         if payload_version < 1:
             raise ValueError("payload_version must be positive.")

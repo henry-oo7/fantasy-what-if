@@ -49,13 +49,15 @@ def test_background_job_enum_values_are_stable() -> None:
         "expired_session_cleanup",
         "expired_token_cleanup",
         "workspace_deletion",
+        "transactional_email_delivery",
     )
 
 
 def test_background_job_workspace_ownership() -> None:
     table = BackgroundJob.__table__
 
-    assert table.c.workspace_id.nullable is False
+    # Nullable only for unscoped transactional-email jobs; a CHECK guards it.
+    assert table.c.workspace_id.nullable is True
 
     foreign_key = next(iter(table.c.workspace_id.foreign_keys))
 

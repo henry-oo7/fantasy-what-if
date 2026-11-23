@@ -82,6 +82,7 @@ class BackgroundJobType(StrEnum):
     EXPIRED_SESSION_CLEANUP = "expired_session_cleanup"
     EXPIRED_TOKEN_CLEANUP = "expired_token_cleanup"
     WORKSPACE_DELETION = "workspace_deletion"
+    TRANSACTIONAL_EMAIL_DELIVERY = "transactional_email_delivery"
 
 
 class BackgroundJobStatus(StrEnum):
@@ -90,4 +91,28 @@ class BackgroundJobStatus(StrEnum):
     RETRY_SCHEDULED = "retry_scheduled"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    CANCELED = "canceled"
+
+
+class TransactionalEmailScope(StrEnum):
+    WORKSPACE = "workspace"
+    UNSCOPED = "unscoped"
+
+
+class TransactionalEmailEventType(StrEnum):
+    ADMINISTRATOR_EMAIL_VERIFICATION = "administrator_email_verification"
+    ADMINISTRATOR_PASSWORD_RESET = "administrator_password_reset"
+    ADMINISTRATOR_PASSWORD_CHANGED = "administrator_password_changed"
+    WORKSPACE_DELETION_REQUESTED = "workspace_deletion_requested"
+    WORKSPACE_DELETION_REMINDER = "workspace_deletion_reminder"
+    WORKSPACE_DELETION_COMPLETED = "workspace_deletion_completed"
+    WORKSPACE_DELETION_CANCELED = "workspace_deletion_canceled"
+
+
+class TransactionalEmailDeliveryStatus(StrEnum):
+    PENDING = "pending"
+    SENDING = "sending"
+    RETRY_SCHEDULED = "retry_scheduled"
+    SENT = "sent"
+    PERMANENTLY_FAILED = "permanently_failed"
     CANCELED = "canceled"

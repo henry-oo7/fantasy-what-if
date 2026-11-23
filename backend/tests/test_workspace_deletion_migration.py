@@ -25,6 +25,7 @@ from app.db.session import engine
 
 REVISION = "c4e8a1f7d3b9"
 PREVIOUS_REVISION = "b7d41e9c2a10"
+HEAD_REVISION = "d7f2b9a4c6e1"  # transactional email schema; later than REVISION
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ID = 990_101
 USER_ID = 990_101
@@ -77,6 +78,11 @@ def at_head() -> Iterator[None]:
 
     upgrade = alembic("upgrade", "head")
     assert upgrade.returncode == 0, upgrade.stderr
+
+    # This module rehearses revision c4e8a1f7d3b9 itself, so step back from
+    # any later head. Later revisions have their own migration tests.
+    stepped_back = alembic("downgrade", REVISION)
+    assert stepped_back.returncode == 0, stepped_back.stderr
     assert current_revisions() == [REVISION]
 
     cleanup_seed_rows()
@@ -218,9 +224,13 @@ def test_downgrade_round_trip_after_guarded_data_is_removed(at_head: None) -> No
     assert reasons == ORIGINAL_REVOCATION_REASONS
     assert leftover_types == []
 
-    upgrade = alembic("upgrade", "head")
+    upgrade = alembic("upgrade", REVISION)
     assert upgrade.returncode == 0, upgrade.stderr
     assert current_revisions() == [REVISION]
+
+    to_head = alembic("upgrade", "head")
+    assert to_head.returncode == 0, to_head.stderr
+    assert current_revisions() == [HEAD_REVISION]
 
     check = alembic("check")
     assert check.returncode == 0, check.stderr
@@ -230,4 +240,4 @@ def test_downgrade_round_trip_after_guarded_data_is_removed(at_head: None) -> No
     assert heads.returncode == 0, heads.stderr
     head_lines = [line for line in heads.stdout.splitlines() if "(head)" in line]
     assert len(head_lines) == 1
-    assert head_lines[0].startswith(REVISION)
+    assert head_lines[0].startswith(HEAD_REVISION)
