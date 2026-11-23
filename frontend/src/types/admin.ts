@@ -83,6 +83,11 @@ export interface StandingsTiebreakerConfiguration {
   effective_rule_source: "provider" | "admin_fallback" | null;
 }
 
+/** POST /api/admin/spectator: only the shared password is chosen. */
+export interface CreateSpectatorRequest {
+  password: string;
+}
+
 export interface ReplaceProviderCredentialsRequest {
   espn_s2: string;
   swid: string;

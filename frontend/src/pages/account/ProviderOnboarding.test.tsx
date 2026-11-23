@@ -36,7 +36,6 @@ const SWID = "{SYNTHETIC-SWID-0000-TEST}";
 const ESPN_S2 = "synthetic-espn-s2-not-a-real-cookie";
 const SESSION_CSRF = "synthetic-session-csrf";
 const ALLOWED_PATHS = new Set([
-  "/api/setup/status",
   "/api/auth/me",
   "/api/onboarding/provider/validate",
   // Safe read of the validated target on the claim step; never a claim.

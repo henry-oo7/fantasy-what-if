@@ -7,6 +7,7 @@ import { AppRouter } from "../../router";
 import {
   ADMIN_USER,
   createApiMock,
+  isRetiredApiPath,
   renderWithProviders,
   signInAs,
 } from "../../test/accountHarness";
@@ -61,10 +62,8 @@ describe("email verification", () => {
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
 
-    // The onboarding placeholder never touches legacy setup mutations.
-    expect(
-      api.requests.filter((request) => request.path.startsWith("/api/setup/") && request.method !== "GET"),
-    ).toHaveLength(0);
+    // Onboarding never touches retired installation setup endpoints.
+    expect(api.requests.some((request) => isRetiredApiPath(request.path))).toBe(false);
   });
 
   it("removes the token from the visible URL even when verification fails", async () => {

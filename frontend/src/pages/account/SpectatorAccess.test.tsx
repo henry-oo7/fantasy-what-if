@@ -173,10 +173,9 @@ describe("onboarding shared spectator setup", () => {
     expect(screen.queryByLabelText("Shared spectator password")).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain(PASSWORD);
 
-    // No activation, sync, claim or legacy setup mutation.
+    // No activation, sync or claim mutation.
     for (const request of api.requests) {
       expect([
-        "/api/setup/status",
         "/api/auth/me",
         "/api/onboarding/spectator",
         // The complete-stage review is a safe read; nothing is activated.

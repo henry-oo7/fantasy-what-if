@@ -717,7 +717,7 @@ ESPN must be hardened before public SaaS registration.
 
 Required ESPN work includes:
 
-- Remove ordinary SaaS environment credential fallback.
+- Remove environment credential fallback (complete).
 - Validate private-league credentials per workspace.
 - Preserve encrypted `espn_s2` and `SWID`.
 - Normalize `SWID` consistently.
@@ -1165,24 +1165,14 @@ Operator tools may display:
 
 Operator tools must not display plaintext credentials or tokens.
 
-## Migration from v1.0.1
+## No v1.0.1 Provider Migration
 
-The existing ESPN connection must migrate into the first League Workspace.
+The hosted deployment is new. No v1.0.1 ESPN connection, claim, credential envelope, or synchronization history is migrated.
 
-Migration must verify:
-
-1. The provider is ESPN.
-2. The league has a canonical ESPN provider league ID.
-3. The existing credential envelope can be decrypted.
-4. The credential-key version is known.
-5. The migrated provider claim can be created.
-6. No conflicting claim exists.
-7. Existing seasons reference the migrated provider connection.
-8. Existing synchronization history remains intact.
-9. Environment credential fallback is no longer required for normal execution.
-10. A synchronization succeeds using workspace-owned stored credentials.
-
-If a provider connection lacks encrypted stored credentials, normal provider construction fails safely. The workspace administrator must submit replacement credentials through the supported credential-capture flow before synchronization can resume.
+- Every provider connection is created by SaaS onboarding validation, owned by one workspace, and encrypted with the versioned `PROVIDER_CREDENTIAL_KEYS` keyring.
+- The single-value `PROVIDER_CREDENTIAL_KEY` setting and the environment-based ESPN credential fallback are removed. Settings expose no ESPN credential fields.
+- Provider adapters are constructed only from a workspace's persisted, encrypted connection. A connection without stored credentials fails safely, and the administrator replaces credentials through the supported flow.
+- The legacy setup provider-connection endpoint is removed; it returns ordinary 404 routing behavior.
 
 ## Implementation Sequence
 

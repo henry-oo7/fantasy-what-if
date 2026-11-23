@@ -1,4 +1,4 @@
-"""Import another season for an existing fantasy league."""
+"""Import another season into one workspace's existing fantasy league."""
 
 from __future__ import annotations
 
@@ -10,10 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db import model_registry  # noqa: F401
 from app.db.models import League, Season
-from app.db.platform_enums import (
-    InstallationStatus,
-    SeasonStatus,
-)
+from app.db.platform_enums import SeasonStatus
 from app.db.platform_models import (
     Installation,
     ProviderConnection,
@@ -38,6 +35,7 @@ from app.services.season_lifecycle import (
     FutureSeasonImportError,
     classify_imported_season,
 )
+from app.services.workspace_lifecycle import is_active_workspace
 
 SEASON_IMPORT_LOCK_KEY = 1_179_921_931
 
@@ -74,12 +72,13 @@ class SeasonImportResult:
 def import_provider_season(
     session: Session,
     *,
+    workspace_id: int,
     season_year: int,
     credential_keyring: ProviderCredentialKeyring,
     registry: ProviderRegistry | None = None,
     now: datetime | None = None,
 ) -> SeasonImportResult:
-    """Import one season into the existing canonical league."""
+    """Import one season into the authenticated workspace's own league."""
 
     timestamp = now or datetime.now(UTC)
 
@@ -93,33 +92,31 @@ def import_provider_season(
     except ValueError as exc:
         raise SeasonImportValidationError(str(exc)) from exc
 
+    # Imports serialize per workspace only; other workspaces are unaffected.
     session.execute(
         text(
             """
             SELECT pg_advisory_xact_lock(
-                :lock_key
+                :lock_key,
+                :workspace_id
             )
             """
         ),
         {
             "lock_key": SEASON_IMPORT_LOCK_KEY,
+            "workspace_id": workspace_id,
         },
     )
 
-    installations = session.scalars(
-        select(Installation).order_by(Installation.id).with_for_update()
-    ).all()
+    installation = session.get(
+        Installation,
+        workspace_id,
+        with_for_update=True,
+    )
 
-    if len(installations) != 1:
+    if installation is None or not is_active_workspace(installation):
         raise SeasonImportUnavailableError(
-            "Exactly one installation must exist before importing another season."
-        )
-
-    installation = installations[0]
-
-    if installation.status is not InstallationStatus.ACTIVE:
-        raise SeasonImportUnavailableError(
-            "Another season can be imported only after installation setup is complete."
+            "Another season can be imported only for an active workspace."
         )
 
     leagues = session.scalars(
@@ -132,7 +129,7 @@ def import_provider_season(
     ).all()
 
     if len(leagues) != 1:
-        raise SeasonImportUnavailableError("Exactly one installed fantasy league is required.")
+        raise SeasonImportUnavailableError("The workspace must have exactly one fantasy league.")
 
     league = leagues[0]
 

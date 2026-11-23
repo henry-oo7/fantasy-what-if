@@ -51,8 +51,12 @@ def spectator_user() -> User:
     return user(role=UserRole.SPECTATOR)
 
 
-def allow_csrf() -> None:
-    return None
+SESSION_WORKSPACE_ID = 77
+
+
+def allow_csrf() -> SimpleNamespace:
+    # The importer must receive the workspace from the authenticated session.
+    return SimpleNamespace(workspace_id=SESSION_WORKSPACE_ID)
 
 
 def import_result(
@@ -106,8 +110,10 @@ def test_admin_can_import_historical_season() -> None:
 
     def importer(
         *,
+        workspace_id: int,
         season_year: int,
     ) -> SeasonImportResult:
+        captured["workspace_id"] = workspace_id
         captured["season_year"] = season_year
         return import_result(year=season_year)
 
@@ -128,6 +134,7 @@ def test_admin_can_import_historical_season() -> None:
 
     assert response.status_code == status.HTTP_200_OK
     assert captured == {
+        "workspace_id": SESSION_WORKSPACE_ID,
         "season_year": 2025,
     }
     assert response.json() == {
@@ -146,8 +153,10 @@ def test_admin_can_import_historical_season() -> None:
 def test_admin_can_import_current_season() -> None:
     def importer(
         *,
+        workspace_id: int,
         season_year: int,
     ) -> SeasonImportResult:
+        assert workspace_id == SESSION_WORKSPACE_ID
         return import_result(
             year=season_year,
             season_status=SeasonStatus.ACTIVE,

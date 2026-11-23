@@ -120,14 +120,6 @@ Expected response:
 curl https://fantasy.example.com/health
 ```
 
-### Setup Status
-
-```bash
-curl https://fantasy.example.com/api/setup/status
-```
-
-Do not use the setup-status response as a substitute for authenticated administrative checks.
-
 ## Backup
 
 Download the backup script if it is not already present:

@@ -17,7 +17,6 @@ import type { AuthenticatedUser } from "../types/auth";
 import { SESSION_REPLACED_MESSAGE } from "./accountMessages";
 
 const LEAGUE_KEY = ["league", "current"] as const;
-const SETUP_KEY = ["setup", "status"] as const;
 
 vi.mock("../App", async () => {
   const { useQuery } = await import("@tanstack/react-query");
@@ -118,8 +117,8 @@ describe("authenticated query-cache isolation", () => {
 
     expect(await screen.findByRole("heading", { name: "Sign in to continue" })).toBeInTheDocument();
     expect(queryClient.getQueryData(LEAGUE_KEY)).toBeUndefined();
-    // Public installation status survives, so the guard does not refetch.
-    expect(queryClient.getQueryData(SETUP_KEY)).toBeDefined();
+    // The SaaS application has no public query roots: nothing survives.
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
   });
 
   it("removes cached data on session_replaced before the sign-in page renders", async () => {

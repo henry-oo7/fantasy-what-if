@@ -16,7 +16,6 @@ import {
 import {
   getCurrentUser,
   loginAdministrator as requestAdministratorLogin,
-  loginLegacyUsername as requestLegacyUsernameLogin,
   loginSpectator as requestSpectatorLogin,
   logout,
 } from "../api/auth";
@@ -24,12 +23,10 @@ import {
   ApiError,
   subscribeToApiErrors,
 } from "../api/client";
-import { setupQueryKeys } from "../api/setup";
 import type {
   AdministratorLoginRequest,
   AuthenticatedUser,
   AuthenticationNotice,
-  LegacyUsernameLoginRequest,
   SpectatorLoginRequest,
   WorkspaceAccess,
 } from "../types/auth";
@@ -58,10 +55,6 @@ interface AuthenticationContextValue {
   ) => Promise<EstablishedSession>;
   loginSpectator: (
     request: SpectatorLoginRequest,
-  ) => Promise<EstablishedSession>;
-  /** Legacy single-installation setup bootstrap only. */
-  loginLegacyUsername: (
-    request: LegacyUsernameLoginRequest,
   ) => Promise<EstablishedSession>;
   /** Adopt the session cookie set by a successful email verification. */
   adoptVerifiedSession: () => Promise<EstablishedSession>;
@@ -118,22 +111,15 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Query roots that hold public, unauthenticated data. Everything else is
- * treated as authenticated workspace data and removed when the session
- * ends or changes, so unclassified future keys are removed by default.
+ * Every cached query is authenticated workspace data: the SaaS application
+ * has no public query roots. All of it is removed when the session ends or
+ * changes, so future keys are removed by default.
  */
-const PUBLIC_QUERY_ROOTS: ReadonlySet<unknown> = new Set([
-  setupQueryKeys.all[0],
-]);
-
 function purgeAuthenticatedQueries(queryClient: QueryClient): void {
-  const isAuthenticatedQuery = (query: { queryKey: readonly unknown[] }) =>
-    !PUBLIC_QUERY_ROOTS.has(query.queryKey[0]);
-
   // Cancel in-flight fetches so a late response cannot repopulate the
   // cache, then remove the data synchronously before any rerender.
-  void queryClient.cancelQueries({ predicate: isAuthenticatedQuery });
-  queryClient.removeQueries({ predicate: isAuthenticatedQuery });
+  void queryClient.cancelQueries();
+  queryClient.removeQueries();
   queryClient.getMutationCache().clear();
 }
 
@@ -346,18 +332,6 @@ export function AuthProvider({
     [establishSession],
   );
 
-  const loginLegacyUsername = useCallback(
-    async (
-      request: LegacyUsernameLoginRequest,
-    ): Promise<EstablishedSession> => {
-      await requestLegacyUsernameLogin(request);
-      setNotice(null);
-
-      return establishSession();
-    },
-    [establishSession],
-  );
-
   const adoptVerifiedSession = useCallback(async () => {
     setNotice(null);
 
@@ -408,7 +382,6 @@ export function AuthProvider({
       notice,
       loginAdministrator,
       loginSpectator,
-      loginLegacyUsername,
       adoptVerifiedSession,
       logoutUser,
       endSession,
@@ -425,7 +398,6 @@ export function AuthProvider({
       notice,
       loginAdministrator,
       loginSpectator,
-      loginLegacyUsername,
       adoptVerifiedSession,
       logoutUser,
       endSession,

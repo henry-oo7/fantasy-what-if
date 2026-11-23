@@ -3,7 +3,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import App from "./App";
 import { OnboardingRoute, PublicOnlyRoute } from "./auth/AccountRouteGuards";
 import { AdminRoute } from "./auth/AdminRoute";
-import { InstallationRouteGuard } from "./auth/InstallationRouteGuard";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
 import { AdminPage } from "./pages/AdminPage";
@@ -19,13 +18,14 @@ import { OptimalLineupBreakdownPage } from "./pages/OptimalLineupBreakdownPage";
 import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
 import { PlayoffPredictorPage } from "./pages/PlayoffPredictorPage";
 import { ScheduleSwapPage } from "./pages/ScheduleSwapPage";
-import { SetupPage } from "./pages/SetupPage";
 
-function ApplicationRoutes() {
+/**
+ * SaaS routing. Account pages are public; onboarding and the application
+ * are gated by /api/auth/me. There is no installation setup route.
+ */
+export function AppRouter() {
   return (
     <Routes>
-      <Route path="/setup" element={<SetupPage />} />
-
       <Route
         path="/login"
         element={
@@ -99,13 +99,5 @@ function ApplicationRoutes() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-  );
-}
-
-export function AppRouter() {
-  return (
-    <InstallationRouteGuard>
-      <ApplicationRoutes />
-    </InstallationRouteGuard>
   );
 }

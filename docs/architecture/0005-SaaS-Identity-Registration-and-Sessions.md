@@ -44,7 +44,7 @@ The identity design must support:
 - Email verification
 - Duplicate-claim privacy
 - Future native mobile clients
-- Migration of the existing v1.0.1 administrator and spectator
+- No migration of v1.0.1 administrators, spectators, or sessions
 - Prevention of ambiguous credentials across workspaces
 
 A single global username namespace would preserve the current login form, but it would create unnecessary conflicts for shared spectator names such as `spectator`.
@@ -81,11 +81,9 @@ The spectator identity remains one shared read-only identity owned by the League
 
 ### Existing Username Field
 
-The existing administrator `username` may remain during migration for display, compatibility, or audit purposes, but the administrator username will no longer be the primary SaaS login identifier.
+The `users.username` column remains as generated internal storage for administrators and spectators. It is not a login identifier: administrators sign in by email and spectators by workspace slug plus the shared password. Username login has been removed.
 
-The existing spectator username will be deprecated as a login identifier after workspace-slug authentication is operational.
-
-The physical removal of either username field is not required during the first SaaS migration.
+Physically removing the column requires a separately approved migration.
 
 ## Rationale
 
@@ -929,39 +927,14 @@ UNIQUE (normalized_slug)
 
 The database constraint is authoritative even when the frontend performs an availability check.
 
-## Existing v1.0.1 Migration
+## No v1.0.1 Identity Migration
 
-The existing production administrator must migrate to email-based login.
+The hosted deployment is new. No v1.0.1 administrator, spectator, or session is migrated, and the username login, setup bootstrap administrator, and administrator-created spectator usernames have been removed.
 
-The migration must verify:
-
-- Exactly one existing administrator exists.
-- The administrator has a valid email address.
-- The email does not conflict with another migrated administrator.
-- The administrator belongs to the migrated League Workspace.
-- The administrator's existing password hash remains valid.
-- Existing sessions are either safely assigned to the workspace or revoked.
-- The existing spectator belongs to the migrated workspace.
-- The spectator password hash remains valid.
-- The workspace receives a unique slug.
-
-If the existing administrator email is absent or invalid, the migration must stop before enabling SaaS authentication or require a controlled pre-migration correction.
-
-The existing spectator username may remain stored but will not be required by the new spectator login form.
-
-## Session Migration
-
-Existing sessions may be preserved only when:
-
-- The session references a valid migrated user.
-- The user references the migrated workspace.
-- The session remains unexpired.
-- The session has not been revoked.
-- The new authentication context can be constructed safely.
-
-If any invariant cannot be proven, existing sessions should be revoked during migration.
-
-Revoking existing sessions is preferable to preserving ambiguous authorization.
+- Administrators exist only through public registration with email verification.
+- Spectators exist only through a workspace administrator setting the shared spectator password.
+- `POST /api/auth/login` no longer exists; it returns ordinary 404 routing behavior.
+- Generated internal usernames remain stored for administrators and spectators. They are never accepted by a login form, chosen by anyone, returned by an API, or displayed.
 
 ## Frontend Requirements
 
@@ -1041,7 +1014,7 @@ Transport-specific authentication will be added separately.
 
 - Administrator and spectator login flows differ.
 - Email delivery becomes required before public registration.
-- Existing username-based administrator login must migrate.
+- Username-based login is removed, so no v1 client remains compatible.
 - Workspace slugs become public identifiers.
 - Registration requires provisional-state cleanup.
 - Session and throttle logic must distinguish administrator and spectator modes.

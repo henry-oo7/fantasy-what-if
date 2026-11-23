@@ -54,23 +54,6 @@ def test_create_user_stores_normalized_values(
     )
 
 
-def test_get_user_by_username_is_normalized(
-    database_session: Session,
-) -> None:
-    repository = AuthenticationRepository(database_session)
-
-    created = repository.create_user(
-        username="lookup-user",
-        display_name="Lookup User",
-        password="correct horse battery staple",
-    )
-
-    found = repository.get_user_by_username("  LOOKUP-USER  ")
-
-    assert found is not None
-    assert found.id == created.id
-
-
 def test_duplicate_username_is_rejected(
     database_session: Session,
 ) -> None:

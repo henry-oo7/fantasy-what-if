@@ -16,6 +16,18 @@ This document defines the functional, security, data, provider, operational, and
 
 These requirements describe observable behavior. Detailed database tables, API routes, migrations, queue design, and deployment topology belong in the architecture and system-design documents.
 
+## Hosted Deployment Decision
+
+This decision is final and overrides any older text in the vision, roadmap, or architecture documents that describes preserving the v1.0.1 installation.
+
+- The hosted multi-workspace SaaS is a new deployment. No v1 data is migrated, imported, or preserved, and v1 single-installation databases are not supported.
+- SaaS onboarding is the sole setup path. There is no installation setup wizard, bootstrap administrator, setup finalization, or `/api/setup` API, and an empty database never offers bootstrap.
+- Administrators authenticate only by email and password.
+- Spectators authenticate only by workspace slug plus the shared spectator password.
+- Generated internal usernames may remain stored for administrators and spectators, but they are never login credentials, never chosen by anyone, never returned by a modern API, and never displayed.
+- Provider credentials are encrypted only with the versioned `PROVIDER_CREDENTIAL_KEYS` keyring. There is no single-value `PROVIDER_CREDENTIAL_KEY` and no environment-based ESPN credential fallback.
+- Runtime services resolve the workspace from the authenticated session or job and never search globally for the only installation, league, or spectator.
+
 ## Terminology
 
 ### League Workspace
@@ -36,7 +48,7 @@ A League Workspace owns its:
 - Configuration
 - Audit events
 
-The existing `Installation` model is the migration source for League Workspace behavior.
+The `Installation` model stores League Workspaces.
 
 ### Administrator
 
@@ -50,7 +62,7 @@ Product messaging targets fantasy players generally, for example: "Connect your 
 
 The spectator is one shared read-only account for a League Workspace. Multiple people may use the spectator account concurrently.
 
-The administrator creates and manages the single shared spectator password. Spectators sign in with the workspace slug plus that shared password. Spectators do not register, provide or verify an email address, choose a username, recover their own password, receive individual invitations, or receive team-specific accounts. Any spectator username retained in the database is an internal compatibility value: it is never chosen by the administrator, entered by a spectator, shown in the modern interface, or returned by the modern spectator API.
+The administrator creates and manages the single shared spectator password. Spectators sign in with the workspace slug plus that shared password. Spectators do not register, provide or verify an email address, choose a username, recover their own password, receive individual invitations, or receive team-specific accounts. The spectator's generated internal username is a storage value only: it is never chosen by the administrator, entered by a spectator, shown in the interface, or returned by any API.
 
 The public entry points are worded "Create a workspace", "Administrator sign in", and "Spectator sign in". The wording "Join as spectator" must not be used, because it implies self-registration or an access-request workflow.
 
@@ -226,9 +238,7 @@ The final choice must address:
 - Information disclosure
 - Migration of existing usernames
 
-Decision: email-based administrator login plus workspace-slug spectator login with the shared spectator password (ADR 0005).
-
-This remains an explicit system-design decision.
+Decision: email-based administrator login plus workspace-slug spectator login with the shared spectator password (ADR 0005). Username login has been removed; there are no existing usernames to migrate.
 
 ### FR-9: Provider Selection
 
@@ -375,7 +385,7 @@ A League Workspace may become active only when:
 
 Spectator setup happens before activation: activation also requires one enabled shared spectator with a password and no email.
 
-Activation is a separate final gate. `onboarding_stage = complete` alone is not sufficient: activation independently rechecks the persisted invariants (validated connection and target, claim attached to the workspace's own League, the Season for the validated year, a succeeded initial synchronization, core league data, and spectator access). It performs no provider I/O, decryption or synchronization. On success it sets the active League and Season and makes the workspace available. SaaS onboarding never uses legacy setup finalization.
+Activation is a separate final gate. `onboarding_stage = complete` alone is not sufficient: activation independently rechecks the persisted invariants (validated connection and target, claim attached to the workspace's own League, the Season for the validated year, a succeeded initial synchronization, core league data, and spectator access). It performs no provider I/O, decryption or synchronization. On success it sets the active League and Season and makes the workspace available. SaaS onboarding is the sole setup path.
 
 ### FR-17: Workspace-Scoped Season Import
 

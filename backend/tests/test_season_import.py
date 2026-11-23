@@ -11,6 +11,7 @@ from app.db.platform_enums import (
     FantasySport,
     InstallationStatus,
     SeasonStatus,
+    WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import (
     Installation,
@@ -33,6 +34,7 @@ from app.providers.registry import ProviderRegistry
 from app.services.season_import import (
     SEASON_IMPORT_LOCK_KEY,
     SeasonImportConflictError,
+    SeasonImportUnavailableError,
     SeasonImportValidationError,
     import_provider_season,
 )
@@ -218,8 +220,10 @@ def configured_session(
 ) -> MagicMock:
     session = MagicMock()
 
+    session.get.side_effect = lambda model, key, **_: (
+        installation if model is Installation and key == installation.id else None
+    )
     session.scalars.side_effect = [
-        MagicMock(all=MagicMock(return_value=[installation])),
         MagicMock(all=MagicMock(return_value=[league])),
         MagicMock(all=MagicMock(return_value=[connection])),
         MagicMock(all=MagicMock(return_value=(previous_active or []))),
@@ -253,6 +257,7 @@ def test_historical_import_is_completed_without_active_sync() -> None:
     ):
         result = import_provider_season(
             session,
+            workspace_id=1,
             season_year=2025,
             credential_keyring=credential_keyring(key),
             registry=registry(
@@ -309,6 +314,7 @@ def test_current_import_becomes_active() -> None:
     ):
         result = import_provider_season(
             session,
+            workspace_id=1,
             season_year=2026,
             credential_keyring=credential_keyring(key),
             registry=registry(
@@ -340,6 +346,7 @@ def test_duplicate_year_is_rejected_before_provider_creation() -> None:
     ):
         import_provider_season(
             session,
+            workspace_id=1,
             season_year=2025,
             credential_keyring=credential_keyring(key),
             registry=registry(
@@ -362,6 +369,7 @@ def test_future_year_is_rejected_before_database_access() -> None:
     ):
         import_provider_season(
             session,
+            workspace_id=1,
             season_year=2027,
             credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
             now=NOW,
@@ -385,6 +393,7 @@ def test_provider_returning_different_year_is_rejected() -> None:
     ):
         import_provider_season(
             session,
+            workspace_id=1,
             season_year=2025,
             credential_keyring=credential_keyring(key),
             registry=registry(
@@ -413,6 +422,7 @@ def test_import_uses_transaction_advisory_lock() -> None:
     ):
         import_provider_season(
             session,
+            workspace_id=1,
             season_year=2025,
             credential_keyring=credential_keyring(key),
             registry=registry(
@@ -427,4 +437,53 @@ def test_import_uses_transaction_advisory_lock() -> None:
     assert "pg_advisory_xact_lock" in statement
     assert session.execute.call_args_list[0].args[1] == {
         "lock_key": SEASON_IMPORT_LOCK_KEY,
+        "workspace_id": 1,
     }
+    session.get.assert_any_call(Installation, 1, with_for_update=True)
+
+
+def test_import_never_reads_another_workspace() -> None:
+    key, installation, league, connection = objects()
+    session = configured_session(
+        installation=installation,
+        league=league,
+        connection=connection,
+    )
+
+    with pytest.raises(SeasonImportUnavailableError, match="active workspace"):
+        import_provider_season(
+            session,
+            workspace_id=2,
+            season_year=2025,
+            credential_keyring=credential_keyring(key),
+            registry=registry(returned_year=2025, captured={}),
+            now=NOW,
+        )
+
+    session.get.assert_called_once_with(Installation, 2, with_for_update=True)
+    session.scalars.assert_not_called()
+    session.add.assert_not_called()
+    session.commit.assert_not_called()
+
+
+def test_provisional_workspace_cannot_import() -> None:
+    key, installation, league, connection = objects()
+    installation.registration_status = WorkspaceRegistrationStatus.PROVISIONAL
+    session = configured_session(
+        installation=installation,
+        league=league,
+        connection=connection,
+    )
+
+    with pytest.raises(SeasonImportUnavailableError, match="active workspace"):
+        import_provider_season(
+            session,
+            workspace_id=1,
+            season_year=2025,
+            credential_keyring=credential_keyring(key),
+            registry=registry(returned_year=2025, captured={}),
+            now=NOW,
+        )
+
+    session.add.assert_not_called()
+    session.commit.assert_not_called()

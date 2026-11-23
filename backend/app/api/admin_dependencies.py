@@ -43,20 +43,22 @@ def get_synchronization_job_enqueuer() -> SynchronizationJobEnqueuer:
 
 
 class SeasonImporter(Protocol):
-    """Callable that imports another provider season."""
+    """Callable that imports another provider season into one workspace."""
 
     def __call__(
         self,
         *,
+        workspace_id: int,
         season_year: int,
     ): ...
 
 
 def import_season(
     *,
+    workspace_id: int,
     season_year: int,
 ):
-    """Import another season using configured credentials."""
+    """Import another season through the workspace's own provider connection."""
 
     from app.providers.credential_vault import (
         ProviderCredentialConfigurationError,
@@ -76,6 +78,7 @@ def import_season(
     with SessionFactory() as session:
         return import_provider_season(
             session,
+            workspace_id=workspace_id,
             season_year=season_year,
             credential_keyring=keyring,
         )

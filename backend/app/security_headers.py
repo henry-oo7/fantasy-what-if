@@ -39,7 +39,8 @@ HSTS_VALUE = "max-age=31536000; includeSubDomains"
 
 NO_STORE_PREFIXES = (
     "/api/auth",
-    "/api/setup",
+    "/api/registration",
+    "/api/onboarding",
     "/api/admin",
 )
 

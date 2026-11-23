@@ -10,7 +10,6 @@ const ACCOUNT_PATH_PREFIXES = [
   "/reset-password",
   "/onboarding",
   "/league-already-connected",
-  "/setup",
 ];
 
 /**

@@ -1099,7 +1099,6 @@ POST /api/auth/spectator/login
 POST /api/auth/logout
 POST /api/auth/password-reset/request
 POST /api/auth/password-reset/complete
-GET  /api/setup/status
 ```
 
 Enumeration-sensitive routes return generic safe responses.
@@ -1528,9 +1527,9 @@ Scale only after measuring:
 
 ## Data Migration Strategy
 
-Migration from v1.0.1 is additive.
+The hosted deployment is new. No v1.0.1 installation, user, session, provider connection, claim, or imported data is migrated or preserved. Every League Workspace is created through SaaS onboarding, which is the sole setup path. See the hosted deployment decision in `docs/product/SAAS_REQUIREMENTS.md`.
 
-Recommended sequence:
+The schema migrations below build the hosted schema. Their backfill steps applied only to development databases.
 
 ### Migration A: Workspace Identity Preparation
 
@@ -1578,22 +1577,7 @@ Each migration must include:
 
 ## Compatibility Strategy
 
-Compatibility behavior may temporarily support:
-
-- Existing username administrator login
-- Existing setup routes
-- Existing synchronous synchronization
-- Existing ESPN environment fallback
-- Existing frontend setup flow
-
-Every compatibility path must have:
-
-- One owner
-- A removal condition
-- Tests
-- A documented sunset phase
-
-Compatibility behavior must not become permanent by accident.
+The temporary compatibility paths have been removed: username administrator login, the `/api/setup` routes, the frontend setup flow, and the ESPN environment credential fallback. No compatibility path is retained for v1 clients or databases. Removed routes return ordinary 404 routing behavior, with no redirects or aliases.
 
 ## Testing Strategy
 
@@ -1864,7 +1848,7 @@ The target architecture succeeds when:
 9. ESPN is stable for multiple tenants.
 10. Sleeper passes the canonical provider contract.
 11. Yahoo OAuth is tenant safe.
-12. Existing v1.0.1 production data is preserved.
+12. A new hosted deployment initializes without v1.0.1 data.
 13. Registration and onboarding are resumable.
 14. Core mobile workflows are usable.
 15. Backups and restoration are proven.
@@ -1873,12 +1857,8 @@ The target architecture succeeds when:
 
 ## Existing Production Identity Migration Decisions
 
-The existing v1.0.1 production workspace will use the workspace slug `jimmyandfriends`.
-
-The existing administrator email will be marked verified during migration because the administrator account predates SaaS registration and is already the established production owner.
+Superseded. No v1.0.1 production workspace, administrator, or spectator is migrated. Every administrator registers and verifies an email address, and every spectator signs in with the workspace's slug and shared password.
 
 For new workspaces, provider validation may suggest a slug derived from the provider league name, but the registering administrator chooses the final available slug before league claiming.
 
 Changing a league name at ESPN, Sleeper, or Yahoo must not automatically change the saved workspace slug.
-
-The existing spectator username remains temporarily for compatibility. The target spectator login uses `jimmyandfriends` and the existing shared spectator password.

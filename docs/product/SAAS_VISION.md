@@ -348,26 +348,9 @@ Additional SaaS requirements include:
 
 ## Data and Migration Direction
 
-The migration from v1.0.1 should be additive and staged.
+The hosted SaaS is a new deployment. The v1.0.1 installation is not migrated, and its data is not preserved in the hosted service. A league previously served by v1 is onboarded again as a new League Workspace. See the hosted deployment decision in `SAAS_REQUIREMENTS.md`.
 
-The existing production installation should become the first League Workspace.
-
-Existing data must be preserved, including:
-
-- Users
-- Sessions where safely migratable
-- Provider credentials
-- League identity
-- Seasons
-- Teams
-- Matchups
-- Player-week scores
-- Analytics results
-- Synchronization history
-- Playoff settings
-- Administrator fallback settings
-
-Likely migration work includes:
+Hosted-schema work includes:
 
 - Explicit workspace ownership for users
 - Workspace-aware session authorization
@@ -376,13 +359,12 @@ Likely migration work includes:
 - Removal of global single-installation queries
 - Workspace-scoped provider resolution
 - Workspace-scoped advisory locks
-- Workspace-scoped setup state
 - Workspace-scoped spectator management
 - Workspace-scoped synchronization
 - Workspace-aware API routes and dependencies
 - Safer serialized provider metadata
 
-No destructive migration should be applied until production data has been backed up and a restore has been tested.
+No destructive schema migration should be applied to a hosted database until a backup has been taken and a restore has been tested.
 
 ## Explicit Non-Goals for the First SaaS Release
 
@@ -417,7 +399,7 @@ The first SaaS milestone is successful when:
 8. Only one administrator session can remain active.
 9. No cross-workspace data access is possible.
 10. Synchronization jobs are isolated by workspace and season.
-11. Existing v1.0.1 production data migrates without loss.
+11. A new hosted deployment initializes without migrating v1.0.1 data.
 12. ESPN synchronization remains stable.
 13. Sleeper and Yahoo can be added through provider contracts.
 14. Core mobile-web workflows are usable without horizontal overflow.

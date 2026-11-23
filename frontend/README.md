@@ -96,8 +96,12 @@ User=nginx
 The frontend supports:
 
 - `/`
-- `/setup`
 - `/login`
+- `/register`
+- `/verify-email`
+- `/forgot-password`
+- `/reset-password`
+- `/onboarding`
 - `/admin`
 - `/all-play`
 - `/league-average`

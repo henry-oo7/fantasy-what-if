@@ -149,7 +149,7 @@ def import_another_season(
         None,
         Depends(validate_request_origin),
     ],
-    ___: Annotated[
+    context: Annotated[
         AuthenticationContext,
         Depends(require_session_csrf),
     ],
@@ -158,10 +158,11 @@ def import_another_season(
         Depends(get_season_importer),
     ],
 ) -> ImportSeasonResponse:
-    """Import another season for the installed league."""
+    """Import another season for the authenticated workspace's league."""
 
     try:
         result = importer(
+            workspace_id=context.workspace_id,
             season_year=payload.year,
         )
     except SeasonImportConflictError as exc:

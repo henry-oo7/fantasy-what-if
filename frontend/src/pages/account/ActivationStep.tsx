@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { activateWorkspace, getActivationReview, onboardingQueryKeys } from "../../api/onboarding";
 import { ApiError } from "../../api/client";
-import { setupQueryKeys } from "../../api/setup";
 import { useAuth } from "../../auth/AuthProvider";
 import {
   ACTIVATE_WORKSPACE_LABEL,
@@ -73,9 +72,7 @@ export function ActivationStep() {
     try {
       await activateWorkspace(auth.csrfToken);
       // Provisional onboarding data must not survive into the active app.
-      queryClient.removeQueries({
-        predicate: (query) => query.queryKey[0] !== setupQueryKeys.all[0],
-      });
+      queryClient.removeQueries();
       // /api/auth/me now reports an active workspace; routing opens the app.
       await auth.refreshUser();
     } catch (activationError) {

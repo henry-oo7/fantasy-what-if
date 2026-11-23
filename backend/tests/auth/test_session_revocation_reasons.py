@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.authentication import log_in_user, log_out_user
+from app.auth.authentication import log_out_user
 from app.db.auth_models import (
     AuthSession,
     SessionRevocationReason,
@@ -292,50 +292,30 @@ def test_reason_without_revocation_timestamp_violates_check_constraint(
     )
 
 
-def test_legacy_username_admin_login_records_replaced_reason(
+def test_administrator_session_replacement_records_replaced_reason(
     database_session: Session,
 ) -> None:
     user = create_user(database_session)
+    repository = SessionRepository(database_session)
 
-    first = log_in_user(
-        database_session,
-        username=user.username,
-        password=PASSWORD,
-        session_lifetime_hours=8,
-    )
-    log_in_user(
-        database_session,
-        username=user.username,
-        password=PASSWORD,
-        session_lifetime_hours=8,
-    )
-    database_session.refresh(first.auth_session)
+    first = repository.replace_user_sessions(user=user, lifetime_hours=8)
+    repository.replace_user_sessions(user=user, lifetime_hours=8)
+    database_session.refresh(first.session)
 
-    assert first.auth_session.revocation_reason is SessionRevocationReason.REPLACED
+    assert first.session.revocation_reason is SessionRevocationReason.REPLACED
 
 
-def test_spectator_logins_never_record_replacement(
+def test_spectator_sessions_never_record_replacement(
     database_session: Session,
 ) -> None:
     spectator = create_user(database_session, role=UserRole.SPECTATOR)
+    repository = SessionRepository(database_session)
 
-    first = log_in_user(
-        database_session,
-        username=spectator.username,
-        password=PASSWORD,
-        session_lifetime_hours=8,
-    )
-    second = log_in_user(
-        database_session,
-        username=spectator.username,
-        password=PASSWORD,
-        session_lifetime_hours=8,
-    )
+    first = repository.create_session(user=spectator, lifetime_hours=8)
+    second = repository.create_session(user=spectator, lifetime_hours=8)
 
     sessions = database_session.scalars(
-        select(AuthSession).where(
-            AuthSession.id.in_([first.auth_session.id, second.auth_session.id])
-        )
+        select(AuthSession).where(AuthSession.id.in_([first.session.id, second.session.id]))
     ).all()
 
     assert all(stored.revoked_at is None for stored in sessions)
@@ -346,17 +326,12 @@ def test_log_out_user_records_logout_reason(
     database_session: Session,
 ) -> None:
     spectator = create_user(database_session, role=UserRole.SPECTATOR)
-    login = log_in_user(
-        database_session,
-        username=spectator.username,
-        password=PASSWORD,
-        session_lifetime_hours=8,
-    )
+    login = SessionRepository(database_session).create_session(user=spectator, lifetime_hours=8)
 
     assert log_out_user(database_session, session_token=login.session_token) is True
-    database_session.refresh(login.auth_session)
+    database_session.refresh(login.session)
 
-    assert login.auth_session.revocation_reason is SessionRevocationReason.LOGOUT
+    assert login.session.revocation_reason is SessionRevocationReason.LOGOUT
 
 
 def test_password_reset_records_password_reset_reason(
