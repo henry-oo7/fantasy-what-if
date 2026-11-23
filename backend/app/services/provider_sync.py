@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.analytics.optimal_lineup import (
     calculate_team_week_optimal_lineup,
 )
 from app.db.platform_enums import FantasyProvider
+from app.db.platform_models import Installation
 from app.providers.base import ProviderAdapter
 from app.repositories.optimal_lineup_repository import (
     replace_optimal_lineup_results,
@@ -20,6 +22,7 @@ from app.repositories.player_week_repository import (
 from app.repositories.provider_sync_repository import (
     ProviderSyncRepository,
 )
+from app.services.background_job_worker import BackgroundJobExecutionError
 from app.services.provider_sync_policy import (
     select_completed_weeks,
     select_matchup_weeks,
@@ -30,6 +33,7 @@ from app.services.provider_sync_policy import (
 from app.services.sync_lock import (
     acquire_season_sync_lock,
 )
+from app.services.workspace_lifecycle import is_deletion_pending
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +210,10 @@ def synchronize_provider(
         )
 
         if commit_transaction:
+            _require_workspace_not_deletion_pending(
+                session,
+                workspace_id=context.league.installation_id,
+            )
             session.commit()
         else:
             session.flush()
@@ -229,3 +237,37 @@ def synchronize_provider(
         player_week_scores_upserted=(len(stored_player_scores)),
         analytics_rebuilt=analytics_rebuilt,
     )
+
+
+WORKSPACE_DELETION_PENDING_SYNC_CODE = "workspace_unavailable"
+
+
+def _require_workspace_not_deletion_pending(
+    session: Session,
+    *,
+    workspace_id: int | None,
+) -> None:
+    """Refuse to commit canonical writes once deletion was requested.
+
+    The workspace row is locked ``FOR UPDATE`` immediately before commit.
+    The deletion request locks the same row first, so either this commit
+    finishes before the request transaction starts, or this recheck sees
+    the committed ``deletion_pending`` state and the writes roll back.
+    """
+
+    if workspace_id is None:
+        return
+
+    workspace = session.scalar(
+        select(Installation)
+        .where(Installation.id == workspace_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    if workspace is None or is_deletion_pending(workspace):
+        raise BackgroundJobExecutionError(
+            safe_error_code=WORKSPACE_DELETION_PENDING_SYNC_CODE,
+            safe_error_message="The background job workspace is unavailable.",
+            retryable=False,
+        )

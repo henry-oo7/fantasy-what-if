@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import League, Season
@@ -14,6 +14,7 @@ from app.db.platform_enums import (
     BackgroundJobType,
     InstallationStatus,
     SeasonStatus,
+    WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import Installation
 from app.repositories.background_job_repository import (
@@ -83,6 +84,12 @@ def list_scheduled_synchronization_targets(
         )
         .where(
             Installation.status == InstallationStatus.ACTIVE,
+            # Legacy rows have no registration status; deletion-pending,
+            # suspended, and provisional workspaces are never scheduled.
+            or_(
+                Installation.registration_status.is_(None),
+                Installation.registration_status == WorkspaceRegistrationStatus.ACTIVE,
+            ),
             Installation.active_league_id == League.id,
             League.installation_id == Installation.id,
             Season.status == SeasonStatus.ACTIVE,

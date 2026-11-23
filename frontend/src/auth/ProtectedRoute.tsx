@@ -103,6 +103,15 @@ export function ProtectedRoute({
     );
   }
 
+  if (auth.workspaceAccess === "deletion_recovery") {
+    return (
+      <Navigate
+        to="/workspace-deletion"
+        replace
+      />
+    );
+  }
+
   if (
     auth.workspaceAccess === "suspended" ||
     auth.workspaceAccess === "inactive"

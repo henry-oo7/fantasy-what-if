@@ -443,3 +443,44 @@ def test_provider_sync_can_leave_transaction_to_caller(
 
     assert latest_run is not None
     assert latest_run.status is SyncStatus.SUCCEEDED
+
+
+def test_provider_sync_refuses_commit_after_deletion_request(
+    database_session: Session,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.db.platform_enums import WorkspaceRegistrationStatus
+    from app.db.platform_models import Installation
+    from app.services.background_job_worker import BackgroundJobExecutionError
+
+    before_runs = count_rows(database_session, SyncRun)
+    before_scores = count_rows(database_session, PlayerWeekScore)
+
+    class DeletionRequestedDuringFetch(FakeProvider):
+        def fetch_matchups(self, **kwargs):
+            # The deletion request commits while provider data is fetched.
+            workspace = database_session.get(Installation, 1)
+            assert workspace is not None
+            requested_at = datetime.now(UTC)
+            workspace.registration_status = WorkspaceRegistrationStatus.DELETION_PENDING
+            workspace.deletion_requested_at = requested_at
+            workspace.deletion_scheduled_for = requested_at + timedelta(days=30)
+            database_session.flush()
+
+            return super().fetch_matchups(**kwargs)
+
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        synchronize_provider(
+            session=database_session,
+            season_id=1,
+            provider=DeletionRequestedDuringFetch(),
+            full_sync=False,
+            explicit_from_week=8,
+            explicit_through_week=8,
+        )
+
+    assert raised.value.safe_error_code == "workspace_unavailable"
+    assert raised.value.retryable is False
+    assert count_rows(database_session, SyncRun) == before_runs
+    assert count_rows(database_session, PlayerWeekScore) == before_scores

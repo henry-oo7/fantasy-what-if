@@ -88,6 +88,29 @@ def test_inactive_workspace_is_not_eligible(
     assert targets == ()
 
 
+def test_deletion_pending_workspace_is_not_eligible(
+    database_session: Session,
+) -> None:
+    from datetime import timedelta
+
+    from app.db.platform_enums import WorkspaceRegistrationStatus
+
+    workspace = database_session.get(
+        Installation,
+        1,
+    )
+
+    assert workspace is not None
+
+    requested_at = datetime.now(UTC)
+    workspace.registration_status = WorkspaceRegistrationStatus.DELETION_PENDING
+    workspace.deletion_requested_at = requested_at
+    workspace.deletion_scheduled_for = requested_at + timedelta(days=30)
+    database_session.flush()
+
+    assert list_scheduled_synchronization_targets(database_session) == ()
+
+
 def test_schedule_window_key_is_stable_in_utc() -> None:
     assert schedule_window_key(scheduled_for()) == "20261125T1200Z"
 

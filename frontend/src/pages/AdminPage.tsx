@@ -34,6 +34,7 @@ import { ApiError } from "../api/client";
 import { analyticsQueryKeys } from "../api/analytics";
 import { leagueQueryKeys } from "../api/league";
 import { useAuth } from "../auth/AuthProvider";
+import { WorkspaceDeletionSection } from "../components/admin/WorkspaceDeletionSection";
 import type {
   StandingsTiebreakerRule,
 } from "../types/admin";
@@ -1178,6 +1179,8 @@ export function AdminPage() {
           </p>
         ) : null}
       </section>
+
+      <WorkspaceDeletionSection />
     </div>
   );
 }

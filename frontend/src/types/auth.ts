@@ -47,6 +47,12 @@ export interface WorkspaceLifecycle {
   workspace_access: ResolvedWorkspaceAccess;
 }
 
+/**
+ * What the current session may do. A deletion_recovery session (FR-20)
+ * may only read /auth/me and deletion status, cancel deletion, and log out.
+ */
+export type SessionPurpose = "standard" | "deletion_recovery";
+
 /** GET /api/auth/me: identity plus authoritative workspace lifecycle. */
 export interface AuthenticatedUser {
   id: number;
@@ -55,6 +61,8 @@ export interface AuthenticatedUser {
   role: UserRole;
   is_active: boolean;
   workspace: WorkspaceLifecycle;
+  /** Absent on older responses; treated as standard. */
+  session_purpose?: SessionPurpose;
 }
 
 export interface CsrfTokenResponse {
@@ -83,6 +91,7 @@ export interface AdministratorAuthenticatedUser {
 export interface AdministratorAuthenticationResponse {
   user: AdministratorAuthenticatedUser;
   csrf_token: string;
+  session_purpose?: SessionPurpose;
 }
 
 /** POST /api/auth/spectator/login */
@@ -134,14 +143,21 @@ export interface PasswordResetCompletionResponse {
  * - provisional: administrator still in SaaS onboarding
  * - suspended: the workspace is suspended
  * - inactive: any other unusable workspace, or an unknown value
+ * - deletion_recovery: restricted administrator session for a workspace
+ *   scheduled for deletion; only the recovery screen is reachable
  * - checking: no session has been resolved yet
  */
+export type RoutedWorkspaceAccess =
+  | ResolvedWorkspaceAccess
+  | "deletion_recovery";
+
 export type WorkspaceAccess =
   | "checking"
-  | ResolvedWorkspaceAccess;
+  | RoutedWorkspaceAccess;
 
 /** Messages shown on the login page after a lifecycle event. */
 export type AuthenticationNotice =
   | "session_replaced"
   | "password_reset_completed"
-  | "league_already_claimed";
+  | "league_already_claimed"
+  | "workspace_deletion_canceled";

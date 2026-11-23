@@ -10,7 +10,12 @@ from app.auth.security import (
     generate_session_token,
     hash_token,
 )
-from app.db.auth_models import AuthSession, SessionRevocationReason, User
+from app.db.auth_models import (
+    AuthSession,
+    AuthSessionPurpose,
+    SessionRevocationReason,
+    User,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,13 +67,27 @@ class SessionRepository:
         self,
         *,
         user: User,
-        lifetime_hours: int,
+        lifetime_hours: int | None = None,
+        lifetime: timedelta | None = None,
+        purpose: AuthSessionPurpose = AuthSessionPurpose.STANDARD,
         ip_address: str | None = None,
         user_agent: str | None = None,
         now: datetime | None = None,
     ) -> CreatedSession:
+        """Create one session with exactly one lifetime specification.
+
+        ``lifetime`` supports sub-hour sessions such as the fixed 15-minute
+        ``deletion_recovery`` session. Sessions are never renewed: the
+        expiration chosen here is final.
+        """
+
         if not user.is_active:
             raise ValueError("Inactive users cannot create sessions.")
+
+        session_lifetime = _resolve_lifetime(
+            lifetime_hours=lifetime_hours,
+            lifetime=lifetime,
+        )
 
         current_time = now or datetime.now(UTC)
         session_token = generate_session_token()
@@ -79,8 +98,9 @@ class SessionRepository:
             session_token_hash=hash_token(session_token),
             csrf_token_hash=hash_token(csrf_token),
             created_at=current_time,
-            expires_at=current_time + timedelta(hours=lifetime_hours),
+            expires_at=current_time + session_lifetime,
             last_seen_at=current_time,
+            purpose=purpose,
             ip_address=_normalize_ip_address(ip_address),
             user_agent=_normalize_user_agent(user_agent),
         )
@@ -98,7 +118,9 @@ class SessionRepository:
         self,
         *,
         user: User,
-        lifetime_hours: int,
+        lifetime_hours: int | None = None,
+        lifetime: timedelta | None = None,
+        purpose: AuthSessionPurpose = AuthSessionPurpose.STANDARD,
         ip_address: str | None = None,
         user_agent: str | None = None,
         now: datetime | None = None,
@@ -124,6 +146,8 @@ class SessionRepository:
         return self.create_session(
             user=user,
             lifetime_hours=lifetime_hours,
+            lifetime=lifetime,
+            purpose=purpose,
             ip_address=ip_address,
             user_agent=user_agent,
             now=now,
@@ -282,6 +306,38 @@ class SessionRepository:
 
         return int(result.rowcount or 0)
 
+    def revoke_all_workspace_sessions(
+        self,
+        *,
+        workspace_id: int,
+        reason: SessionRevocationReason,
+        now: datetime | None = None,
+    ) -> int:
+        """Revoke every active session of every user in one workspace.
+
+        Covers the administrator and the shared spectator, whatever the
+        session purpose. Already-revoked sessions keep their original
+        timestamp and reason.
+        """
+
+        current_time = now or datetime.now(UTC)
+        workspace_user_ids = select(User.id).where(User.workspace_id == workspace_id)
+
+        result = self.session.execute(
+            update(AuthSession)
+            .where(
+                AuthSession.user_id.in_(workspace_user_ids),
+                AuthSession.revoked_at.is_(None),
+            )
+            .values(
+                revoked_at=current_time,
+                revocation_reason=reason,
+            )
+            .execution_options(synchronize_session="fetch")
+        )
+
+        return int(result.rowcount or 0)
+
     def delete_expired_sessions(
         self,
         *,
@@ -294,6 +350,22 @@ class SessionRepository:
         )
 
         return int(result.rowcount or 0)
+
+
+def _resolve_lifetime(
+    *,
+    lifetime_hours: int | None,
+    lifetime: timedelta | None,
+) -> timedelta:
+    if (lifetime_hours is None) == (lifetime is None):
+        raise ValueError("Specify exactly one of lifetime_hours or lifetime.")
+
+    resolved = lifetime if lifetime is not None else timedelta(hours=lifetime_hours or 0)
+
+    if resolved <= timedelta(0):
+        raise ValueError("Session lifetime must be positive.")
+
+    return resolved
 
 
 def _normalize_ip_address(

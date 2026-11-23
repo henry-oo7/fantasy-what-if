@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,17 @@ ACTIVE_JOB_STATUSES = (
 )
 
 ACTIVE_IDEMPOTENCY_CONSTRAINT = "uq_background_jobs_active_idempotency_key"
+
+QUEUED_JOB_STATUSES = (
+    BackgroundJobStatus.PENDING,
+    BackgroundJobStatus.RETRY_SCHEDULED,
+)
+
+# Job types that are queued durably but must not be claimed yet. A due
+# workspace_deletion job stays pending until the final-deletion worker
+# slice registers its handler and removes it from this set; claiming it
+# now would fail it terminally as an unsupported job type.
+UNCLAIMABLE_JOB_TYPES = frozenset({BackgroundJobType.WORKSPACE_DELETION})
 
 
 class BackgroundJobRepositoryError(RuntimeError):
@@ -183,6 +194,7 @@ class BackgroundJobRepository:
                 ),
                 BackgroundJob.available_at <= timestamp,
                 BackgroundJob.attempt_count < BackgroundJob.maximum_attempts,
+                BackgroundJob.job_type.not_in(tuple(UNCLAIMABLE_JOB_TYPES)),
             )
             .order_by(
                 BackgroundJob.priority.desc(),
@@ -450,6 +462,53 @@ class BackgroundJobRepository:
         job.retryable = None
 
         self.session.flush()
+
+    def cancel_queued_workspace_jobs(
+        self,
+        *,
+        workspace_id: int,
+        job_types: tuple[BackgroundJobType, ...] | None = None,
+        exclude_job_types: tuple[BackgroundJobType, ...] = (),
+        now: datetime | None = None,
+    ) -> int:
+        """Cancel one workspace's pending and retry-scheduled jobs.
+
+        Running jobs are never rewritten here: their handlers recheck the
+        workspace lifecycle under lock before committing. The caller must
+        hold the workspace row lock so no job can be claimed or enqueued
+        for the workspace in a way that escapes this statement.
+        """
+
+        if workspace_id < 1:
+            raise ValueError("workspace_id must be positive.")
+
+        timestamp = now or datetime.now(UTC)
+        statement = update(BackgroundJob).where(
+            BackgroundJob.workspace_id == workspace_id,
+            BackgroundJob.status.in_(QUEUED_JOB_STATUSES),
+        )
+
+        if job_types is not None:
+            statement = statement.where(BackgroundJob.job_type.in_(job_types))
+
+        if exclude_job_types:
+            statement = statement.where(BackgroundJob.job_type.not_in(exclude_job_types))
+
+        result = self.session.execute(
+            statement.values(
+                status=BackgroundJobStatus.CANCELED,
+                canceled_at=timestamp,
+                completed_at=None,
+                failed_at=None,
+                claimed_at=None,
+                lease_expires_at=None,
+                claimed_by=None,
+                started_at=None,
+                retryable=None,
+            ).execution_options(synchronize_session="fetch")
+        )
+
+        return int(result.rowcount or 0)
 
     def _require_running_worker(
         self,

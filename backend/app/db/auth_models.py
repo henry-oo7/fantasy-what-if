@@ -30,8 +30,8 @@ class SessionRevocationReason(StrEnum):
     """Why one authentication session was revoked.
 
     ``replaced`` is the only reason disclosed to the client, as the
-    ``session_replaced`` error code. ``workspace_deletion_requested`` is
-    schema-only until the deletion-request slice adds its call site.
+    ``session_replaced`` error code. ``workspace_deletion_requested``
+    revokes every workspace session when FR-20 deletion is requested.
     """
 
     REPLACED = "replaced"

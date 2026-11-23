@@ -13,8 +13,8 @@ from fastapi.responses import JSONResponse
 
 from app.api.auth_dependencies import (
     AuthenticationContext,
-    get_authentication_context,
-    require_session_csrf,
+    require_any_purpose_session_csrf,
+    resolve_session_authentication_context,
 )
 from app.api.registration_dependencies import (
     get_transactional_email_sender,
@@ -82,6 +82,7 @@ from app.services.password_recovery import (
 from app.services.workspace_lifecycle import (
     WorkspaceAccess,
     is_active_workspace,
+    is_deletion_pending,
     is_resumable_onboarding,
     resolve_workspace_access,
 )
@@ -184,6 +185,7 @@ def administrator_login(
             role=result.user.role.value,
             is_active=result.user.is_active,
         )
+        session_purpose = result.session_purpose
 
         session.commit()
 
@@ -201,6 +203,7 @@ def administrator_login(
     return AdministratorAuthenticationResponse(
         user=user_response,
         csrf_token=result.csrf_token,
+        session_purpose=session_purpose,
     )
 
 
@@ -393,7 +396,13 @@ def request_administrator_password_reset(
                 administrator.workspace_id,
             )
 
-            if is_active_workspace(workspace) or is_resumable_onboarding(workspace):
+            # Reset stays available while deletion is pending (FR-20); it
+            # never cancels deletion or reactivates the workspace.
+            if (
+                is_active_workspace(workspace)
+                or is_resumable_onboarding(workspace)
+                or is_deletion_pending(workspace)
+            ):
                 issued = issue_password_reset_token(
                     session,
                     user=administrator,
@@ -494,7 +503,7 @@ def logout(
     ],
     context: Annotated[
         AuthenticationContext,
-        Depends(require_session_csrf),
+        Depends(require_any_purpose_session_csrf),
     ],
     _: Annotated[
         None,
@@ -531,7 +540,7 @@ def logout(
 def read_current_user(
     context: Annotated[
         AuthenticationContext,
-        Depends(get_authentication_context),
+        Depends(resolve_session_authentication_context),
     ],
 ) -> CurrentUserResponse:
     """Return identity and the authoritative workspace lifecycle."""
@@ -555,6 +564,7 @@ def read_current_user(
         role=context.role,
         is_active=context.user.is_active,
         workspace=workspace_response,
+        session_purpose=context.session_purpose,
     )
 
 

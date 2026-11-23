@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from app.auth.security import (
 )
 from app.db.auth_models import (
     AuthSession,
+    AuthSessionPurpose,
     SessionRevocationReason,
     User,
     UserRole,
@@ -38,8 +39,12 @@ from app.services.administrator_registration import (
 )
 from app.services.workspace_lifecycle import (
     is_active_workspace,
+    is_deletion_pending,
     is_resumable_onboarding,
 )
+
+# FR-20: a deletion_recovery session lasts 15 minutes and is never renewed.
+DELETION_RECOVERY_SESSION_LIFETIME = timedelta(minutes=15)
 
 
 class InvalidCredentialsError(ValueError):
@@ -72,6 +77,33 @@ class LoginResult:
     auth_session: AuthSession
     session_token: str
     csrf_token: str
+
+    @property
+    def session_purpose(self) -> AuthSessionPurpose:
+        return self.auth_session.purpose
+
+
+def lock_workspace_for_login(
+    session: Session,
+    workspace_id: int,
+) -> Installation | None:
+    """Read the workspace under ``FOR SHARE`` before creating a session.
+
+    The FR-20 deletion request holds ``FOR UPDATE`` on the same row while
+    it revokes every workspace session. A login that waits here observes
+    the committed lifecycle afterwards, and a login that locks first
+    commits its session before the request can start revoking. Either
+    way no standard session survives a deletion request. The lock is
+    taken before any user-row write to keep a single lock order
+    (workspace, then user) with the deletion request.
+    """
+
+    return session.scalar(
+        select(Installation)
+        .where(Installation.id == workspace_id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
 
 
 def resolve_authenticated_user(
@@ -250,12 +282,26 @@ def log_in_administrator_by_email(
         )
         raise InvalidCredentialsError("Invalid email or password.")
 
-    workspace = session.get(
-        Installation,
+    workspace = lock_workspace_for_login(
+        session,
         candidate_user.workspace_id,
     )
+    current_time = now or datetime.now(UTC)
 
-    if not is_active_workspace(workspace) and not is_resumable_onboarding(workspace):
+    # A deletion-pending workspace permits only a restricted recovery
+    # session, and only before the scheduled deletion time (FR-20).
+    deletion_recovery = (
+        is_deletion_pending(workspace)
+        and workspace is not None
+        and workspace.deletion_scheduled_for is not None
+        and current_time < workspace.deletion_scheduled_for
+    )
+
+    if (
+        not deletion_recovery
+        and not is_active_workspace(workspace)
+        and not is_resumable_onboarding(workspace)
+    ):
         _record_login_failure(
             throttle=throttle,
             policy=policy,
@@ -276,13 +322,29 @@ def log_in_administrator_by_email(
 
     repository.record_successful_login(candidate_user)
 
-    created = SessionRepository(session).replace_user_sessions(
-        user=candidate_user,
-        lifetime_hours=session_lifetime_hours,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        now=now,
-    )
+    repository_sessions = SessionRepository(session)
+
+    if deletion_recovery:
+        # Every earlier session was revoked by the deletion request; this
+        # only replaces an earlier recovery session so at most one
+        # administrator session stays active. It is never a standard
+        # session and never restores a revoked one.
+        created = repository_sessions.replace_user_sessions(
+            user=candidate_user,
+            lifetime=DELETION_RECOVERY_SESSION_LIFETIME,
+            purpose=AuthSessionPurpose.DELETION_RECOVERY,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            now=current_time,
+        )
+    else:
+        created = repository_sessions.replace_user_sessions(
+            user=candidate_user,
+            lifetime_hours=session_lifetime_hours,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            now=now,
+        )
 
     session.flush()
 
@@ -451,7 +513,19 @@ def log_in_workspace_spectator(
 
         raise InvalidCredentialsError("The workspace or spectator credentials are incorrect.")
 
-    if spectator is None:
+    if spectator is None or workspace is None:
+        raise InvalidCredentialsError("The workspace or spectator credentials are incorrect.")
+
+    # Recheck under the workspace share lock so a concurrent deletion
+    # request either revokes this session or is observed here.
+    if not is_active_workspace(lock_workspace_for_login(session, workspace.id)):
+        _record_login_failure(
+            throttle=throttle,
+            policy=policy,
+            source_throttle=source_throttle,
+            source_policy=source_policy,
+            now=now,
+        )
         raise InvalidCredentialsError("The workspace or spectator credentials are incorrect.")
 
     if password_hash_needs_update(spectator.password_hash):

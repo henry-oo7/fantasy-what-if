@@ -1,18 +1,26 @@
 import type {
   AuthenticatedUser,
   OnboardingStage,
-  ResolvedWorkspaceAccess,
+  RoutedWorkspaceAccess,
 } from "../types/auth";
 
 /**
  * Routing access from the authoritative GET /api/auth/me workspace object.
  *
  * Unknown or missing values are treated as inactive, and only an
- * administrator can ever be routed to provisional onboarding.
+ * administrator can ever be routed to provisional onboarding. A
+ * deletion_recovery session is routed only to the recovery screen,
+ * whatever the workspace object says.
  */
 export function workspaceAccessFor(
   user: AuthenticatedUser,
-): ResolvedWorkspaceAccess {
+): RoutedWorkspaceAccess {
+  const purpose: unknown = user.session_purpose;
+
+  if (purpose === "deletion_recovery") {
+    return user.role === "admin" ? "deletion_recovery" : "inactive";
+  }
+
   const access: unknown = user.workspace?.workspace_access;
 
   switch (access) {

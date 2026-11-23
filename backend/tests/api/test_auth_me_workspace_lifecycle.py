@@ -29,7 +29,15 @@ from app.services.workspace_lifecycle import (
     resolve_workspace_access,
 )
 
-USER_KEYS = {"id", "display_name", "email", "role", "is_active", "workspace"}
+USER_KEYS = {
+    "id",
+    "display_name",
+    "email",
+    "role",
+    "is_active",
+    "workspace",
+    "session_purpose",
+}
 WORKSPACE_KEYS = {
     "workspace_id",
     "workspace_slug",
@@ -163,6 +171,8 @@ def read_me(session_token: str) -> dict:
     body = response.json()
     assert set(body) == USER_KEYS
     assert set(body["workspace"]) == WORKSPACE_KEYS
+    # Sessions issued outside the FR-20 recovery login are standard.
+    assert body["session_purpose"] == "standard"
 
     return body
 

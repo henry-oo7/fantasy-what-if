@@ -742,3 +742,11 @@
   overflow-wrap: anywhere;
   font-weight: 700;
 }
+
+/* FR-20 deletion recovery countdown. */
+.deletion-countdown {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-danger);
+}

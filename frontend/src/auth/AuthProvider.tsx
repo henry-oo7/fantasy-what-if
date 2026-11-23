@@ -188,7 +188,9 @@ export function AuthProvider({
       workspaceAccessRef.current = access;
 
       if (
-        (access === "suspended" || access === "inactive") &&
+        (access === "suspended" ||
+          access === "inactive" ||
+          access === "deletion_recovery") &&
         previous !== access
       ) {
         purgeCache();
@@ -297,9 +299,12 @@ export function AuthProvider({
 
         // A provisional administrator is already outside the active
         // application; an inactive response does not change that.
+        // A deletion-recovery session is already confined to the recovery
+        // screen; restricted or inactive responses do not change that.
         if (
           access !== null &&
           userRef.current !== null &&
+          workspaceAccessRef.current !== "deletion_recovery" &&
           !(access === "inactive" && workspaceAccessRef.current === "provisional")
         ) {
           applyWorkspaceAccess(access);
