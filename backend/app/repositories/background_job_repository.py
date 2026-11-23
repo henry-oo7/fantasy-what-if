@@ -27,12 +27,6 @@ QUEUED_JOB_STATUSES = (
     BackgroundJobStatus.RETRY_SCHEDULED,
 )
 
-# Job types that are queued durably but must not be claimed yet. A due
-# workspace_deletion job stays pending until the final-deletion worker
-# slice registers its handler and removes it from this set; claiming it
-# now would fail it terminally as an unsupported job type.
-UNCLAIMABLE_JOB_TYPES = frozenset({BackgroundJobType.WORKSPACE_DELETION})
-
 
 class BackgroundJobRepositoryError(RuntimeError):
     """Base error for durable background-job operations."""
@@ -194,7 +188,6 @@ class BackgroundJobRepository:
                 ),
                 BackgroundJob.available_at <= timestamp,
                 BackgroundJob.attempt_count < BackgroundJob.maximum_attempts,
-                BackgroundJob.job_type.not_in(tuple(UNCLAIMABLE_JOB_TYPES)),
             )
             .order_by(
                 BackgroundJob.priority.desc(),
@@ -397,6 +390,45 @@ class BackgroundJobRepository:
         job.safe_error_code = normalize_safe_error_code(safe_error_code)
         job.safe_error_message = normalize_safe_error_message(safe_error_message)
         job.retryable = True
+        job.claimed_at = None
+        job.lease_expires_at = None
+        job.claimed_by = None
+        job.started_at = None
+        job.completed_at = None
+        job.failed_at = None
+        job.canceled_at = None
+
+        self.session.flush()
+
+    def defer_claimed_job(
+        self,
+        job: BackgroundJob,
+        *,
+        worker_id: str,
+        available_at: datetime,
+        safe_error_code: str,
+        safe_error_message: str,
+    ) -> None:
+        """Return a claimed, not-yet-due job to ``pending``.
+
+        The handler did no work, so the attempt consumed by the claim is
+        restored; repeated early claims never exhaust the job.
+        """
+
+        self._require_running_worker(
+            job,
+            worker_id=worker_id,
+        )
+
+        if job.attempt_count < 1:
+            raise BackgroundJobRepositoryError("A claimed background job must have an attempt.")
+
+        job.status = BackgroundJobStatus.PENDING
+        job.available_at = available_at
+        job.attempt_count -= 1
+        job.safe_error_code = normalize_safe_error_code(safe_error_code)
+        job.safe_error_message = normalize_safe_error_message(safe_error_message)
+        job.retryable = None
         job.claimed_at = None
         job.lease_expires_at = None
         job.claimed_by = None
