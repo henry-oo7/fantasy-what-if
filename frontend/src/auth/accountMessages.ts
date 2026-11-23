@@ -18,6 +18,9 @@ export const LEAGUE_CONNECTED_MESSAGE =
 export const LEAGUE_DATA_READY_MESSAGE =
   "Your league data is ready. Shared spectator access is the next step.";
 
+export const SPECTATOR_ACCESS_READY_MESSAGE =
+  "Shared spectator access is ready. Workspace activation is the final step.";
+
 export const START_INITIAL_SYNC_LABEL = "Start initial synchronization";
 
 export const RETRY_INITIAL_SYNC_LABEL = "Try initial synchronization again";

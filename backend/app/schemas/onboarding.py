@@ -116,3 +116,20 @@ class InitialSyncJobResponse(BaseModel):
 class InitialSyncProgressResponse(BaseModel):
     onboarding_stage: OnboardingStage
     job: InitialSyncJobResponse | None
+
+
+class SpectatorSetupRequest(BaseModel):
+    """The shared spectator password only; confirmation is checked in the browser."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    password: str = Field(min_length=14, max_length=128)
+
+
+class OnboardingSpectatorResponse(BaseModel):
+    """Safe spectator setup state. Never a password, hash, username or email."""
+
+    workspace_slug: str | None
+    configured: bool
+    enabled: bool
+    onboarding_stage: OnboardingStage

@@ -46,12 +46,9 @@ describe("admin API", () => {
   it("loads spectator account status", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
+        workspace_slug: "alpha-league",
         configured: true,
-        id: 2,
-        username: "league-viewer",
-        display_name: "League Spectator",
-        email: null,
-        is_active: true,
+        enabled: true,
       }),
     );
 
@@ -63,9 +60,12 @@ describe("admin API", () => {
       spectatorQueryOptions(),
     );
 
-    expect(result.username).toBe(
-      "league-viewer",
-    );
+    expect(result).toEqual({
+      workspace_slug: "alpha-league",
+      configured: true,
+      enabled: true,
+    });
+    expect(result).not.toHaveProperty("username");
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -175,12 +175,9 @@ describe("admin API", () => {
   it("resets the spectator password with CSRF", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
+        workspace_slug: "alpha-league",
         configured: true,
-        id: 2,
-        username: "league-viewer",
-        display_name: "League Spectator",
-        email: null,
-        is_active: true,
+        enabled: true,
         revoked_sessions: 3,
       }),
     );
@@ -217,12 +214,9 @@ describe("admin API", () => {
   it("changes spectator access with PATCH", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
+        workspace_slug: "alpha-league",
         configured: true,
-        id: 2,
-        username: "league-viewer",
-        display_name: "League Spectator",
-        email: null,
-        is_active: false,
+        enabled: false,
         revoked_sessions: 2,
       }),
     );
@@ -246,6 +240,28 @@ describe("admin API", () => {
       JSON.parse(String(options.body)),
     ).toEqual({
       is_active: false,
+    });
+  });
+
+  it("re-enables spectator access only with a new password", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        workspace_slug: "alpha-league",
+        configured: true,
+        enabled: true,
+        revoked_sessions: 0,
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await setSpectatorAccess(true, "session-csrf", "a fresh shared password");
+
+    const [, options] = fetchMock.mock.calls[0];
+
+    expect(JSON.parse(String(options.body))).toEqual({
+      is_active: true,
+      password: "a fresh shared password",
     });
   });
 

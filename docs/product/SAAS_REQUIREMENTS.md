@@ -192,6 +192,8 @@ A spectator password reset or account disable operation must revoke all existing
 
 Spectator setup occurs during onboarding after initial synchronization succeeds and before workspace activation.
 
+The administrator chooses only the shared password: at least 14 and at most 128 characters, never trimmed. The server generates the internal compatibility username and stores no spectator email. Changing the password revokes all spectator sessions. Disabling access revokes them and blocks sign-in with the generic credential failure. Re-enabling access always requires a new shared password, so the previous one is never revealed or silently restored. Completing spectator setup completes onboarding; workspace activation is a separate step.
+
 ### FR-7: Concurrent Spectator Sessions
 
 The spectator identity must support multiple concurrent sessions.

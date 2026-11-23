@@ -223,17 +223,7 @@ def test_all_admin_routes_reject_unauthenticated_requests() -> None:
             "POST",
             "/api/admin/spectator",
             {
-                "username": "league-viewer",
-                "display_name": "League Viewer",
                 "password": ("correct horse battery staple"),
-            },
-        ),
-        (
-            "PATCH",
-            "/api/admin/spectator/profile",
-            {
-                "display_name": "League Viewer",
-                "email": None,
             },
         ),
         (

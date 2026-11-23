@@ -6,10 +6,11 @@ import { useAuth } from "../../auth/AuthProvider";
 import { AccountLayout } from "../../components/account/AccountLayout";
 import { FormAlert } from "../../components/account/FormAlert";
 import { onboardingStageMessage } from "../../auth/workspaceLifecycle";
-import { LEAGUE_DATA_READY_MESSAGE } from "../../auth/accountMessages";
+import { SPECTATOR_ACCESS_READY_MESSAGE } from "../../auth/accountMessages";
 import { InitialSyncStep } from "./InitialSyncStep";
 import { LeagueClaimStep } from "./LeagueClaimStep";
 import { ProviderSetupStep } from "./ProviderSetupStep";
+import { SpectatorSetupStep } from "./SpectatorSetupStep";
 
 /**
  * Resume point for a provisional administrator, driven by the onboarding
@@ -18,7 +19,8 @@ import { ProviderSetupStep } from "./ProviderSetupStep";
  * - provider_setup_pending / provider_validation_failed: provider step
  * - league_claim_pending: confirm and claim the validated league
  * - initial_sync_pending / running / failed: start, follow or retry the import
- * - spectator_setup_pending: data-ready placeholder (spectator setup is next)
+ * - spectator_setup_pending: create the shared spectator password
+ * - complete: activation placeholder (activation is a separate step)
  * - any other stage: saved-progress placeholder
  *
  * This page never links to legacy setup routes.
@@ -36,7 +38,8 @@ export function OnboardingPage() {
     stage === "initial_sync_pending" ||
     stage === "initial_sync_running" ||
     stage === "initial_sync_failed";
-  const dataReady = stage === "spectator_setup_pending";
+  const spectatorSetup = stage === "spectator_setup_pending";
+  const onboardingComplete = stage === "complete";
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -86,8 +89,10 @@ export function OnboardingPage() {
           <LeagueClaimStep />
         ) : initialSync && stage !== null ? (
           <InitialSyncStep stage={stage} />
-        ) : dataReady ? (
-          <FormAlert tone="success">{LEAGUE_DATA_READY_MESSAGE}</FormAlert>
+        ) : spectatorSetup ? (
+          <SpectatorSetupStep />
+        ) : onboardingComplete ? (
+          <FormAlert tone="success">{SPECTATOR_ACCESS_READY_MESSAGE}</FormAlert>
         ) : (
           <FormAlert tone="notice">
             League data, standings, and spectator access become available

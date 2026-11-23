@@ -21,6 +21,8 @@ import {
   pollBackgroundJob,
   replaceProviderCredentials,
   resetSpectatorPassword,
+  SPECTATOR_PASSWORD_MAX_LENGTH,
+  SPECTATOR_PASSWORD_MIN_LENGTH,
   runSynchronization,
   setSpectatorAccess,
   setStandingsTiebreakerFallback,
@@ -234,6 +236,22 @@ export function AdminPage() {
     }
   }
 
+  function sharedPasswordError(): string | null {
+    if (password.length < SPECTATOR_PASSWORD_MIN_LENGTH) {
+      return `The shared password must contain at least ${SPECTATOR_PASSWORD_MIN_LENGTH} characters.`;
+    }
+
+    if (password.length > SPECTATOR_PASSWORD_MAX_LENGTH) {
+      return `The shared password cannot contain more than ${SPECTATOR_PASSWORD_MAX_LENGTH} characters.`;
+    }
+
+    if (password !== confirmPassword) {
+      return "Passwords do not match.";
+    }
+
+    return null;
+  }
+
   async function handlePasswordReset() {
     setSpectatorError(null);
     setSpectatorMessage(null);
@@ -245,17 +263,10 @@ export function AdminPage() {
       return;
     }
 
-    if (password !== confirmPassword) {
-      setSpectatorError(
-        "Passwords do not match.",
-      );
-      return;
-    }
+    const validationError = sharedPasswordError();
 
-    if (password.length < 12) {
-      setSpectatorError(
-        "The shared password must contain at least 12 characters.",
-      );
+    if (validationError) {
+      setSpectatorError(validationError);
       return;
     }
 
@@ -300,6 +311,16 @@ export function AdminPage() {
       return;
     }
 
+    if (isActive) {
+      // Re-enabling always sets a new shared password; the old one is never revealed.
+      const validationError = sharedPasswordError();
+
+      if (validationError) {
+        setSpectatorError(validationError);
+        return;
+      }
+    }
+
     setSavingSpectator(true);
 
     try {
@@ -307,11 +328,17 @@ export function AdminPage() {
         await setSpectatorAccess(
           isActive,
           csrfToken,
+          isActive ? password : undefined,
         );
+
+      if (isActive) {
+        setPassword("");
+        setConfirmPassword("");
+      }
 
       setSpectatorMessage(
         isActive
-          ? "Spectator access is enabled."
+          ? "Spectator access is enabled with the new shared password."
           : response.revoked_sessions
             ? `Spectator access is disabled. ${response.revoked_sessions} session(s) were signed out.`
             : "Spectator access is disabled.",
@@ -570,20 +597,22 @@ export function AdminPage() {
             </p>
 
             <h2 id="spectator-heading">
-              Spectator account
+              Shared spectator access
             </h2>
           </div>
 
           <span
             className={
-              spectator.is_active
+              spectator.enabled
                 ? "admin-status admin-status-active"
                 : "admin-status admin-status-disabled"
             }
           >
-            {spectator.is_active
-              ? "Access enabled"
-              : "Access disabled"}
+            {!spectator.configured
+              ? "Not configured"
+              : spectator.enabled
+                ? "Access enabled"
+                : "Access disabled"}
           </span>
         </div>
 
@@ -591,10 +620,15 @@ export function AdminPage() {
           <>
             <dl className="admin-detail-grid admin-spectator-details">
               <div>
-                <dt>Username</dt>
+                <dt>Spectator sign-in workspace</dt>
                 <dd>
-                  {spectator.username}
+                  {spectator.workspace_slug}
                 </dd>
+              </div>
+
+              <div>
+                <dt>Shared password</dt>
+                <dd>Configured (never displayed)</dd>
               </div>
 
             </dl>
@@ -604,12 +638,16 @@ export function AdminPage() {
                 <UserRoundCog aria-hidden="true" />
 
                 <div>
-                  <h3>Reset shared password</h3>
+                  <h3>
+                    {spectator.enabled
+                      ? "Change shared password"
+                      : "Set a new shared password"}
+                  </h3>
 
                   <p>
-                    Resetting the password immediately
-                    signs out every existing spectator
-                    session.
+                    {spectator.enabled
+                      ? "Changing the password immediately signs out every existing spectator session."
+                      : "Re-enabling access requires a new shared password. The previous password is never shown or reused."}
                   </p>
                 </div>
               </div>
@@ -624,8 +662,8 @@ export function AdminPage() {
                         : "password"
                     }
                     value={password}
-                    minLength={12}
-                    maxLength={128}
+                    minLength={SPECTATOR_PASSWORD_MIN_LENGTH}
+                    maxLength={SPECTATOR_PASSWORD_MAX_LENGTH}
                     autoComplete="new-password"
                     onChange={(event) => {
                       setPassword(
@@ -644,8 +682,8 @@ export function AdminPage() {
                         : "password"
                     }
                     value={confirmPassword}
-                    minLength={12}
-                    maxLength={128}
+                    minLength={SPECTATOR_PASSWORD_MIN_LENGTH}
+                    maxLength={SPECTATOR_PASSWORD_MAX_LENGTH}
                     autoComplete="new-password"
                     onChange={(event) => {
                       setConfirmPassword(
@@ -677,20 +715,22 @@ export function AdminPage() {
                     : "Show password"}
                 </button>
 
-                <button
-                  type="button"
-                  className="admin-primary-button"
-                  disabled={
-                    savingSpectator ||
-                    !password ||
-                    !confirmPassword
-                  }
-                  onClick={() => {
-                    void handlePasswordReset();
-                  }}
-                >
-                  Reset password
-                </button>
+                {spectator.enabled ? (
+                  <button
+                    type="button"
+                    className="admin-primary-button"
+                    disabled={
+                      savingSpectator ||
+                      !password ||
+                      !confirmPassword
+                    }
+                    onClick={() => {
+                      void handlePasswordReset();
+                    }}
+                  >
+                    Change password
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -708,20 +748,20 @@ export function AdminPage() {
               <button
                 type="button"
                 className={
-                  spectator.is_active
+                  spectator.enabled
                     ? "admin-danger-button"
                     : "admin-primary-button"
                 }
                 disabled={savingSpectator}
                 onClick={() => {
                   void handleAccessChange(
-                    !spectator.is_active,
+                    !spectator.enabled,
                   );
                 }}
               >
-                {spectator.is_active
+                {spectator.enabled
                   ? "Disable access"
-                  : "Enable access"}
+                  : "Enable access with new password"}
               </button>
             </div>
           </>
@@ -730,12 +770,11 @@ export function AdminPage() {
             <UserRoundCog aria-hidden="true" />
 
             <div>
-              <h3>No spectator account</h3>
+              <h3>Shared spectator access is not configured</h3>
 
               <p>
-                Create the shared spectator account from
-                the setup workflow or a future account
-                creation control.
+                Shared spectator access is created during
+                workspace setup.
               </p>
             </div>
           </div>

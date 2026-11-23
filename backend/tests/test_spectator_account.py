@@ -1,222 +1,202 @@
-from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+"""Workspace-scoped shared spectator service (real PostgreSQL)."""
+
+from collections.abc import Iterator
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import select, text
 
 from app.auth.security import verify_password
-from app.db.auth_models import SessionRevocationReason, User, UserRole
-from app.repositories.auth_repository import (
-    AuthenticationRepository,
-)
+from app.db.auth_models import AuthSession, SessionRevocationReason, User, UserRole
+from app.db.platform_enums import InstallationStatus
+from app.db.platform_models import Installation
+from app.db.session import SessionFactory
+from app.repositories.session_repository import SessionRepository
 from app.services.spectator_account import (
-    SPECTATOR_ACCOUNT_LOCK_KEY,
-    SpectatorAccountStateError,
+    SPECTATOR_PASSWORD_MAX_LENGTH,
+    SPECTATOR_PASSWORD_MIN_LENGTH,
     SpectatorAlreadyExistsError,
     SpectatorNotFoundError,
-    create_spectator_account,
-    get_spectator_account,
-    reset_spectator_password,
-    set_spectator_active,
-    update_spectator_profile,
+    SpectatorPasswordError,
+    create_workspace_spectator,
+    disable_workspace_spectator,
+    enable_workspace_spectator,
+    get_workspace_spectator,
+    lock_workspace,
+    reset_workspace_spectator_password,
+    validate_spectator_password,
 )
 
-
-def spectator(
-    *,
-    user_id: int = 20,
-    is_active: bool = True,
-) -> User:
-    return User(
-        id=user_id,
-        username="league-viewer",
-        display_name="League Viewer",
-        email=None,
-        password_hash="$argon2id$test-placeholder",
-        role=UserRole.SPECTATOR,
-        is_active=is_active,
-    )
+PASSWORD = "shared spectator passphrase 01"
+NEW_PASSWORD = "replacement spectator phrase 02"
 
 
-def setup_session(
-    *,
-    spectators: list[User],
-) -> MagicMock:
-    session = MagicMock()
-    session.scalars.return_value.all.return_value = spectators
+@pytest.fixture
+def workspaces() -> Iterator[list[int]]:
+    created: list[int] = []
 
-    return session
+    with SessionFactory() as session:
+        for _ in range(2):
+            slug = f"spectator-svc-{uuid4().hex[:10]}"
+            workspace = Installation(
+                application_name="Spectator Service",
+                slug=slug,
+                normalized_slug=slug,
+                timezone="America/Chicago",
+                status=InstallationStatus.ACTIVE,
+            )
+            session.add(workspace)
+            session.flush()
+            created.append(workspace.id)
 
+        session.commit()
 
-def test_get_spectator_returns_none_when_missing() -> None:
-    session = setup_session(spectators=[])
+    yield created
 
-    assert get_spectator_account(session) is None
+    with SessionFactory() as session:
+        for workspace_id in created:
+            session.execute(text("DELETE FROM installations WHERE id = :id"), {"id": workspace_id})
 
-
-def test_multiple_spectators_are_rejected() -> None:
-    session = setup_session(
-        spectators=[
-            spectator(user_id=20),
-            spectator(user_id=21),
-        ]
-    )
-
-    with pytest.raises(
-        SpectatorAccountStateError,
-        match="Multiple spectator",
-    ):
-        get_spectator_account(session)
+        session.commit()
 
 
-def test_create_spectator_uses_auth_repository() -> None:
-    session = setup_session(spectators=[])
-    created = spectator()
-
-    with patch("app.services.spectator_account.AuthenticationRepository") as repository_type:
-        repository_type.return_value.create_user.return_value = created
-
-        result = create_spectator_account(
-            session,
-            username="league-viewer",
-            display_name="League Viewer",
-            email="viewer@example.com",
-            password="correct horse battery staple",
+def create(workspace_id: int, password: str = PASSWORD) -> User:
+    with SessionFactory() as session:
+        lock_workspace(session, workspace_id)
+        spectator = create_workspace_spectator(
+            session, workspace_id=workspace_id, password=password
         )
+        session.commit()
+        session.expunge(spectator)
 
-    assert result is created
+        return spectator
 
-    repository_type.return_value.create_user.assert_called_once_with(
-        username="league-viewer",
-        display_name="League Viewer",
-        email="viewer@example.com",
-        password="correct horse battery staple",
-        role=UserRole.SPECTATOR,
-        is_active=True,
-    )
 
-    statement = str(session.execute.call_args.args[0])
+def open_sessions(user_id: int, count: int) -> None:
+    with SessionFactory() as session:
+        user = session.get(User, user_id)
+        assert user is not None
 
-    assert "pg_advisory_xact_lock" in statement
-    assert session.execute.call_args.args[1] == {
-        "lock_key": SPECTATOR_ACCOUNT_LOCK_KEY,
+        for _ in range(count):
+            SessionRepository(session).create_session(user=user, lifetime_hours=1)
+
+        session.commit()
+
+
+def sessions_of(user_id: int) -> list[AuthSession]:
+    with SessionFactory() as session:
+        rows = list(session.scalars(select(AuthSession).where(AuthSession.user_id == user_id)))
+        session.expunge_all()
+
+        return rows
+
+
+@pytest.mark.parametrize(
+    "password",
+    [
+        "x" * (SPECTATOR_PASSWORD_MIN_LENGTH - 1),
+        "x" * (SPECTATOR_PASSWORD_MAX_LENGTH + 1),
+    ],
+)
+def test_password_length_bounds(password: str) -> None:
+    with pytest.raises(SpectatorPasswordError):
+        validate_spectator_password(password)
+
+
+def test_password_is_not_trimmed() -> None:
+    # 13 visible characters padded by a space: valid only because nothing is trimmed.
+    validate_spectator_password(" " + "x" * 13)
+
+
+def test_create_generates_internal_username_and_hash_only(workspaces: list[int]) -> None:
+    spectator = create(workspaces[0])
+
+    assert spectator.role is UserRole.SPECTATOR
+    assert spectator.workspace_id == workspaces[0]
+    assert spectator.username.startswith("spectator-")
+    assert len(spectator.username) == len("spectator-") + 32
+    assert spectator.email is None
+    assert spectator.is_active is True
+    assert spectator.password_hash != PASSWORD
+    assert PASSWORD not in spectator.password_hash
+    assert verify_password(PASSWORD, spectator.password_hash)
+
+
+def test_second_spectator_is_rejected(workspaces: list[int]) -> None:
+    create(workspaces[0])
+
+    with pytest.raises(SpectatorAlreadyExistsError):
+        create(workspaces[0], NEW_PASSWORD)
+
+
+def test_spectators_are_isolated_per_workspace(workspaces: list[int]) -> None:
+    first = create(workspaces[0])
+    second = create(workspaces[1], NEW_PASSWORD)
+
+    assert first.id != second.id
+
+    with SessionFactory() as session:
+        found = get_workspace_spectator(session, workspace_id=workspaces[1])
+        assert found is not None and found.id == second.id
+
+
+def test_reset_replaces_hash_and_revokes_every_session(workspaces: list[int]) -> None:
+    spectator = create(workspaces[0])
+    other = create(workspaces[1], NEW_PASSWORD)
+    open_sessions(spectator.id, 3)
+    open_sessions(other.id, 1)
+
+    with SessionFactory() as session:
+        updated, revoked = reset_workspace_spectator_password(
+            session, workspace_id=workspaces[0], password=NEW_PASSWORD
+        )
+        session.commit()
+        assert revoked == 3
+        assert verify_password(NEW_PASSWORD, updated.password_hash)
+        assert not verify_password(PASSWORD, updated.password_hash)
+        assert updated.is_active is True
+
+    assert {row.revocation_reason for row in sessions_of(spectator.id)} == {
+        SessionRevocationReason.SPECTATOR_PASSWORD_RESET
+    }
+    assert all(row.revoked_at is None for row in sessions_of(other.id))
+
+
+def test_disable_revokes_with_spectator_disabled(workspaces: list[int]) -> None:
+    spectator = create(workspaces[0])
+    open_sessions(spectator.id, 2)
+
+    with SessionFactory() as session:
+        updated, revoked = disable_workspace_spectator(session, workspace_id=workspaces[0])
+        session.commit()
+        assert revoked == 2
+        assert updated.is_active is False
+
+    assert {row.revocation_reason for row in sessions_of(spectator.id)} == {
+        SessionRevocationReason.SPECTATOR_DISABLED
     }
 
 
-def test_existing_spectator_blocks_creation() -> None:
-    session = setup_session(spectators=[spectator()])
+def test_enable_requires_and_applies_a_new_password(workspaces: list[int]) -> None:
+    spectator = create(workspaces[0])
 
-    with pytest.raises(
-        SpectatorAlreadyExistsError,
-        match="already configured",
-    ):
-        create_spectator_account(
-            session,
-            username="second-viewer",
-            display_name="Second Viewer",
-            password="correct horse battery staple",
+    with SessionFactory() as session:
+        disable_workspace_spectator(session, workspace_id=workspaces[0])
+        session.commit()
+
+    with SessionFactory() as session:
+        updated, _ = enable_workspace_spectator(
+            session, workspace_id=workspaces[0], password=NEW_PASSWORD
         )
+        session.commit()
+        assert updated.id == spectator.id
+        assert updated.is_active is True
+        assert verify_password(NEW_PASSWORD, updated.password_hash)
+        assert not verify_password(PASSWORD, updated.password_hash)
 
 
-def test_profile_update_normalizes_values() -> None:
-    stored = spectator()
-    session = setup_session(spectators=[stored])
-
-    with patch.object(
-        AuthenticationRepository,
-        "get_user_by_email",
-        return_value=None,
-    ):
-        result = update_spectator_profile(
-            session,
-            display_name="  Shared   League Viewer  ",
-            email="  VIEWER@EXAMPLE.COM  ",
-        )
-
-    assert result is stored
-    assert stored.display_name == ("Shared League Viewer")
-    assert stored.email == "viewer@example.com"
-    session.flush.assert_called_once()
-
-
-def test_password_reset_hashes_and_revokes_sessions() -> None:
-    stored = spectator()
-    session = setup_session(spectators=[stored])
-    timestamp = datetime(
-        2026,
-        11,
-        9,
-        18,
-        0,
-        tzinfo=UTC,
-    )
-
-    with patch("app.services.spectator_account.SessionRepository") as session_repository_type:
-        session_repository_type.return_value.revoke_all_user_sessions.return_value = 3
-
-        result, revoked = reset_spectator_password(
-            session,
-            password="a new spectator password",
-            now=timestamp,
-        )
-
-    assert result is stored
-    assert revoked == 3
-    assert stored.password_hash.startswith("$argon2")
-    assert verify_password(
-        "a new spectator password",
-        stored.password_hash,
-    )
-
-    session_repository_type.return_value.revoke_all_user_sessions.assert_called_once_with(
-        user_id=stored.id,
-        reason=SessionRevocationReason.SPECTATOR_PASSWORD_RESET,
-        now=timestamp,
-    )
-
-
-def test_disabling_spectator_revokes_sessions() -> None:
-    stored = spectator()
-    session = setup_session(spectators=[stored])
-
-    with patch("app.services.spectator_account.SessionRepository") as session_repository_type:
-        session_repository_type.return_value.revoke_all_user_sessions.return_value = 2
-
-        result, revoked = set_spectator_active(
-            session,
-            is_active=False,
-        )
-
-    assert result.is_active is False
-    assert revoked == 2
-    revoke_call = session_repository_type.return_value.revoke_all_user_sessions.call_args
-
-    assert revoke_call.kwargs["user_id"] == stored.id
-    assert revoke_call.kwargs["reason"] is SessionRevocationReason.SPECTATOR_DISABLED
-
-
-def test_enabling_spectator_does_not_revoke_sessions() -> None:
-    stored = spectator(is_active=False)
-    session = setup_session(spectators=[stored])
-
-    with patch("app.services.spectator_account.SessionRepository") as session_repository_type:
-        result, revoked = set_spectator_active(
-            session,
-            is_active=True,
-        )
-
-    assert result.is_active is True
-    assert revoked == 0
-    session_repository_type.return_value.revoke_all_user_sessions.assert_not_called()
-
-
-def test_missing_spectator_is_reported() -> None:
-    session = setup_session(spectators=[])
-
-    with pytest.raises(
-        SpectatorNotFoundError,
-        match="not configured",
-    ):
-        reset_spectator_password(
-            session,
-            password="a new spectator password",
+def test_missing_spectator_is_reported(workspaces: list[int]) -> None:
+    with SessionFactory() as session, pytest.raises(SpectatorNotFoundError):
+        reset_workspace_spectator_password(
+            session, workspace_id=workspaces[0], password=NEW_PASSWORD
         )
