@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -16,11 +17,16 @@ from app.providers.errors import ProviderError
 from app.repositories.background_job_repository import (
     BackgroundJobRepository,
 )
+from app.repositories.workspace_deletion_repository import (
+    WorkspaceDeletionRepository,
+)
 from app.services.background_job_heartbeat import (
     BackgroundJobHeartbeatError,
     BackgroundJobLeaseHeartbeat,
 )
 from app.services.onboarding_sync_outcome import apply_initial_sync_outcome
+
+LOGGER = logging.getLogger(__name__)
 
 DEFAULT_RETRY_DELAYS = (
     timedelta(seconds=30),
@@ -90,6 +96,28 @@ class BackgroundJobExecutionError(RuntimeError):
         self.retryable = retryable
 
         super().__init__(normalized_message)
+
+
+class BackgroundJobDeferredError(RuntimeError):
+    """The handler found its job not yet due and did no work.
+
+    The worker returns the job to ``pending`` at ``available_at`` and
+    restores the attempt the claim consumed, so early execution never
+    spends a terminal attempt.
+    """
+
+    def __init__(
+        self,
+        *,
+        available_at: datetime,
+        safe_error_code: str,
+        safe_error_message: str,
+    ) -> None:
+        self.available_at = available_at
+        self.safe_error_code = safe_error_code
+        self.safe_error_message = safe_error_message
+
+        super().__init__(safe_error_message)
 
 
 class BackgroundJobHandlerNotFoundError(RuntimeError):
@@ -211,6 +239,63 @@ def execute_one_background_job(
         )
 
     try:
+        return _execute_and_persist_outcome(
+            handler=handler,
+            snapshot=snapshot,
+            session_factory=session_factory,
+            worker_id=worker_id,
+            lease_duration=lease_duration,
+            heartbeat_interval=heartbeat_interval,
+            heartbeat_factory=heartbeat_factory,
+            now=now,
+            retry_delays=retry_delays,
+            jitter_ratio=jitter_ratio,
+            random_source=random_source,
+        )
+    except BackgroundJobHeartbeatError, BackgroundJobOutcomePersistenceError:
+        # A committed workspace deletion cascades its own job row, so the
+        # heartbeat and outcome bookkeeping can no longer find it. The
+        # anonymized deletion record is the authoritative completion.
+        if not _workspace_deletion_completed(
+            session_factory=session_factory,
+            snapshot=snapshot,
+        ):
+            raise
+
+        LOGGER.info(
+            "Workspace deletion job completed with its job row removed: "
+            "job_id=%s, former_workspace_id=%s, outcome=completed.",
+            snapshot.id,
+            snapshot.workspace_id,
+        )
+
+        return BackgroundJobExecutionResult(
+            job_id=snapshot.id,
+            claimed=True,
+            succeeded=True,
+            retry_scheduled=False,
+            failed=False,
+        )
+
+
+def _execute_and_persist_outcome(
+    *,
+    handler: BackgroundJobHandler,
+    snapshot: BackgroundJobSnapshot,
+    session_factory: sessionmaker[Session],
+    worker_id: str,
+    lease_duration: timedelta,
+    heartbeat_interval: timedelta,
+    heartbeat_factory: Callable[
+        ...,
+        BackgroundJobLeaseHeartbeat,
+    ],
+    now: Callable[[], datetime],
+    retry_delays: tuple[timedelta, ...],
+    jitter_ratio: float,
+    random_source: Random | None,
+) -> BackgroundJobExecutionResult:
+    try:
         _execute_handler_with_heartbeat(
             handler=handler,
             snapshot=snapshot,
@@ -222,6 +307,23 @@ def execute_one_background_job(
         )
     except BackgroundJobHeartbeatError:
         raise
+    except BackgroundJobDeferredError as exc:
+        _persist_deferral(
+            session_factory=session_factory,
+            job_id=snapshot.id,
+            worker_id=worker_id,
+            available_at=exc.available_at,
+            safe_error_code=exc.safe_error_code,
+            safe_error_message=exc.safe_error_message,
+        )
+
+        return BackgroundJobExecutionResult(
+            job_id=snapshot.id,
+            claimed=True,
+            succeeded=False,
+            retry_scheduled=True,
+            failed=False,
+        )
     except BackgroundJobExecutionError as exc:
         if exc.retryable and snapshot.attempt_count < snapshot.maximum_attempts:
             retry_at = calculate_retry_time(
@@ -380,6 +482,23 @@ def _execute_handler_with_heartbeat(
         raise handler_failure
 
 
+def _workspace_deletion_completed(
+    *,
+    session_factory: sessionmaker[Session],
+    snapshot: BackgroundJobSnapshot,
+) -> bool:
+    """Recognize a committed deletion whose job row cascaded away."""
+
+    if snapshot.job_type is not BackgroundJobType.WORKSPACE_DELETION:
+        return False
+
+    with session_factory() as session:
+        if session.get(BackgroundJob, snapshot.id) is not None:
+            return False
+
+        return WorkspaceDeletionRepository(session).completed_record_exists(snapshot.workspace_id)
+
+
 def _claim_one_job(
     *,
     session_factory: sessionmaker[Session],
@@ -461,6 +580,32 @@ def _persist_retry(
         )
 
         repository.schedule_retry(
+            job,
+            worker_id=worker_id,
+            available_at=available_at,
+            safe_error_code=safe_error_code,
+            safe_error_message=safe_error_message,
+        )
+        session.commit()
+
+
+def _persist_deferral(
+    *,
+    session_factory: sessionmaker[Session],
+    job_id: int,
+    worker_id: str,
+    available_at: datetime,
+    safe_error_code: str,
+    safe_error_message: str,
+) -> None:
+    with session_factory() as session:
+        repository = BackgroundJobRepository(session)
+        job = _load_claimed_job(
+            session=session,
+            job_id=job_id,
+        )
+
+        repository.defer_claimed_job(
             job,
             worker_id=worker_id,
             available_at=available_at,

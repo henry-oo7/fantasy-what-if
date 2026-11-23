@@ -36,7 +36,6 @@ from app.db.platform_enums import (
 from app.db.platform_models import BackgroundJob, Installation
 from app.db.session import SessionFactory
 from app.repositories.auth_repository import AuthenticationRepository
-from app.repositories.background_job_repository import BackgroundJobRepository
 from app.repositories.session_repository import SessionRepository
 from app.services.workspace_deletion import (
     WorkspaceDeletionUnavailableError,
@@ -395,24 +394,3 @@ def test_cancellation_at_exact_cutoff_loses(seed: Callable[[], Seeded]) -> None:
     assert [job.status for job in deletion_jobs(seeded.workspace_id)] == [
         BackgroundJobStatus.PENDING
     ]
-
-
-def test_due_deletion_job_is_not_claimed_before_its_handler_exists(
-    seed: Callable[[], Seeded],
-) -> None:
-    seeded = seed()
-    request(seeded, standard_session_id(seeded))
-    job = deletion_jobs(seeded.workspace_id)[0]
-    after_cutoff = job.available_at + timedelta(seconds=1)
-
-    with SessionFactory() as session:
-        claimed = BackgroundJobRepository(session).claim_next_available(
-            worker_id="deletion-test-worker",
-            lease_duration=timedelta(minutes=5),
-            now=after_cutoff,
-        )
-
-        assert claimed is None or claimed.id != job.id
-        session.rollback()
-
-    assert deletion_jobs(seeded.workspace_id)[0].status is BackgroundJobStatus.PENDING

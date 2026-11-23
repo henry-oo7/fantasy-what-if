@@ -2,7 +2,8 @@
 
 This module owns only the grace-period lifecycle. Final destructive
 cleanup, deletion records, and claim, slug, email, connection, or
-credential release belong to the later ``workspace_deletion`` worker.
+credential release belong to the ``workspace_deletion`` job handler in
+``app.services.workspace_deletion_execution``.
 
 Lock order is always workspace row, then administrator row, matching
 administrator login, so the request, cancellation, login, and the

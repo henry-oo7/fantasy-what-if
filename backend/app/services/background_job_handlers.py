@@ -23,6 +23,7 @@ from app.services.synchronization_job_contract import (
     SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
     synchronization_payload_contains_prohibited_names,
 )
+from app.services.workspace_deletion_execution import WorkspaceDeletionJobHandler
 
 
 class SynchronizationBackgroundJobHandler:
@@ -96,6 +97,9 @@ def build_background_job_handlers(
             session_factory=session_factory,
             settings=settings,
             registry=registry,
+        ),
+        BackgroundJobType.WORKSPACE_DELETION: WorkspaceDeletionJobHandler(
+            session_factory=session_factory,
         ),
     }
 
