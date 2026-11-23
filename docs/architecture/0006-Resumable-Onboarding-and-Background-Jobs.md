@@ -631,6 +631,19 @@ Provider validation must:
 
 If provider validation proves too slow for reliable HTTP execution, it may become a background job without changing league-claim semantics.
 
+### Implemented ESPN Validation Step
+
+`POST /api/onboarding/provider/validate` implements provider selection and ESPN league-access validation for verified provisional administrators. The workspace comes only from the authenticated session.
+
+- Allowed from `provider_setup_pending` and `provider_validation_failed`. Every other stage returns `onboarding_stage_invalid`; suspended and other non-provisional workspaces return `workspace_suspended` or `workspace_inactive`.
+- The administrator need not be the ESPN league manager, commissioner, or a team owner.
+- An anonymous check runs first. `credentials_required` leaves the stage unchanged so the administrator can submit `SWID` and `espn_s2`.
+- Success atomically stores the single current provider connection with the validated target, under a workspace row lock, and moves the stage to `league_claim_pending`. It never creates a League, Season, provider league claim, or background job, and never activates the workspace.
+- An authentication failure or an unusable target moves the stage to the recoverable `provider_validation_failed`. A transient ESPN outage leaves the stage unchanged. No failure replaces a previously validated target or credentials.
+- Attempts are limited per workspace and per normalized request source before any ESPN request.
+
+League claim confirmation is the next onboarding step. Initial synchronization, spectator setup, and activation follow it.
+
 ## Atomic League Claim
 
 The provider league claim remains a short database transaction.

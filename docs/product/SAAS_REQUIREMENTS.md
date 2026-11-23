@@ -42,9 +42,17 @@ The existing `Installation` model is the migration source for League Workspace b
 
 The administrator is the single account authorized to configure and manage a League Workspace.
 
+The administrator is the person who creates and operates the Fantasy What-If workspace. They do not need to be the provider league manager, the commissioner, or the owner of any particular fantasy team. Any verified administrator who can identify a public league, or provide valid access to a private league, may connect it. Fantasy What-If is read-only with respect to the provider and never changes rosters, lineups, teams, scoring, schedules, or league administration.
+
+Product messaging targets fantasy players generally, for example: "Connect your fantasy league to explore deeper statistics, alternate outcomes, and what-if scenarios." It must not state or imply that only league managers may create a workspace, that commissioner verification is required, or that the administrator must prove league ownership.
+
 ### Spectator
 
 The spectator is one shared read-only account for a League Workspace. Multiple people may use the spectator account concurrently.
+
+The administrator creates and manages the single shared spectator password. Spectators sign in with the workspace slug plus that shared password. Spectators do not register, provide or verify an email address, choose a username, recover their own password, receive individual invitations, or receive team-specific accounts. Any spectator username retained in the database is an internal compatibility value: it is never chosen by the administrator, entered by a spectator, shown in the modern interface, or returned by the modern spectator API.
+
+The public entry points are worded "Create a workspace", "Administrator sign in", and "Spectator sign in". The wording "Join as spectator" must not be used, because it implies self-registration or an access-request workflow.
 
 ### Provider League Identity
 
@@ -180,7 +188,9 @@ The administrator must be able to:
 - Enable spectator access
 - Disable spectator access
 
-A spectator password reset or account disable operation must revoke all existing spectator sessions for that workspace.
+A spectator password reset or account disable operation must revoke all existing spectator sessions for that workspace. Re-enabling spectator access must not reveal the stored password.
+
+Spectator setup occurs during onboarding after initial synchronization succeeds and before workspace activation.
 
 ### FR-7: Concurrent Spectator Sessions
 
@@ -214,6 +224,8 @@ The final choice must address:
 - Information disclosure
 - Migration of existing usernames
 
+Decision: email-based administrator login plus workspace-slug spectator login with the shared spectator password (ADR 0005).
+
 This remains an explicit system-design decision.
 
 ### FR-9: Provider Selection
@@ -242,6 +254,16 @@ Provider validation must:
 
 Validation must not create a permanent league claim by itself.
 
+Validation must not synchronize or import league data, and must not require the administrator to be the provider league manager, commissioner, or a team owner.
+
+For ESPN, the administrator provides the League ID and season year. Fantasy What-If first makes one minimal, bounded anonymous request for that exact league season:
+
+- If anonymous access succeeds, the league is public. No credentials are requested or stored.
+- If ESPN clearly requires authentication, the interface then asks for `SWID` and `espn_s2`, validates authenticated access, and stores the credentials encrypted.
+- Any ambiguous failure (nonexistent league, wrong season, timeout, outage, malformed response) returns one safe failure, reveals no credential fields, stores nothing, and does not advance onboarding.
+
+A successful validation stores the validated target (League ID, initial season year, public or private access mode, validation time, and encrypted credentials only for private access) and advances onboarding to league claim confirmation.
+
 ### FR-11: Exclusive Provider League Claim
 
 A provider league identity may belong to only one League Workspace.
@@ -250,6 +272,8 @@ The database must enforce uniqueness for the normalized pair:
 
 - `provider`
 - `provider_league_id`
+
+Season is not part of claim uniqueness. The workspace represents the continuing fantasy league, seasons belong to that workspace, and the same provider league must not create a separate workspace each year.
 
 Application-level availability checks may improve the interface but must not be the authoritative concurrency control.
 

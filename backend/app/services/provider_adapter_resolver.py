@@ -137,8 +137,9 @@ def resolve_connection_credentials(
     """Resolve workspace-owned stored credentials."""
 
     encrypted = connection.encrypted_credentials
+    key_version = connection.credential_version
 
-    if encrypted is not None:
+    if encrypted is not None and key_version is not None:
         try:
             keyring = settings.provider_credential_keyring()
 
@@ -147,7 +148,7 @@ def resolve_connection_credentials(
                     "Provider credential encryption is not configured."
                 )
 
-            keyring.key_for_version(connection.credential_version)
+            keyring.key_for_version(key_version)
 
             vault = ProviderCredentialVault(
                 keys=keyring.keys,
@@ -155,7 +156,7 @@ def resolve_connection_credentials(
 
             envelope = vault.decrypt(
                 encrypted_credentials=encrypted,
-                key_version=connection.credential_version,
+                key_version=key_version,
                 expected_provider=connection.provider,
                 expected_schema_version=(connection.credential_schema_version),
             )

@@ -496,13 +496,26 @@ Provider discovery behavior differs by provider.
 
 ### ESPN
 
-Initial ESPN onboarding may require explicit:
+Initial ESPN onboarding requires explicit:
 
 - League ID
 - Season year
-- Private-league credentials when required
+- Private-league credentials only when ESPN requires them
 
-Account-wide league discovery is not assumed to be stable.
+Account-wide league discovery is not assumed to be stable, and undocumented fan or account endpoints are not used. `SWID` is never placed in a URL.
+
+ESPN access mode is detected, not asked:
+
+1. One minimal anonymous request reads league settings (`view=mSettings`) for the exact League ID and season, with a 3-second connect and 7-second read timeout. A 401 on the season endpoint is retried once against the league-history endpoint, which serves older seasons.
+2. A structurally valid response for the exact league and season means the league is public. No credentials are requested or stored.
+3. A 401 from both endpoints means authentication is required. The administrator then submits `SWID` and `espn_s2`, which travel only as cookies, and the same bounded check runs with them.
+4. A 404, other 4xx, redirect, malformed body, timeout, or outage cannot be classified safely. It returns one safe failure and never reveals credential fields.
+
+Validation does not require `isLeagueManager`, a team-owner match, or a commissioner role, and does not persist member identities.
+
+The validated target is stored on the workspace's single active `provider_connections` row: `provider_league_id`, `provider_season_year`, and `access_mode` (`public` or `private`). Public rows carry no ciphertext and no credential key version. Private rows carry ciphertext and the current key version. Database constraints enforce these states, and a partial unique index allows at most one active connection per workspace, regardless of provider.
+
+The authoritative claim created in the next slice is unique by `provider` plus the normalized provider League ID. Season is not part of claim uniqueness.
 
 ### Sleeper
 

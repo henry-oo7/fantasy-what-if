@@ -101,7 +101,8 @@ def _seed_canonical_integration_baseline() -> bool:
                     'espn',
                     'Synthetic ESPN test connection',
                     NULL,
-                    1,
+                    -- No ciphertext, so no credential key version.
+                    NULL,
                     true,
                     :now,
                     NULL,

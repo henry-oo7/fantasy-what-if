@@ -34,6 +34,7 @@ from app.db.platform_enums import (
     FantasyProvider,
     InstallationStatus,
     OnboardingStage,
+    ProviderAccessMode,
     WorkspaceRegistrationStatus,
 )
 
@@ -176,6 +177,32 @@ class ProviderConnection(TimestampMixin, Base):
             "credential_schema_version > 0",
             name="ck_provider_connections_credential_schema_version_positive",
         ),
+        CheckConstraint(
+            "(encrypted_credentials IS NULL) = (credential_version IS NULL)",
+            name="ck_provider_connections_credential_pair",
+        ),
+        CheckConstraint(
+            "(access_mode IS NULL AND provider_league_id IS NULL "
+            "AND provider_season_year IS NULL) "
+            "OR (access_mode IS NOT NULL AND access_mode = 'public' "
+            "AND provider_league_id IS NOT NULL AND provider_season_year IS NOT NULL "
+            "AND encrypted_credentials IS NULL) "
+            "OR (access_mode IS NOT NULL AND access_mode = 'private' "
+            "AND provider_league_id IS NOT NULL AND provider_season_year IS NOT NULL "
+            "AND encrypted_credentials IS NOT NULL)",
+            name="ck_provider_connections_access_mode_state",
+        ),
+        CheckConstraint(
+            "provider_season_year IS NULL OR provider_season_year BETWEEN 2000 AND 2100",
+            name="ck_provider_connections_season_year_range",
+        ),
+        # One current connection per workspace, regardless of provider.
+        Index(
+            "uq_provider_connections_active_installation",
+            "installation_id",
+            unique=True,
+            postgresql_where=text("is_active IS TRUE"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -212,11 +239,10 @@ class ProviderConnection(TimestampMixin, Base):
         nullable=True,
     )
 
-    credential_version: Mapped[int] = mapped_column(
+    # Credential key version; present exactly when ciphertext is present.
+    credential_version: Mapped[int | None] = mapped_column(
         Integer,
-        nullable=False,
-        default=1,
-        server_default="1",
+        nullable=True,
     )
 
     credential_schema_version: Mapped[int] = mapped_column(
@@ -232,6 +258,26 @@ class ProviderConnection(TimestampMixin, Base):
         default=True,
         server_default="true",
         index=True,
+    )
+
+    # Validated SaaS target. NULL for legacy connections.
+    provider_league_id: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+
+    provider_season_year: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    access_mode: Mapped[ProviderAccessMode | None] = mapped_column(
+        Enum(
+            ProviderAccessMode,
+            name="provider_access_mode",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
     )
 
     last_validated_at: Mapped[datetime | None] = mapped_column(

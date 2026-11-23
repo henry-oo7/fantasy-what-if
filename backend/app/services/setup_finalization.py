@@ -142,6 +142,11 @@ def finalize_installation_setup(
             "A league is already configured for this installation."
         )
 
+    if connection.encrypted_credentials is None or connection.credential_version is None:
+        raise SetupFinalizationUnavailableError(
+            "The provider connection has no stored credentials."
+        )
+
     vault = ProviderCredentialVault(
         keys=credential_keyring.keys,
     )

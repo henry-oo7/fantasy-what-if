@@ -596,3 +596,118 @@
     min-height: 50px;
   }
 }
+
+/* Onboarding provider step */
+.provider-setup {
+  display: grid;
+  gap: 16px;
+}
+
+.provider-setup h2 {
+  margin: 0;
+}
+
+.provider-setup-copy {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.provider-options,
+.credential-fields {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.provider-options legend,
+.credential-fields legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: var(--color-text);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.credential-fields {
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.provider-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 12px;
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.provider-option + .provider-option {
+  border-top: 0;
+}
+
+.provider-option:first-of-type {
+  border-radius: 3px 3px 0 0;
+}
+
+.provider-option:last-of-type {
+  border-radius: 0 0 3px 3px;
+}
+
+.provider-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--color-green-800);
+}
+
+.provider-option:has(input:checked) {
+  background: var(--color-green-50);
+  border-color: var(--color-green-800);
+}
+
+.provider-option:has(input:focus-visible) {
+  outline: 3px solid var(--color-green-500);
+  outline-offset: -3px;
+}
+
+.provider-option-name {
+  font-family:
+    "Barlow Condensed",
+    "Arial Narrow",
+    sans-serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.provider-option-status {
+  color: var(--color-green-800);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.provider-option-planned {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  cursor: not-allowed;
+}
+
+.provider-option-planned .provider-option-status {
+  color: var(--color-text-muted);
+}
+
+.credential-fields .auth-link-button {
+  justify-self: start;
+}

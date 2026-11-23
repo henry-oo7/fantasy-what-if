@@ -6,6 +6,9 @@ export const SESSION_REPLACED_MESSAGE =
 export const PASSWORD_RESET_COMPLETED_MESSAGE =
   "Your password has been reset. Sign in with your administrator email.";
 
+export const LEAGUE_ACCESS_VALIDATED_MESSAGE =
+  "ESPN access validated. Confirming and claiming this league is the next step.";
+
 export const CONNECTION_ERROR_MESSAGE =
   "Unable to reach Fantasy What-If. Check your connection and try again.";
 

@@ -169,7 +169,7 @@ def import_provider_season(
 
     connection = connections[0]
 
-    if connection.encrypted_credentials is None:
+    if connection.encrypted_credentials is None or connection.credential_version is None:
         raise SeasonImportUnavailableError("The provider connection has no stored credentials.")
 
     vault = ProviderCredentialVault(

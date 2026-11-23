@@ -404,6 +404,21 @@ The spectator identity does not require:
 - Personal profile
 - Invitation
 
+### Approved Spectator Model
+
+The spectator decision is final:
+
+- Exactly one shared spectator identity exists per workspace.
+- The administrator creates and manages the shared spectator password.
+- Spectators sign in with the workspace slug plus the shared password.
+- Spectators do not register, provide or verify an email address, choose a username, recover their own password, receive individual invitations, or receive team-specific accounts.
+- A retained spectator username is an internal compatibility value only. It is never chosen by the administrator, entered by a spectator, shown in the modern interface, returned by the modern spectator API, or described as part of the product account model.
+- Multiple spectator browser sessions remain allowed.
+- Changing the spectator password or disabling spectator access revokes existing spectator sessions. Re-enabling access never reveals the stored password.
+- Spectator setup happens during onboarding after successful initial synchronization and before activation.
+
+The public entry points read "Create a workspace", "Administrator sign in", and "Spectator sign in", never "Join as spectator".
+
 ## Spectator Login
 
 Spectator login requires:
@@ -971,7 +986,7 @@ The spectator form must:
 
 - Clearly request workspace slug
 - Clearly request spectator password
-- Explain that credentials come from the league owner
+- Explain that the workspace slug and password come from the workspace administrator
 - Avoid implying that spectators can self-register
 - Avoid revealing whether a workspace exists
 

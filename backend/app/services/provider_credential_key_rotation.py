@@ -103,7 +103,7 @@ def rotate_provider_credential_key_batch(
     for connection in connections:
         encrypted_credentials = connection.encrypted_credentials
 
-        if encrypted_credentials is None:
+        if encrypted_credentials is None or connection.credential_version is None:
             raise ProviderCredentialKeyRotationError(
                 "A selected provider connection has no credential envelope."
             )
