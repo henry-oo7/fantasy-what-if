@@ -287,7 +287,7 @@ Claimed league with failed or incomplete synchronization:
 30 days before operator review or cleanup
 ```
 
-Cleanup must not release an active provider league claim without applying the documented claim-release policy.
+Cleanup must not release an active provider league claim except through the documented workspace-deletion workflow (FR-20 and ADR 0004), which releases the claim only at final workspace deletion. Provisional duplicate-claim cleanup is separate from FR-20.
 
 ## Workspace Slug
 
@@ -511,7 +511,7 @@ The backend must:
 2. Locate the administrator identity without exposing account existence.
 3. Verify the password.
 4. Verify that the account is active.
-5. Verify that the workspace permits administrator login.
+5. Verify that the workspace permits administrator login. For a `deletion_pending` workspace, follow Deletion Recovery Sessions instead of steps 6 and 7.
 6. Revoke every existing active administrator session for the workspace.
 7. Create the replacement session.
 8. Commit revocation and creation atomically.
@@ -519,6 +519,21 @@ The backend must:
 10. Create an audit event.
 
 A failed login must not revoke an existing administrator session.
+
+## Deletion Recovery Sessions
+
+A `deletion_pending` workspace permits no ordinary administrator login. The only permitted authentication is a restricted `deletion_recovery` session used to cancel deletion (FR-20).
+
+- It is created only by a correct administrator email and password login, while the current time is earlier than `scheduled_for`. Login failures remain enumeration-safe and generic.
+- It lasts 15 minutes and is never renewed or extended.
+- It is denied by default. Only `/auth/me`, deletion status, deletion cancellation, and logout are allowed.
+- Cancellation requires the current password again, in addition to the session, CSRF, and origin validation.
+- Creating it does not revoke or restore any earlier session. Sessions revoked by the deletion request stay revoked.
+- Cancellation does not convert it into a standard session. The administrator must log in again.
+- It cannot request deletion, change settings, or reach any workspace data.
+- Spectator login remains blocked while deletion is pending.
+
+Spectator sessions are never created for a `deletion_pending` workspace.
 
 ## Administrator Session Replacement
 
@@ -658,6 +673,8 @@ The recovery process must:
 11. Revoke active administrator sessions.
 12. Create an audit event.
 
+Password reset remains available while the workspace is `deletion_pending`. A successful reset never reactivates the workspace and never cancels deletion. Cancellation still requires a `deletion_recovery` session.
+
 Recommended reset-token expiration:
 
 ```text
@@ -785,7 +802,7 @@ Cleanup must:
 
 - Exclude active workspaces
 - Exclude workspaces with an active synchronization
-- Respect provider-claim retention policy
+- Preserve provider claims held by deletion-pending workspaces, and exclude them from provisional cleanup
 - Delete unused onboarding sessions
 - Delete unused verification and reset tokens
 - Delete unused encrypted provider credentials
@@ -809,7 +826,7 @@ Enumeration-sensitive routes include:
 
 A slug-selection interface may report that a requested slug is unavailable because slug uniqueness is inherently user-facing.
 
-That response must not reveal whether the slug belongs to an active, suspended, provisional, or deleted workspace.
+That response must not reveal whether the slug belongs to an active, suspended, provisional, or deletion-pending workspace, or whether it was previously used.
 
 ## Audit Events
 
@@ -1014,6 +1031,7 @@ Transport-specific authentication will be added separately.
 
 - Administrator and spectator login flows differ.
 - Email delivery becomes required before public registration.
+- Durable email delivery must also support the deletion-request confirmation, seven-day reminder, and deletion-completion notice before public deletion launches.
 - Username-based login is removed, so no v1 client remains compatible.
 - Workspace slugs become public identifiers.
 - Registration requires provisional-state cleanup.

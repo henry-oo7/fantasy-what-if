@@ -285,6 +285,7 @@ email_verified_at when appropriate
 setup_completed_at
 suspended_at
 deletion_requested_at
+deletion_scheduled_for
 active_league_id
 active_season_id
 created_at
@@ -423,7 +424,7 @@ provider
 normalized_provider_league_id
 ```
 
-If released claims remain for audit history, active uniqueness should use a partial unique index.
+Claims are not retained after workspace deletion. Final deletion removes the claim by cascade, so a plain unique constraint is sufficient and no partial unique index is required for released claims.
 
 ### League
 
@@ -523,8 +524,9 @@ provisional
 active
 suspended
 deletion_pending
-deleted
 ```
+
+`deleted` is not a persisted state. Final deletion hard-deletes the workspace row. The anonymized `workspace_deletion_records` row is the durable proof of completion.
 
 Recommended onboarding stages:
 
@@ -1306,6 +1308,8 @@ class TransactionalEmailSender(Protocol):
     def send_email_verification(...): ...
     def send_password_reset(...): ...
     def send_security_notification(...): ...
+    # Public deletion launch also requires durable delivery of:
+    #   deletion-request confirmation, seven-day reminder, completion notice
 ```
 
 The initial implementation may enqueue email delivery later, but token state remains canonical in PostgreSQL.
@@ -1379,31 +1383,39 @@ Suspension, security investigation, and abuse response must not release the prov
 
 ## Workspace Deletion
 
-Workspace deletion is a background workflow with a 30-day grace period.
+Workspace deletion of an active workspace is a background workflow with a 30-day grace period. FR-20 is the product authority; ADR 0004, ADR 0005, and ADR 0006 hold the detailed decisions.
 
-When deletion is requested:
+Request requirements: verified administrator, `active` workspace, standard session, CSRF and origin validation, current password, and exact normalized slug confirmation. Suspended workspaces cannot self-delete.
 
-- The workspace enters `deletion_pending`.
-- All administrator and spectator sessions are revoked.
-- New login and workspace activity are blocked.
-- Synchronization and historical imports stop.
-- The provider league claim remains reserved.
-- Verified cancellation remains available during the grace period.
+When deletion is requested, one transaction:
 
-After 30 days, a background deletion job must:
+- Sets `registration_status = deletion_pending` and records `requested_at` and `scheduled_for`.
+- Revokes all administrator and spectator sessions.
+- Cancels pending and retry-scheduled workspace jobs.
+- Queues one scheduled `workspace_deletion` job.
+- Blocks all ordinary workspace access.
 
-1. Recheck that the workspace remains `deletion_pending`.
-2. Revoke provider authorization when supported.
-3. Cancel pending workspace jobs.
-4. Delete provider credentials and OAuth tokens.
-5. Delete tenant-owned application data.
-6. Apply the audit-event retention policy.
-7. Release the active provider league claim.
-8. Mark deletion complete.
+During grace, the provider claim, slug, administrator email, provider connection, and encrypted credentials are retained and reserved.
 
-A released claim may remain as a nonblocking audit record.
+Cancellation is allowed only while now is earlier than `scheduled_for`, through a 15-minute, non-renewable `deletion_recovery` session created by correct email and password login. That session is denied by default outside `/auth/me`, deletion status, cancellation, and logout. Cancellation re-requires the password, prior sessions stay revoked, and a fresh login is required afterward. Password reset remains available but never reactivates the workspace.
 
-Operator suspension, security investigation, or abuse action must not release the claim.
+Final cleanup is one ordered transaction:
+
+1. Lock and recheck the workspace.
+2. Delete synchronization runs not otherwise removed.
+3. Delete workspace leagues, cascading seasons and imported data.
+4. Write an anonymized `workspace_deletion_record`.
+5. Delete the workspace, cascading provider connections, users, sessions, tokens, claims, and jobs.
+
+The `seasons.provider_connection_id` `RESTRICT` foreign key is unchanged. It must not become `CASCADE`, `SET NULL`, or `DEFERRABLE` unless implementation testing proves explicit ordering insufficient.
+
+Final deletion releases the claim, slug, and email together. The job may delete its own `BackgroundJob` row. A terminal failure leaves the workspace `deletion_pending` and inaccessible until operators re-enqueue.
+
+`workspace_deletion_records` are retained for 365 days and hold only the former workspace ID, provider, normalized provider League ID, requested, scheduled, and completed timestamps, outcome, and retention expiration. Slug, email, display name, credentials, passwords, tokens, and internal usernames are never retained. Tenant-owned job and synchronization history is deleted with the tenant. Login-attempt and registration-rate-limit rows expire normally. Audit-event retention is deferred.
+
+Public deletion launch requires durable email delivery for the request confirmation, a seven-day reminder, and a completion notice. Best-effort worker email is not a substitute.
+
+Provisional duplicate-claim cleanup is separate from FR-20. Operator suspension, security investigation, or abuse action must not release the claim.
 
 Deleted data may remain in encrypted backups until backup retention expires.
 
@@ -1805,7 +1817,7 @@ The following decisions remain open and must be resolved before their implementa
 7. Exact PostgreSQL pool sizes
 8. Initial monitoring stack
 9. Off-host backup destination
-10. Audit-event retention duration
+10. Audit-event retention duration (deferred until audit infrastructure exists)
 11. Native authentication transport
 12. Cloud platform, if migration becomes necessary
 
