@@ -212,7 +212,7 @@ def audit_saas_migration_readiness(
             failure=("Encrypted provider credentials are missing."),
         )
 
-        if encrypted and encrypted.strip():
+        if encrypted and encrypted.strip() and active_connection.credential_version is not None:
             decryptable = False
 
             try:

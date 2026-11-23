@@ -6,20 +6,28 @@ import { useAuth } from "../../auth/AuthProvider";
 import { AccountLayout } from "../../components/account/AccountLayout";
 import { FormAlert } from "../../components/account/FormAlert";
 import { onboardingStageMessage } from "../../auth/workspaceLifecycle";
+import { LEAGUE_ACCESS_VALIDATED_MESSAGE } from "../../auth/accountMessages";
+import { ProviderSetupStep } from "./ProviderSetupStep";
 
 /**
- * Safe resume point for a provisional administrator.
+ * Resume point for a provisional administrator, driven by the onboarding
+ * stage from GET /api/auth/me.
  *
- * Provider connection, league claiming, and initial synchronization are
- * the next product slice. This page never links to legacy setup routes.
+ * - provider_setup_pending / provider_validation_failed: provider step
+ * - league_claim_pending: next-step placeholder (claiming is a later slice)
+ * - any other stage: saved-progress placeholder
+ *
+ * This page never links to legacy setup routes.
  */
 export function OnboardingPage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
-  const stageMessage = onboardingStageMessage(
-    auth.user?.workspace.onboarding_stage,
-  );
+  const stage = auth.user?.workspace.onboarding_stage ?? null;
+  const stageMessage = onboardingStageMessage(stage);
+  const providerStep =
+    stage === "provider_setup_pending" || stage === "provider_validation_failed";
+  const accessValidated = stage === "league_claim_pending";
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -56,18 +64,23 @@ export function OnboardingPage() {
             </p>
           ) : null}
           <p>
-            Connecting your fantasy provider and claiming your league will
-            open in the next product release. Your progress is saved, so you
-            can sign in again with your administrator email to continue.
+            Your progress is saved, so you can sign in again with your
+            administrator email to continue.
           </p>
         </>
       }
     >
       <div className="auth-stack">
-        <FormAlert tone="notice">
-          League data, standings, and spectator access become available
-          after provider setup is complete.
-        </FormAlert>
+        {providerStep ? (
+          <ProviderSetupStep priorFailure={stage === "provider_validation_failed"} />
+        ) : accessValidated ? (
+          <FormAlert tone="success">{LEAGUE_ACCESS_VALIDATED_MESSAGE}</FormAlert>
+        ) : (
+          <FormAlert tone="notice">
+            League data, standings, and spectator access become available
+            after setup is complete.
+          </FormAlert>
+        )}
 
         <button
           type="button"

@@ -9,6 +9,13 @@ class FantasyProvider(StrEnum):
     YAHOO = "yahoo"
 
 
+class ProviderAccessMode(StrEnum):
+    """How a validated provider target is read: anonymously or with credentials."""
+
+    PUBLIC = "public"
+    PRIVATE = "private"
+
+
 class InstallationStatus(StrEnum):
     SETUP_REQUIRED = "setup_required"
     SETUP_IN_PROGRESS = "setup_in_progress"

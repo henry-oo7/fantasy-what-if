@@ -77,7 +77,7 @@ describe("GET /api/auth/me is the lifecycle source", () => {
 
   it.each<[OnboardingStage, string]>([
     ["provider_setup_pending", "Next step: connect your fantasy provider."],
-    ["league_claim_pending", "Next step: choose the league for this workspace."],
+    ["league_claim_pending", "Next step: confirm and claim your ESPN league."],
     ["initial_sync_failed", "Loading your league data did not finish."],
   ])("routes a provisional administrator at %s to onboarding with safe copy", async (stage, copy) => {
     const api = createApiMock();

@@ -56,7 +56,10 @@ def test_installation_defaults() -> None:
 def test_provider_connection_defaults() -> None:
     table = ProviderConnection.__table__
 
-    assert table.c.credential_version.server_default.arg == "1"
+    # No placeholder key version: present only alongside ciphertext.
+    assert table.c.credential_version.server_default is None
+    assert table.c.credential_version.default is None
+    assert table.c.credential_version.nullable is True
     assert table.c.credential_schema_version.server_default.arg == "1"
     assert table.c.is_active.server_default.arg == "true"
 

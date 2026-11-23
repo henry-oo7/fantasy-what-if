@@ -104,6 +104,22 @@ class Settings(BaseSettings):
         le=24 * 60,
     )
 
+    provider_validation_workspace_maximum_requests: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+    )
+    provider_validation_source_maximum_requests: int = Field(
+        default=30,
+        ge=1,
+        le=200,
+    )
+    provider_validation_window_minutes: int = Field(
+        default=60,
+        ge=1,
+        le=24 * 60,
+    )
+
     sync_scheduler_enabled: bool = False
     sync_schedule_timezone: str = "America/Chicago"
     sync_schedule_weekday: int = Field(
