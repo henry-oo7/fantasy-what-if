@@ -73,9 +73,7 @@ export interface SetupFinalizationResponse {
   player_week_scores_upserted: number;
 }
 
+/** POST /api/admin/spectator: only the shared password is chosen. */
 export interface CreateSpectatorRequest {
-  username: string;
-  display_name: "Spectator";
-  email: null;
   password: string;
 }

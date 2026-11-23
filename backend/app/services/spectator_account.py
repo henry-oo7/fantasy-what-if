@@ -1,23 +1,40 @@
-"""Manage the installation's single shared spectator account."""
+"""Manage each workspace's single shared spectator identity.
 
+Product model (ADR 0005): exactly one shared spectator per workspace,
+created and managed by the administrator. Spectators sign in with the
+workspace slug plus the shared password. They never register, use email,
+choose a username, recover a password, or receive individual accounts.
+
+``users.username`` is required by the schema, so the spectator receives
+a generated internal compatibility value that is never returned by the
+modern API or shown in the interface.
+
+Every operation is scoped to one workspace and serialized by locking that
+workspace row. ``uq_users_one_spectator_per_workspace`` remains the
+authoritative guard against a second spectator.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from secrets import token_hex
 
-from sqlalchemy import select, text
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.security import hash_password
+from app.auth.security import PASSWORD_MAX_LENGTH, hash_password
 from app.db import model_registry  # noqa: F401
 from app.db.auth_models import SessionRevocationReason, User, UserRole
-from app.repositories.auth_repository import (
-    AuthenticationRepository,
-    normalize_display_name,
-    normalize_email,
-)
-from app.repositories.session_repository import (
-    SessionRepository,
-)
+from app.db.platform_models import Installation
+from app.repositories.auth_repository import AuthenticationRepository
+from app.repositories.session_repository import SessionRepository
 
-SPECTATOR_ACCOUNT_LOCK_KEY = 1_179_921_931
+SPECTATOR_PASSWORD_MIN_LENGTH = 14
+SPECTATOR_PASSWORD_MAX_LENGTH = PASSWORD_MAX_LENGTH
+SPECTATOR_DISPLAY_NAME = "League spectator"
+ONE_SPECTATOR_CONSTRAINT = "uq_users_one_spectator_per_workspace"
 
 
 class SpectatorAccountError(RuntimeError):
@@ -25,192 +42,207 @@ class SpectatorAccountError(RuntimeError):
 
 
 class SpectatorAlreadyExistsError(SpectatorAccountError):
-    """The installation already has a spectator."""
+    """The workspace already has its spectator identity."""
 
 
 class SpectatorNotFoundError(SpectatorAccountError):
-    """The installation has no spectator account."""
+    """The workspace has no spectator identity."""
 
 
-class SpectatorAccountStateError(SpectatorAccountError):
-    """The stored spectator account state is invalid."""
+class SpectatorWorkspaceNotFoundError(SpectatorAccountError):
+    """The workspace does not exist."""
 
 
-def get_spectator_account(
+class SpectatorPasswordError(ValueError):
+    """The shared password violates the length policy."""
+
+
+@dataclass(frozen=True, slots=True)
+class SpectatorAccessState:
+    """Safe state only: never a password, hash, username, email or session."""
+
+    workspace_slug: str | None
+    configured: bool
+    enabled: bool
+
+
+def validate_spectator_password(password: str) -> None:
+    """Length policy only. The value is never trimmed or normalized."""
+
+    if len(password) < SPECTATOR_PASSWORD_MIN_LENGTH:
+        raise SpectatorPasswordError(
+            f"The shared spectator password must contain at least "
+            f"{SPECTATOR_PASSWORD_MIN_LENGTH} characters."
+        )
+
+    if len(password) > SPECTATOR_PASSWORD_MAX_LENGTH:
+        raise SpectatorPasswordError(
+            f"The shared spectator password cannot contain more than "
+            f"{SPECTATOR_PASSWORD_MAX_LENGTH} characters."
+        )
+
+
+def generate_internal_spectator_username() -> str:
+    """Nonpublic compatibility value for users.username."""
+
+    return f"spectator-{token_hex(16)}"
+
+
+def lock_workspace(session: Session, workspace_id: int) -> Installation:
+    workspace = session.scalar(
+        select(Installation).where(Installation.id == workspace_id).with_for_update()
+    )
+
+    if workspace is None:
+        raise SpectatorWorkspaceNotFoundError("The workspace is unavailable.")
+
+    return workspace
+
+
+def get_workspace_spectator(
     session: Session,
     *,
+    workspace_id: int,
     for_update: bool = False,
 ) -> User | None:
-    """Return the single spectator account, if configured."""
-
-    statement = select(User).where(User.role == UserRole.SPECTATOR).order_by(User.id)
+    statement = select(User).where(
+        User.workspace_id == workspace_id,
+        User.role == UserRole.SPECTATOR,
+    )
 
     if for_update:
         statement = statement.with_for_update()
 
-    spectators = session.scalars(statement).all()
-
-    if len(spectators) > 1:
-        raise SpectatorAccountStateError("Multiple spectator accounts are configured.")
-
-    return spectators[0] if spectators else None
+    return session.scalar(statement)
 
 
-def create_spectator_account(
+def spectator_access_state(session: Session, *, workspace: Installation) -> SpectatorAccessState:
+    spectator = get_workspace_spectator(session, workspace_id=workspace.id)
+
+    return SpectatorAccessState(
+        workspace_slug=workspace.slug,
+        configured=spectator is not None,
+        enabled=spectator is not None and spectator.is_active,
+    )
+
+
+def create_workspace_spectator(
     session: Session,
     *,
-    username: str,
-    display_name: str,
+    workspace_id: int,
     password: str,
-    email: str | None = None,
 ) -> User:
-    """Create the one shared spectator account."""
+    """Create the workspace's one spectator. The caller holds the workspace lock."""
 
-    _acquire_spectator_lock(session)
+    validate_spectator_password(password)
 
-    if (
-        get_spectator_account(
-            session,
-            for_update=True,
-        )
-        is not None
-    ):
-        raise SpectatorAlreadyExistsError("A spectator account is already configured.")
+    if get_workspace_spectator(session, workspace_id=workspace_id, for_update=True) is not None:
+        raise SpectatorAlreadyExistsError("Shared spectator access is already configured.")
 
-    return AuthenticationRepository(session).create_user(
-        username=username,
-        display_name=display_name,
-        email=email,
-        password=password,
-        role=UserRole.SPECTATOR,
-        is_active=True,
-    )
-
-
-def update_spectator_profile(
-    session: Session,
-    *,
-    display_name: str,
-    email: str | None,
-) -> User:
-    """Update safe profile fields for the spectator."""
-
-    _acquire_spectator_lock(session)
-
-    spectator = _require_spectator(
-        session,
-        for_update=True,
-    )
-
-    normalized_display_name = normalize_display_name(display_name)
-
-    normalized_email = normalize_email(email) if email is not None and email.strip() else None
-
-    if normalized_email is not None:
-        existing = AuthenticationRepository(session).get_user_by_email(normalized_email)
-
-        if existing is not None and existing.id != spectator.id:
-            from app.repositories.auth_repository import (
-                DuplicateEmailError,
+    try:
+        with session.begin_nested():
+            spectator = AuthenticationRepository(session).create_user(
+                username=generate_internal_spectator_username(),
+                display_name=SPECTATOR_DISPLAY_NAME,
+                email=None,
+                password=password,
+                role=UserRole.SPECTATOR,
+                workspace_id=workspace_id,
+                is_active=True,
             )
+    except IntegrityError as exc:
+        if _constraint_name(exc) == ONE_SPECTATOR_CONSTRAINT:
+            raise SpectatorAlreadyExistsError(
+                "Shared spectator access is already configured."
+            ) from exc
 
-            raise DuplicateEmailError("That email address is already registered.")
-
-    spectator.display_name = normalized_display_name
-    spectator.email = normalized_email
-
-    session.flush()
+        raise
 
     return spectator
 
 
-def reset_spectator_password(
+def reset_workspace_spectator_password(
     session: Session,
     *,
+    workspace_id: int,
     password: str,
     now: datetime | None = None,
 ) -> tuple[User, int]:
-    """Replace the password and revoke spectator sessions."""
+    """Replace the password and revoke every spectator session."""
 
-    _acquire_spectator_lock(session)
-
-    spectator = _require_spectator(
-        session,
-        for_update=True,
-    )
-
+    validate_spectator_password(password)
+    lock_workspace(session, workspace_id)
+    spectator = _require_spectator(session, workspace_id)
     spectator.password_hash = hash_password(password)
-
-    revoked_count = SessionRepository(session).revoke_all_user_sessions(
+    revoked = SessionRepository(session).revoke_all_user_sessions(
         user_id=spectator.id,
         reason=SessionRevocationReason.SPECTATOR_PASSWORD_RESET,
         now=now or datetime.now(UTC),
     )
-
     session.flush()
 
-    return spectator, revoked_count
+    return spectator, revoked
 
 
-def set_spectator_active(
+def disable_workspace_spectator(
     session: Session,
     *,
-    is_active: bool,
+    workspace_id: int,
     now: datetime | None = None,
 ) -> tuple[User, int]:
-    """Enable or disable spectator access."""
+    """Disable access and revoke every spectator session."""
 
-    _acquire_spectator_lock(session)
-
-    spectator = _require_spectator(
-        session,
-        for_update=True,
+    lock_workspace(session, workspace_id)
+    spectator = _require_spectator(session, workspace_id)
+    spectator.is_active = False
+    revoked = SessionRepository(session).revoke_all_user_sessions(
+        user_id=spectator.id,
+        reason=SessionRevocationReason.SPECTATOR_DISABLED,
+        now=now or datetime.now(UTC),
     )
-
-    spectator.is_active = is_active
-
-    revoked_count = 0
-
-    if not is_active:
-        revoked_count = SessionRepository(session).revoke_all_user_sessions(
-            user_id=spectator.id,
-            reason=SessionRevocationReason.SPECTATOR_DISABLED,
-            now=now or datetime.now(UTC),
-        )
-
     session.flush()
 
-    return spectator, revoked_count
+    return spectator, revoked
 
 
-def _require_spectator(
+def enable_workspace_spectator(
     session: Session,
     *,
-    for_update: bool,
-) -> User:
-    spectator = get_spectator_account(
-        session,
-        for_update=for_update,
+    workspace_id: int,
+    password: str,
+    now: datetime | None = None,
+) -> tuple[User, int]:
+    """Re-enable access with a new password; the old one is never revealed or reused.
+
+    Any remaining spectator session is revoked defensively. The reason is
+    spectator_password_reset because the shared password is replaced.
+    """
+
+    validate_spectator_password(password)
+    lock_workspace(session, workspace_id)
+    spectator = _require_spectator(session, workspace_id)
+    spectator.password_hash = hash_password(password)
+    spectator.is_active = True
+    revoked = SessionRepository(session).revoke_all_user_sessions(
+        user_id=spectator.id,
+        reason=SessionRevocationReason.SPECTATOR_PASSWORD_RESET,
+        now=now or datetime.now(UTC),
     )
+    session.flush()
+
+    return spectator, revoked
+
+
+def _require_spectator(session: Session, workspace_id: int) -> User:
+    spectator = get_workspace_spectator(session, workspace_id=workspace_id, for_update=True)
 
     if spectator is None:
-        raise SpectatorNotFoundError("A spectator account is not configured.")
+        raise SpectatorNotFoundError("Shared spectator access is not configured.")
 
     return spectator
 
 
-def _acquire_spectator_lock(
-    session: Session,
-) -> None:
-    session.execute(
-        text(
-            """
-            SELECT pg_advisory_xact_lock(
-                :lock_key
-            )
-            """
-        ),
-        {
-            "lock_key": SPECTATOR_ACCOUNT_LOCK_KEY,
-        },
-    )
+def _constraint_name(error: IntegrityError) -> str | None:
+    diagnostic = getattr(error.orig, "diag", None)
+
+    return getattr(diagnostic, "constraint_name", None)

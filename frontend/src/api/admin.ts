@@ -112,6 +112,10 @@ export function setStandingsTiebreakerFallback(
 }
 
 
+/** Shared spectator password policy (ADR 0005). Values are never trimmed. */
+export const SPECTATOR_PASSWORD_MIN_LENGTH = 14;
+export const SPECTATOR_PASSWORD_MAX_LENGTH = 128;
+
 export function createSpectatorAccount(
   request: CreateSpectatorRequest,
   csrfToken: string,
@@ -142,15 +146,15 @@ export function resetSpectatorPassword(
 }
 
 
+/** Disable access, or re-enable it with a required new shared password. */
 export function setSpectatorAccess(
   isActive: boolean,
   csrfToken: string,
+  password?: string,
 ): Promise<SpectatorAccount> {
   return patchJson<SpectatorAccount>(
     "/admin/spectator/access",
-    {
-      is_active: isActive,
-    },
+    isActive ? { is_active: true, password } : { is_active: false },
     {
       csrfToken,
     },

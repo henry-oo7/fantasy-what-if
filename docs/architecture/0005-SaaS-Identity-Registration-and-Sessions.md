@@ -419,6 +419,14 @@ The spectator decision is final:
 
 The public entry points read "Create a workspace", "Administrator sign in", and "Spectator sign in", never "Join as spectator".
 
+Implementation:
+
+- **Service scope:** every spectator operation is scoped to the administrator's workspace and serialized by locking that workspace row. `uq_users_one_spectator_per_workspace` remains the authoritative guard against a second spectator.
+- **Internal username:** generated as `spectator-<random>` and never returned by any modern API.
+- **Password:** 14 to 128 characters, never trimmed, stored only as an Argon2 hash.
+- **Administrator management:** `/api/admin/spectator` returns only the workspace slug and the `configured` and `enabled` flags. Password change revokes sessions with `spectator_password_reset`, and disable revokes them with `spectator_disabled`.
+- **Re-enabling:** requires a new password and revokes any remaining sessions with `spectator_password_reset`, because the shared password is replaced.
+
 ## Spectator Login
 
 Spectator login requires:

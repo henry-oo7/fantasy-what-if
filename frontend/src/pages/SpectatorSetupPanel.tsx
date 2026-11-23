@@ -15,6 +15,8 @@ import { Link } from "react-router-dom";
 
 import {
   createSpectatorAccount,
+  SPECTATOR_PASSWORD_MAX_LENGTH,
+  SPECTATOR_PASSWORD_MIN_LENGTH,
 } from "../api/admin";
 import { ApiError } from "../api/client";
 import {
@@ -40,8 +42,6 @@ export function SpectatorSetupPanel() {
   const auth = useAuth();
   const queryClient = useQueryClient();
 
-  const [username, setUsername] =
-    useState("league-viewer");
   const [password, setPassword] =
     useState("");
   const [
@@ -65,6 +65,13 @@ export function SpectatorSetupPanel() {
     event.preventDefault();
     setError(null);
 
+    if (password.length < SPECTATOR_PASSWORD_MIN_LENGTH) {
+      setError(
+        `The shared password must contain at least ${SPECTATOR_PASSWORD_MIN_LENGTH} characters.`,
+      );
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
@@ -83,15 +90,15 @@ export function SpectatorSetupPanel() {
     setSubmitting(true);
 
     try {
+      // Only the shared password is chosen; the server generates the
+      // internal compatibility identity.
       await createSpectatorAccount(
-        {
-          username,
-          display_name: "Spectator",
-          email: null,
-          password,
-        },
+        { password },
         auth.csrfToken,
       );
+
+      setPassword("");
+      setConfirmPassword("");
 
       await queryClient.invalidateQueries({
         queryKey: setupQueryKeys.all,
@@ -162,28 +169,6 @@ export function SpectatorSetupPanel() {
             void handleSubmit(event);
           }}
         >
-          <label className="setup-field">
-            <span className="setup-field-label">
-              Spectator username
-            </span>
-
-            <input
-              value={username}
-              onChange={(event) => {
-                setUsername(event.target.value);
-              }}
-              minLength={3}
-              maxLength={50}
-              autoComplete="username"
-              required
-            />
-
-            <small>
-              Share this username only with current
-              league members.
-            </small>
-          </label>
-
           <div className="spectator-password-heading">
             <div>
               <strong>
@@ -191,7 +176,9 @@ export function SpectatorSetupPanel() {
               </strong>
 
               <p>
-                Use at least 12 characters. Resetting
+                Use at least 14 characters. Spectators sign
+                in with the workspace slug and this
+                password. Resetting
                 the password later will sign out all
                 existing spectator sessions.
               </p>
@@ -231,8 +218,8 @@ export function SpectatorSetupPanel() {
               onChange={(event) => {
                 setPassword(event.target.value);
               }}
-              minLength={12}
-              maxLength={128}
+              minLength={SPECTATOR_PASSWORD_MIN_LENGTH}
+              maxLength={SPECTATOR_PASSWORD_MAX_LENGTH}
               autoComplete="new-password"
               required
             />
@@ -260,8 +247,8 @@ export function SpectatorSetupPanel() {
                   event.target.value,
                 );
               }}
-              minLength={12}
-              maxLength={128}
+              minLength={SPECTATOR_PASSWORD_MIN_LENGTH}
+              maxLength={SPECTATOR_PASSWORD_MAX_LENGTH}
               autoComplete="new-password"
               required
             />

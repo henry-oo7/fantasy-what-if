@@ -30,6 +30,8 @@ const ALLOWED_PATHS = new Set([
   "/api/setup/status",
   "/api/auth/me",
   "/api/onboarding/synchronization",
+  // The spectator setup step reads its safe state after success.
+  "/api/onboarding/spectator",
 ]);
 
 function job(status: string, detail: string, extra: Record<string, unknown> = {}) {
@@ -162,7 +164,7 @@ describe("initial_sync_running", () => {
     const pollsAtTerminal = api.calls(PROGRESS).length;
     await advance(15_000);
     expect(api.calls(PROGRESS).length).toBe(pollsAtTerminal);
-    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Create shared spectator access" })).toBeInTheDocument();
     expectNoForeignRequests(api);
   });
 
@@ -238,12 +240,11 @@ describe("initial_sync_failed", () => {
 });
 
 describe("spectator_setup_pending", () => {
-  it("shows the placeholder with no spectator form or sync action", async () => {
+  it("shows the spectator setup step and no sync action", async () => {
     const { api } = await open("spectator_setup_pending");
 
     expect(screen.getByText(LEAGUE_DATA_READY_MESSAGE)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /synchronization/i })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
     expect(api.calls(START)).toHaveLength(0);
     expect(document.body.textContent).not.toContain("spectator_setup_pending");
   });

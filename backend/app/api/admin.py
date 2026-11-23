@@ -27,11 +27,8 @@ from app.api.auth_dependencies import (
     require_session_csrf,
 )
 from app.api.security import validate_request_origin
-from app.auth.security import (
-    InvalidPasswordError,
-    InvalidUsernameError,
-)
 from app.db.auth_models import User
+from app.db.platform_models import Installation
 from app.db.session import (
     SessionFactory,
     get_database_session,
@@ -43,10 +40,6 @@ from app.providers.credential_vault import (
     ProviderCredentialConfigurationError,
 )
 from app.providers.domain import ProviderCredentials
-from app.repositories.auth_repository import (
-    DuplicateEmailError,
-    DuplicateUsernameError,
-)
 from app.repositories.standings_tiebreaker_repository import (
     StandingsTiebreakerConfiguration,
     StandingsTiebreakerConfigurationError,
@@ -72,7 +65,6 @@ from app.schemas.admin import (
     SyncRequest,
     SyncRunResponse,
     SyncStatusResponse,
-    UpdateSpectatorProfileRequest,
 )
 from app.services.active_season_context import (
     ViewSeasonResolutionError,
@@ -86,14 +78,16 @@ from app.services.provider_credential_replacement import (
     ProviderCredentialReplacementValidationError,
 )
 from app.services.spectator_account import (
-    SpectatorAccountStateError,
     SpectatorAlreadyExistsError,
     SpectatorNotFoundError,
-    create_spectator_account,
-    get_spectator_account,
-    reset_spectator_password,
-    set_spectator_active,
-    update_spectator_profile,
+    SpectatorPasswordError,
+    SpectatorWorkspaceNotFoundError,
+    create_workspace_spectator,
+    disable_workspace_spectator,
+    enable_workspace_spectator,
+    lock_workspace,
+    reset_workspace_spectator_password,
+    spectator_access_state,
 )
 
 router = APIRouter(
@@ -332,255 +326,154 @@ def update_admin_standings_tiebreaker(
     )
 
 
+def _spectator_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, SpectatorNotFoundError):
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Shared spectator access is not configured.",
+        )
+
+    if isinstance(exc, SpectatorAlreadyExistsError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Shared spectator access is already configured.",
+        )
+
+    if isinstance(exc, SpectatorPasswordError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        )
+
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="The workspace is unavailable.",
+    )
+
+
+_SPECTATOR_ERRORS = (
+    SpectatorNotFoundError,
+    SpectatorAlreadyExistsError,
+    SpectatorPasswordError,
+    SpectatorWorkspaceNotFoundError,
+)
+
+
+def _spectator_state_response(
+    session: Session,
+    workspace_id: int,
+    *,
+    revoked_sessions: int | None = None,
+) -> SpectatorAccountResponse | SpectatorAccountMutationResponse:
+    workspace = session.get(Installation, workspace_id)
+
+    if workspace is None:
+        raise _spectator_error(SpectatorWorkspaceNotFoundError())
+
+    state = spectator_access_state(session, workspace=workspace)
+
+    if revoked_sessions is None:
+        return SpectatorAccountResponse(
+            workspace_slug=state.workspace_slug,
+            configured=state.configured,
+            enabled=state.enabled,
+        )
+
+    return SpectatorAccountMutationResponse(
+        workspace_slug=state.workspace_slug,
+        configured=state.configured,
+        enabled=state.enabled,
+        revoked_sessions=revoked_sessions,
+    )
+
+
 @router.get("/spectator")
 def read_spectator_account(
-    session: Annotated[
-        Session,
-        Depends(get_database_session),
-    ],
+    workspace_id: Annotated[int, Depends(get_current_workspace_id)],
+    session: Annotated[Session, Depends(get_database_session)],
 ) -> SpectatorAccountResponse:
-    """Return safe shared spectator account metadata."""
+    """Safe shared spectator state for the administrator's own workspace."""
 
-    try:
-        spectator = get_spectator_account(session)
-    except SpectatorAccountStateError as exc:
-        raise HTTPException(
-            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
-            detail=("Spectator account configuration is invalid."),
-        ) from exc
-
-    return _build_spectator_response(spectator)
+    return _spectator_state_response(session, workspace_id)
 
 
 @router.post("/spectator")
 def create_admin_spectator_account(
     payload: CreateSpectatorRequest,
-    _: Annotated[
-        None,
-        Depends(validate_request_origin),
-    ],
-    __: Annotated[
-        AuthenticationContext,
-        Depends(require_session_csrf),
-    ],
-    session: Annotated[
-        Session,
-        Depends(get_database_session),
-    ],
+    workspace_id: Annotated[int, Depends(get_current_workspace_id)],
+    _: Annotated[None, Depends(validate_request_origin)],
+    __: Annotated[AuthenticationContext, Depends(require_session_csrf)],
+    session: Annotated[Session, Depends(get_database_session)],
 ) -> SpectatorAccountMutationResponse:
-    """Create the installation's shared spectator."""
+    """Create the workspace's one shared spectator. Only the password is chosen."""
 
     try:
-        spectator = create_spectator_account(
-            session,
-            username=payload.username,
-            display_name=payload.display_name,
-            email=payload.email,
-            password=payload.password,
-        )
-
+        lock_workspace(session, workspace_id)
+        create_workspace_spectator(session, workspace_id=workspace_id, password=payload.password)
+        response = _spectator_state_response(session, workspace_id, revoked_sessions=0)
         session.commit()
-    except SpectatorAlreadyExistsError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-    except (
-        DuplicateUsernameError,
-        DuplicateEmailError,
-    ) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-    except (
-        InvalidUsernameError,
-        InvalidPasswordError,
-        ValueError,
-    ) as exc:
-        raise HTTPException(
-            status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
-            detail=str(exc),
-        ) from exc
+    except _SPECTATOR_ERRORS as exc:
+        session.rollback()
+        raise _spectator_error(exc) from exc
 
-    return _build_spectator_mutation_response(
-        spectator,
-    )
-
-
-@router.patch("/spectator/profile")
-def update_admin_spectator_profile(
-    payload: UpdateSpectatorProfileRequest,
-    _: Annotated[
-        None,
-        Depends(validate_request_origin),
-    ],
-    __: Annotated[
-        AuthenticationContext,
-        Depends(require_session_csrf),
-    ],
-    session: Annotated[
-        Session,
-        Depends(get_database_session),
-    ],
-) -> SpectatorAccountMutationResponse:
-    """Update shared spectator profile metadata."""
-
-    try:
-        spectator = update_spectator_profile(
-            session,
-            display_name=payload.display_name,
-            email=payload.email,
-        )
-
-        session.commit()
-    except SpectatorNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-    except SpectatorAccountStateError as exc:
-        raise HTTPException(
-            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
-            detail=("Spectator account configuration is invalid."),
-        ) from exc
-    except DuplicateEmailError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
-            detail=str(exc),
-        ) from exc
-
-    return _build_spectator_mutation_response(
-        spectator,
-    )
+    return response
 
 
 @router.post("/spectator/reset-password")
 def reset_admin_spectator_password(
     payload: ResetSpectatorPasswordRequest,
-    _: Annotated[
-        None,
-        Depends(validate_request_origin),
-    ],
-    __: Annotated[
-        AuthenticationContext,
-        Depends(require_session_csrf),
-    ],
-    session: Annotated[
-        Session,
-        Depends(get_database_session),
-    ],
+    workspace_id: Annotated[int, Depends(get_current_workspace_id)],
+    _: Annotated[None, Depends(validate_request_origin)],
+    __: Annotated[AuthenticationContext, Depends(require_session_csrf)],
+    session: Annotated[Session, Depends(get_database_session)],
 ) -> SpectatorAccountMutationResponse:
-    """Reset the password and revoke spectator sessions."""
+    """Replace the shared password and sign out every spectator session."""
 
     try:
-        spectator, revoked_sessions = reset_spectator_password(
-            session,
-            password=payload.password,
+        _, revoked = reset_workspace_spectator_password(
+            session, workspace_id=workspace_id, password=payload.password
         )
-
+        response = _spectator_state_response(session, workspace_id, revoked_sessions=revoked)
         session.commit()
-    except SpectatorNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-    except SpectatorAccountStateError as exc:
-        raise HTTPException(
-            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
-            detail=("Spectator account configuration is invalid."),
-        ) from exc
-    except InvalidPasswordError as exc:
-        raise HTTPException(
-            status_code=(status.HTTP_422_UNPROCESSABLE_CONTENT),
-            detail=str(exc),
-        ) from exc
+    except _SPECTATOR_ERRORS as exc:
+        session.rollback()
+        raise _spectator_error(exc) from exc
 
-    return _build_spectator_mutation_response(
-        spectator,
-        revoked_sessions=revoked_sessions,
-    )
+    return response
 
 
 @router.patch("/spectator/access")
 def set_admin_spectator_access(
     payload: SetSpectatorAccessRequest,
-    _: Annotated[
-        None,
-        Depends(validate_request_origin),
-    ],
-    __: Annotated[
-        AuthenticationContext,
-        Depends(require_session_csrf),
-    ],
-    session: Annotated[
-        Session,
-        Depends(get_database_session),
-    ],
+    workspace_id: Annotated[int, Depends(get_current_workspace_id)],
+    _: Annotated[None, Depends(validate_request_origin)],
+    __: Annotated[AuthenticationContext, Depends(require_session_csrf)],
+    session: Annotated[Session, Depends(get_database_session)],
 ) -> SpectatorAccountMutationResponse:
-    """Enable or disable shared spectator access."""
+    """Disable access, or re-enable it with a required new shared password."""
+
+    if payload.is_active and payload.password is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Set a new shared spectator password to re-enable access.",
+        )
 
     try:
-        spectator, revoked_sessions = set_spectator_active(
-            session,
-            is_active=payload.is_active,
-        )
+        if payload.is_active:
+            assert payload.password is not None
+            _, revoked = enable_workspace_spectator(
+                session, workspace_id=workspace_id, password=payload.password
+            )
+        else:
+            _, revoked = disable_workspace_spectator(session, workspace_id=workspace_id)
 
+        response = _spectator_state_response(session, workspace_id, revoked_sessions=revoked)
         session.commit()
-    except SpectatorNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-    except SpectatorAccountStateError as exc:
-        raise HTTPException(
-            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
-            detail=("Spectator account configuration is invalid."),
-        ) from exc
+    except _SPECTATOR_ERRORS as exc:
+        session.rollback()
+        raise _spectator_error(exc) from exc
 
-    return _build_spectator_mutation_response(
-        spectator,
-        revoked_sessions=revoked_sessions,
-    )
-
-
-def _build_spectator_response(
-    spectator: User | None,
-) -> SpectatorAccountResponse:
-    if spectator is None:
-        return SpectatorAccountResponse(
-            configured=False,
-        )
-
-    return SpectatorAccountResponse(
-        configured=True,
-        id=spectator.id,
-        username=spectator.username,
-        display_name=spectator.display_name,
-        email=spectator.email,
-        is_active=spectator.is_active,
-    )
-
-
-def _build_spectator_mutation_response(
-    spectator: User,
-    *,
-    revoked_sessions: int = 0,
-) -> SpectatorAccountMutationResponse:
-    return SpectatorAccountMutationResponse(
-        configured=True,
-        id=spectator.id,
-        username=spectator.username,
-        display_name=spectator.display_name,
-        email=spectator.email,
-        is_active=spectator.is_active,
-        revoked_sessions=revoked_sessions,
-    )
+    return response
 
 
 def _build_sync_status_response(

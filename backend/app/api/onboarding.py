@@ -21,11 +21,13 @@ from app.schemas.onboarding import (
     InitialSyncJobResponse,
     InitialSyncProgressResponse,
     InitialSyncStartRequest,
+    OnboardingSpectatorResponse,
     ProviderClaimRequest,
     ProviderClaimResponse,
     ProviderTargetResponse,
     ProviderValidationRequest,
     ProviderValidationResponse,
+    SpectatorSetupRequest,
 )
 from app.services.league_claim import (
     LEAGUE_ALREADY_CLAIMED_DETAIL,
@@ -39,12 +41,21 @@ from app.services.onboarding_initial_sync import (
     read_initial_sync_progress,
     start_initial_sync,
 )
+from app.services.onboarding_spectator import (
+    OnboardingSpectatorState,
+    read_onboarding_spectator,
+    set_up_onboarding_spectator,
+)
 from app.services.provider_onboarding import (
     ProviderOnboardingError,
     ProviderWorkspaceAccessError,
     private_access_from_values,
     run_provider_validation,
     unsupported_provider,
+)
+from app.services.spectator_account import (
+    SpectatorAlreadyExistsError,
+    SpectatorPasswordError,
 )
 
 router = APIRouter(
@@ -300,3 +311,73 @@ def read_onboarding_synchronization(
         return _error_response(exc)
 
     return _progress_response(progress)
+
+
+def _spectator_response(state: OnboardingSpectatorState) -> OnboardingSpectatorResponse:
+    return OnboardingSpectatorResponse(
+        workspace_slug=state.access.workspace_slug,
+        configured=state.access.configured,
+        enabled=state.access.enabled,
+        onboarding_stage=state.onboarding_stage,
+    )
+
+
+@router.get("/spectator", response_model=OnboardingSpectatorResponse)
+def read_onboarding_spectator_access(
+    context: Annotated[AuthenticationContext, Depends(get_authentication_context)],
+) -> OnboardingSpectatorResponse | JSONResponse:
+    """Safe shared spectator state during onboarding."""
+
+    try:
+        with SessionFactory() as session:
+            state = read_onboarding_spectator(
+                session, user_id=context.user_id, workspace_id=context.workspace_id
+            )
+    except ProviderWorkspaceAccessError as exc:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.", code=exc.code
+        ) from exc
+    except ProviderOnboardingError as exc:
+        return _error_response(exc)
+
+    return _spectator_response(state)
+
+
+@router.post("/spectator", response_model=OnboardingSpectatorResponse)
+def set_up_onboarding_spectator_access(
+    payload: SpectatorSetupRequest,
+    context: Annotated[AuthenticationContext, Depends(require_session_csrf)],
+    _: Annotated[None, Depends(validate_request_origin)],
+) -> OnboardingSpectatorResponse | JSONResponse:
+    """Create the shared spectator and complete onboarding. Never activates."""
+
+    try:
+        with SessionFactory() as session:
+            state = set_up_onboarding_spectator(
+                session,
+                user_id=context.user_id,
+                workspace_id=context.workspace_id,
+                password=payload.password,
+            )
+    except ProviderWorkspaceAccessError as exc:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.", code=exc.code
+        ) from exc
+    except ProviderOnboardingError as exc:
+        return _error_response(exc)
+    except SpectatorAlreadyExistsError:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Shared spectator access is already configured.",
+                "code": "spectator_already_configured",
+                "retryable": False,
+            },
+        )
+    except SpectatorPasswordError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(exc), "code": "spectator_password_invalid", "retryable": False},
+        )
+
+    return _spectator_response(state)

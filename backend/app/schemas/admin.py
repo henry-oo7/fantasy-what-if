@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SyncRunResponse(BaseModel):
@@ -54,47 +54,47 @@ class BackgroundJobStatusResponse(BaseModel):
     retryable: bool | None
 
 
-class SpectatorAccountResponse(BaseModel):
-    """Safe shared spectator account metadata."""
+SpectatorPassword = Annotated[str, Field(min_length=14, max_length=128)]
 
+
+class SpectatorAccountResponse(BaseModel):
+    """Safe shared spectator state.
+
+    Never includes a password, hash, internal username, email or sessions.
+    """
+
+    workspace_slug: str | None
     configured: bool
-    id: int | None = None
-    username: str | None = None
-    display_name: str | None = None
-    email: str | None = None
-    is_active: bool | None = None
+    enabled: bool
 
 
 class CreateSpectatorRequest(BaseModel):
-    """Create the installation's shared spectator."""
+    """Create the workspace's one shared spectator. Only the password is chosen."""
 
-    username: str
-    display_name: str
-    email: str | None = None
-    password: str
+    model_config = ConfigDict(extra="forbid")
 
-
-class UpdateSpectatorProfileRequest(BaseModel):
-    """Update spectator profile metadata."""
-
-    display_name: str
-    email: str | None = None
+    password: SpectatorPassword
 
 
 class ResetSpectatorPasswordRequest(BaseModel):
     """Replace the shared spectator password."""
 
-    password: str
+    model_config = ConfigDict(extra="forbid")
+
+    password: SpectatorPassword
 
 
 class SetSpectatorAccessRequest(BaseModel):
-    """Enable or disable shared spectator access."""
+    """Disable access, or re-enable it with a new shared password."""
+
+    model_config = ConfigDict(extra="forbid")
 
     is_active: bool
+    password: SpectatorPassword | None = None
 
 
 class SpectatorAccountMutationResponse(SpectatorAccountResponse):
-    """Spectator metadata plus revoked-session count."""
+    """Safe state plus the number of spectator sessions signed out."""
 
     revoked_sessions: int = 0
 

@@ -68,3 +68,11 @@ export interface InitialSyncProgress {
   onboarding_stage: OnboardingStage;
   job: InitialSyncJob | null;
 }
+
+/** GET and POST /api/onboarding/spectator: safe state only. */
+export interface OnboardingSpectatorState {
+  workspace_slug: string | null;
+  configured: boolean;
+  enabled: boolean;
+  onboarding_stage: OnboardingStage;
+}

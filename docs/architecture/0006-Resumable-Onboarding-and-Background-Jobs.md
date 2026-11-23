@@ -678,6 +678,14 @@ Provider-derived domain rows are created only from that snapshot; no placeholder
 
 Job success moves onboarding to `spectator_setup_pending` in the same transaction as the job status. Retryable failures keep `initial_sync_running`. A terminal failure, including an exhausted expired lease, moves onboarding to `initial_sync_failed` in the same transaction, preserving the claim, connection, League and Season for an administrator retry. The workspace stays provisional; spectator setup and activation remain later steps.
 
+### Implemented Spectator Setup Step
+
+Spectator setup follows successful initial synchronization. `GET /api/onboarding/spectator` returns only the workspace slug, the `configured` and `enabled` flags, and the onboarding stage.
+
+`POST /api/onboarding/spectator` accepts only the shared password, at `spectator_setup_pending`, for a verified provisional administrator. In one transaction it locks the workspace, creates the single spectator identity (generated internal username, no email, hashed password), and moves onboarding to `complete`. Registration stays provisional, and the installation is not activated.
+
+A repeat after success returns the configured state without replacing the password; later changes use workspace administration. Workspace activation is the next and final step.
+
 ## Atomic League Claim
 
 The provider league claim remains a short database transaction.

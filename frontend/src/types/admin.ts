@@ -1,10 +1,8 @@
+/** Safe shared spectator state: never a password, username or email. */
 export interface SpectatorAccount {
+  workspace_slug: string | null;
   configured: boolean;
-  id: number | null;
-  username: string | null;
-  display_name: string | null;
-  email: string | null;
-  is_active: boolean | null;
+  enabled: boolean;
   revoked_sessions?: number;
 }
 

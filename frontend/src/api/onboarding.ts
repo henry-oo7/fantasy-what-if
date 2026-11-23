@@ -1,6 +1,7 @@
 import { getJson, postJson } from "./client";
 import type {
   InitialSyncProgress,
+  OnboardingSpectatorState,
   ProviderClaimResponse,
   ProviderTarget,
   ProviderValidationRequest,
@@ -11,6 +12,7 @@ export const onboardingQueryKeys = {
   all: ["onboarding"] as const,
   providerTarget: () => [...onboardingQueryKeys.all, "provider-target"] as const,
   synchronization: () => [...onboardingQueryKeys.all, "synchronization"] as const,
+  spectator: () => [...onboardingQueryKeys.all, "spectator"] as const,
 };
 
 /**
@@ -48,4 +50,19 @@ export function getInitialSyncProgress(signal?: AbortSignal): Promise<InitialSyn
 /** Queue (or return the active) first import. The body carries no ownership data. */
 export function startInitialSync(csrfToken: string | null): Promise<InitialSyncProgress> {
   return postJson<InitialSyncProgress>("/onboarding/synchronization", {}, { csrfToken });
+}
+
+export function getOnboardingSpectator(signal?: AbortSignal): Promise<OnboardingSpectatorState> {
+  return getJson<OnboardingSpectatorState>("/onboarding/spectator", signal);
+}
+
+/**
+ * Create the one shared spectator. Not a React Query mutation, so the
+ * password is never retained in a mutation cache.
+ */
+export function setUpOnboardingSpectator(
+  password: string,
+  csrfToken: string | null,
+): Promise<OnboardingSpectatorState> {
+  return postJson<OnboardingSpectatorState>("/onboarding/spectator", { password }, { csrfToken });
 }
