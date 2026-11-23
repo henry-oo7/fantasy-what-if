@@ -2,6 +2,10 @@ import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 import { OnboardingPage } from "../pages/account/OnboardingPage";
+import {
+  WorkspaceDeletionRecoveryPage,
+  WorkspaceDeletionScheduledPage,
+} from "../pages/account/WorkspaceDeletionRecoveryPage";
 import { WorkspaceUnavailablePage } from "../pages/account/WorkspaceUnavailablePage";
 import { useAuth } from "./AuthProvider";
 import { safeReturnPath } from "./returnPath";
@@ -36,6 +40,15 @@ export function PublicOnlyRoute({
     return (
       <Navigate
         to="/onboarding"
+        replace
+      />
+    );
+  }
+
+  if (auth.workspaceAccess === "deletion_recovery") {
+    return (
+      <Navigate
+        to="/workspace-deletion"
         replace
       />
     );
@@ -87,6 +100,10 @@ export function OnboardingRoute() {
     return <SessionCheckScreen />;
   }
 
+  if (auth.workspaceAccess === "deletion_recovery") {
+    return <Navigate to="/workspace-deletion" replace />;
+  }
+
   if (
     auth.workspaceAccess === "suspended" ||
     auth.workspaceAccess === "inactive"
@@ -107,4 +124,49 @@ export function OnboardingRoute() {
   }
 
   return <OnboardingPage />;
+}
+
+interface DeletionScheduledState {
+  deletionScheduledFor?: unknown;
+}
+
+/**
+ * Restricted FR-20 recovery screen.
+ *
+ * A deletion_recovery session sees only this page. Directly after a
+ * deletion request the session is gone, so an anonymous visitor carrying
+ * the scheduled time in navigation state sees a sign-in prompt instead.
+ * Everyone else is routed away.
+ */
+export function WorkspaceDeletionRoute() {
+  const auth = useAuth();
+  const location = useLocation();
+  const scheduledFor = (location.state as DeletionScheduledState | null)
+    ?.deletionScheduledFor;
+
+  if (auth.status === "loading") {
+    return <SessionCheckScreen />;
+  }
+
+  if (auth.status === "error") {
+    return <SessionErrorScreen />;
+  }
+
+  if (auth.status !== "authenticated" || auth.user === null) {
+    if (typeof scheduledFor === "string") {
+      return <WorkspaceDeletionScheduledPage scheduledFor={scheduledFor} />;
+    }
+
+    return <Navigate to="/login" replace />;
+  }
+
+  if (auth.workspaceAccess === "checking") {
+    return <SessionCheckScreen />;
+  }
+
+  if (auth.workspaceAccess !== "deletion_recovery") {
+    return <Navigate to="/" replace />;
+  }
+
+  return <WorkspaceDeletionRecoveryPage />;
 }

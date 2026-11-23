@@ -6,6 +6,12 @@ export const SESSION_REPLACED_MESSAGE =
 export const PASSWORD_RESET_COMPLETED_MESSAGE =
   "Your password has been reset. Sign in with your administrator email.";
 
+export const WORKSPACE_DELETION_CANCELED_MESSAGE =
+  "Deletion canceled. Sign in again to continue.";
+
+export const WORKSPACE_NOT_RESTORABLE_MESSAGE =
+  "This workspace can no longer be restored.";
+
 export const LEAGUE_ACCESS_VALIDATED_MESSAGE =
   "ESPN access validated. Confirming and claiming this league is the next step.";
 

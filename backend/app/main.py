@@ -13,6 +13,7 @@ from app.api.auth_dependencies import SessionReplacedError, WorkspaceAccessError
 from app.api.leagues import router as leagues_router
 from app.api.onboarding import router as onboarding_router
 from app.api.registration import router as registration_router
+from app.api.workspace_deletion import router as workspace_deletion_router
 from app.core.settings import get_settings
 from app.db.platform_enums import InstallationStatus
 from app.db.platform_models import Installation
@@ -116,6 +117,7 @@ app.include_router(auth_router)
 app.include_router(registration_router)
 app.include_router(onboarding_router)
 app.include_router(admin_router)
+app.include_router(workspace_deletion_router)
 app.include_router(leagues_router)
 app.include_router(analytics_router)
 

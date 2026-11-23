@@ -43,6 +43,15 @@ def is_active_workspace(workspace: Installation | None) -> bool:
     )
 
 
+def is_deletion_pending(workspace: Installation | None) -> bool:
+    """The workspace is inside its FR-20 deletion grace period."""
+
+    return (
+        workspace is not None
+        and workspace.registration_status is WorkspaceRegistrationStatus.DELETION_PENDING
+    )
+
+
 def is_resumable_onboarding(workspace: Installation | None) -> bool:
     """Verified provisional SaaS workspace an administrator may resume."""
 

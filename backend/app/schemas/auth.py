@@ -4,7 +4,7 @@ from pydantic import (
     Field,
 )
 
-from app.db.auth_models import UserRole
+from app.db.auth_models import AuthSessionPurpose, UserRole
 from app.db.platform_enums import (
     InstallationStatus,
     OnboardingStage,
@@ -42,6 +42,9 @@ class CurrentUserResponse(BaseModel):
     role: UserRole
     is_active: bool
     workspace: WorkspaceLifecycleResponse
+    # deletion_recovery sessions see workspace_access = inactive and may
+    # use only /auth/me, logout, and deletion status and cancellation.
+    session_purpose: AuthSessionPurpose = AuthSessionPurpose.STANDARD
 
 
 class CsrfTokenResponse(BaseModel):
@@ -78,6 +81,7 @@ class AdministratorAuthenticationResponse(BaseModel):
 
     user: AdministratorAuthenticatedUserResponse
     csrf_token: str
+    session_purpose: AuthSessionPurpose = AuthSessionPurpose.STANDARD
 
 
 class PasswordResetRequest(BaseModel):

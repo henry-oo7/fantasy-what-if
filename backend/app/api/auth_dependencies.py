@@ -16,7 +16,7 @@ from app.auth.cookies import (
 from app.auth.csrf import CSRF_HEADER_NAME
 from app.auth.security import csrf_tokens_match
 from app.core.settings import Settings, get_settings
-from app.db.auth_models import AuthSession, User, UserRole
+from app.db.auth_models import AuthSession, AuthSessionPurpose, User, UserRole
 from app.db.platform_models import Installation
 from app.db.session import SessionFactory
 from app.repositories.session_repository import (
@@ -28,6 +28,9 @@ from app.services.workspace_lifecycle import (
     WorkspaceAccess,
     resolve_workspace_access,
 )
+
+SESSION_RESTRICTED_CODE = "session_restricted"
+SESSION_RESTRICTED_DETAIL = "This session cannot access that resource."
 
 SESSION_REPLACED_CODE = "session_replaced"
 SESSION_REPLACED_DETAIL = (
@@ -57,14 +60,26 @@ class AuthenticationContext:
     user: User
     auth_session: AuthSession
 
+    @property
+    def session_purpose(self) -> AuthSessionPurpose:
+        return self.auth_session.purpose
 
-def get_authentication_context(
+
+def resolve_session_authentication_context(
     request: Request,
     settings: Annotated[
         Settings,
         Depends(get_settings),
     ],
 ) -> AuthenticationContext:
+    """Authenticate the presented session whatever its purpose.
+
+    Only the FR-20 deletion-recovery allowlist may depend on this
+    directly: ``GET /api/auth/me``, ``POST /api/auth/logout``, and the
+    workspace-deletion status and cancellation routes. Every other route
+    uses ``get_authentication_context``, which denies restricted sessions.
+    """
+
     session_token = get_session_token(
         request,
         settings=settings,
@@ -99,6 +114,28 @@ def get_authentication_context(
         database_session.expunge(resolved.session)
 
         return context
+
+
+def get_authentication_context(
+    context: Annotated[
+        AuthenticationContext,
+        Depends(resolve_session_authentication_context),
+    ],
+) -> AuthenticationContext:
+    """Authenticate a standard session; deny every restricted purpose.
+
+    This is the single default-deny rule for ``deletion_recovery``
+    sessions: every authenticated dependency (current user, workspace,
+    administrator, active workspace, and session CSRF) builds on it.
+    """
+
+    if context.session_purpose is not AuthSessionPurpose.STANDARD:
+        raise WorkspaceAccessError(
+            detail=SESSION_RESTRICTED_DETAIL,
+            code=SESSION_RESTRICTED_CODE,
+        )
+
+    return context
 
 
 def build_authentication_context(
@@ -163,20 +200,11 @@ def require_admin_user(
     return user
 
 
-def require_session_csrf(
+def _validate_session_csrf(
     request: Request,
-    context: Annotated[
-        AuthenticationContext,
-        Depends(get_authentication_context),
-    ],
-    settings: Annotated[
-        Settings,
-        Depends(get_settings),
-    ],
-    csrf_header: Annotated[
-        str | None,
-        Header(alias=CSRF_HEADER_NAME),
-    ] = None,
+    context: AuthenticationContext,
+    settings: Settings,
+    csrf_header: str | None,
 ) -> AuthenticationContext:
     csrf_cookie = get_csrf_cookie(
         request,
@@ -194,6 +222,46 @@ def require_session_csrf(
         )
 
     return context
+
+
+def require_session_csrf(
+    request: Request,
+    context: Annotated[
+        AuthenticationContext,
+        Depends(get_authentication_context),
+    ],
+    settings: Annotated[
+        Settings,
+        Depends(get_settings),
+    ],
+    csrf_header: Annotated[
+        str | None,
+        Header(alias=CSRF_HEADER_NAME),
+    ] = None,
+) -> AuthenticationContext:
+    """Session CSRF for a standard session (restricted purposes denied)."""
+
+    return _validate_session_csrf(request, context, settings, csrf_header)
+
+
+def require_any_purpose_session_csrf(
+    request: Request,
+    context: Annotated[
+        AuthenticationContext,
+        Depends(resolve_session_authentication_context),
+    ],
+    settings: Annotated[
+        Settings,
+        Depends(get_settings),
+    ],
+    csrf_header: Annotated[
+        str | None,
+        Header(alias=CSRF_HEADER_NAME),
+    ] = None,
+) -> AuthenticationContext:
+    """Session CSRF for the deletion-recovery allowlist only."""
+
+    return _validate_session_csrf(request, context, settings, csrf_header)
 
 
 class WorkspaceAccessError(RuntimeError):

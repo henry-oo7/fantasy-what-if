@@ -1,7 +1,11 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import App from "./App";
-import { OnboardingRoute, PublicOnlyRoute } from "./auth/AccountRouteGuards";
+import {
+  OnboardingRoute,
+  PublicOnlyRoute,
+  WorkspaceDeletionRoute,
+} from "./auth/AccountRouteGuards";
 import { AdminRoute } from "./auth/AdminRoute";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
@@ -59,6 +63,9 @@ export function AppRouter() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
 
       <Route path="/onboarding" element={<OnboardingRoute />} />
+
+      {/* FR-20 restricted recovery; never part of the application shell. */}
+      <Route path="/workspace-deletion" element={<WorkspaceDeletionRoute />} />
 
       {/* Public outcome of a losing duplicate claim; the session is gone. */}
       <Route path="/league-already-connected" element={<LeagueAlreadyConnectedPage />} />

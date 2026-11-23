@@ -15,6 +15,7 @@ import { useAuth, type EstablishedSession } from "../../auth/AuthProvider";
 import {
   PASSWORD_RESET_COMPLETED_MESSAGE,
   SESSION_REPLACED_MESSAGE,
+  WORKSPACE_DELETION_CANCELED_MESSAGE,
   throttledMessage,
   unexpectedErrorMessage,
 } from "../../auth/accountMessages";
@@ -78,6 +79,12 @@ export function LoginPage() {
       return;
     }
 
+    // A deletion-recovery session may reach only the recovery screen.
+    if (session.workspaceAccess === "deletion_recovery") {
+      navigate("/workspace-deletion", { replace: true });
+      return;
+    }
+
     navigate(
       session.workspaceAccess === "active" ? destination : "/",
       { replace: true },
@@ -125,7 +132,9 @@ export function LoginPage() {
       ? SESSION_REPLACED_MESSAGE
       : auth.notice === "password_reset_completed"
         ? PASSWORD_RESET_COMPLETED_MESSAGE
-        : null;
+        : auth.notice === "workspace_deletion_canceled"
+          ? WORKSPACE_DELETION_CANCELED_MESSAGE
+          : null;
 
   return (
     <AccountLayout

@@ -488,3 +488,17 @@
   background: #edf1ee;
   opacity: 0.75;
 }
+
+/* FR-20 danger zone: flat border and color only, no shadows. */
+.admin-danger-zone {
+  border-color: var(--color-danger);
+}
+
+.admin-danger-zone .admin-control-heading svg {
+  color: var(--color-danger);
+}
+
+.admin-deletion-form {
+  display: grid;
+  gap: 1rem;
+}
