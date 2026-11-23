@@ -26,3 +26,19 @@ export interface ProviderValidationResponse {
   access_mode: "public" | "private" | null;
   onboarding_stage: OnboardingStage;
 }
+
+/** GET /api/onboarding/provider/target: safe target, never credentials. */
+export interface ProviderTarget {
+  provider: "espn";
+  league_id: string;
+  season_year: number;
+  access_mode: "public" | "private";
+}
+
+/** POST /api/onboarding/provider/claim */
+export interface ProviderClaimResponse {
+  status: "claimed";
+  code: "provider_league_claimed";
+  onboarding_stage: "initial_sync_pending";
+  target: ProviderTarget;
+}

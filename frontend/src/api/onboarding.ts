@@ -1,8 +1,15 @@
-import { postJson } from "./client";
+import { getJson, postJson } from "./client";
 import type {
+  ProviderClaimResponse,
+  ProviderTarget,
   ProviderValidationRequest,
   ProviderValidationResponse,
 } from "../types/onboarding";
+
+export const onboardingQueryKeys = {
+  all: ["onboarding"] as const,
+  providerTarget: () => [...onboardingQueryKeys.all, "provider-target"] as const,
+};
 
 /**
  * Check that Fantasy What-If can read one ESPN league season.
@@ -19,4 +26,15 @@ export function validateProviderAccess(
     request,
     { csrfToken },
   );
+}
+
+export function getProviderTarget(signal?: AbortSignal): Promise<ProviderTarget> {
+  return getJson<ProviderTarget>("/onboarding/provider/target", signal);
+}
+
+/** Confirm the validated target. The body carries no ownership fields. */
+export function claimProviderLeague(
+  csrfToken: string | null,
+): Promise<ProviderClaimResponse> {
+  return postJson<ProviderClaimResponse>("/onboarding/provider/claim", {}, { csrfToken });
 }

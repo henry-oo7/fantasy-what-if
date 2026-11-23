@@ -32,7 +32,7 @@ const ONBOARDING_STAGE_MESSAGES: Record<OnboardingStage, string> = {
   email_verification_pending: "Your email address is waiting to be verified.",
   provider_setup_pending: "Next step: connect your fantasy provider.",
   league_claim_pending: "Next step: confirm and claim your ESPN league.",
-  initial_sync_pending: "Your league data is queued to load.",
+  initial_sync_pending: "Next step: load your league data.",
   initial_sync_running: "Your league data is loading.",
   spectator_setup_pending: "Next step: set up spectator access.",
   complete: "Workspace setup is complete.",

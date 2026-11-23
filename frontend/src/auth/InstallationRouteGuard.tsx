@@ -30,6 +30,7 @@ const SAAS_ACCOUNT_PATHS: ReadonlySet<string> = new Set([
   "/forgot-password",
   "/reset-password",
   "/onboarding",
+  "/league-already-connected",
 ]);
 
 

@@ -9,6 +9,15 @@ export const PASSWORD_RESET_COMPLETED_MESSAGE =
 export const LEAGUE_ACCESS_VALIDATED_MESSAGE =
   "ESPN access validated. Confirming and claiming this league is the next step.";
 
+export const CLAIM_ACTION_LABEL =
+  "Connect this ESPN league to my Fantasy What-If workspace.";
+
+export const LEAGUE_CONNECTED_MESSAGE =
+  "Your ESPN league is connected. Initial synchronization is the next step.";
+
+export const LEAGUE_ALREADY_CLAIMED_MESSAGE =
+  "This fantasy league is already connected to Fantasy What-If. Contact the league owner and ask for the workspace's spectator access if you need viewing access.";
+
 export const CONNECTION_ERROR_MESSAGE =
   "Unable to reach Fantasy What-If. Check your connection and try again.";
 

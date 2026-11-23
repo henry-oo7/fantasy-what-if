@@ -642,7 +642,16 @@ If provider validation proves too slow for reliable HTTP execution, it may becom
 - An authentication failure or an unusable target moves the stage to the recoverable `provider_validation_failed`. A transient ESPN outage leaves the stage unchanged. No failure replaces a previously validated target or credentials.
 - Attempts are limited per workspace and per normalized request source before any ESPN request.
 
-League claim confirmation is the next onboarding step. Initial synchronization, spectator setup, and activation follow it.
+### Implemented League Claim Step
+
+`GET /api/onboarding/provider/target` returns only the safe validated target: provider, League ID, initial season and access mode. It never returns credentials, ciphertext, key versions or usernames. `POST /api/onboarding/provider/claim` takes no ownership fields and is allowed only at `league_claim_pending`. It runs one transaction:
+
+1. Lock the workspace row and the active provider connection, and require a complete validated target.
+2. Insert the claim inside a savepoint. `uq_provider_league_claims_provider_identity` (provider plus normalized League ID, independent of season) is the concurrency authority.
+3. Success advances to `initial_sync_pending` and commits. The workspace stays provisional, and no League, Season, synchronization job or spectator access is created.
+4. A provider-identity conflict rolls back only the savepoint, deletes the losing provisional workspace in the same transaction (the database cascades users, sessions, account tokens, provider connections, claims, leagues, seasons and jobs), commits, clears authentication cookies, and returns `409 provider_league_already_claimed`.
+
+Repeated confirmation from the winning workspace is serialized by the workspace lock and returns `onboarding_stage_invalid` without creating another claim. Initial synchronization is the next onboarding step, followed by spectator setup and activation.
 
 ## Atomic League Claim
 

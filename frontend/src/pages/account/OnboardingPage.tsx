@@ -6,7 +6,8 @@ import { useAuth } from "../../auth/AuthProvider";
 import { AccountLayout } from "../../components/account/AccountLayout";
 import { FormAlert } from "../../components/account/FormAlert";
 import { onboardingStageMessage } from "../../auth/workspaceLifecycle";
-import { LEAGUE_ACCESS_VALIDATED_MESSAGE } from "../../auth/accountMessages";
+import { LEAGUE_CONNECTED_MESSAGE } from "../../auth/accountMessages";
+import { LeagueClaimStep } from "./LeagueClaimStep";
 import { ProviderSetupStep } from "./ProviderSetupStep";
 
 /**
@@ -14,7 +15,8 @@ import { ProviderSetupStep } from "./ProviderSetupStep";
  * stage from GET /api/auth/me.
  *
  * - provider_setup_pending / provider_validation_failed: provider step
- * - league_claim_pending: next-step placeholder (claiming is a later slice)
+ * - league_claim_pending: confirm and claim the validated league
+ * - initial_sync_pending: connected placeholder (synchronization is next)
  * - any other stage: saved-progress placeholder
  *
  * This page never links to legacy setup routes.
@@ -27,7 +29,8 @@ export function OnboardingPage() {
   const stageMessage = onboardingStageMessage(stage);
   const providerStep =
     stage === "provider_setup_pending" || stage === "provider_validation_failed";
-  const accessValidated = stage === "league_claim_pending";
+  const claimStep = stage === "league_claim_pending";
+  const leagueConnected = stage === "initial_sync_pending";
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -73,8 +76,10 @@ export function OnboardingPage() {
       <div className="auth-stack">
         {providerStep ? (
           <ProviderSetupStep priorFailure={stage === "provider_validation_failed"} />
-        ) : accessValidated ? (
-          <FormAlert tone="success">{LEAGUE_ACCESS_VALIDATED_MESSAGE}</FormAlert>
+        ) : claimStep ? (
+          <LeagueClaimStep />
+        ) : leagueConnected ? (
+          <FormAlert tone="success">{LEAGUE_CONNECTED_MESSAGE}</FormAlert>
         ) : (
           <FormAlert tone="notice">
             League data, standings, and spectator access become available
