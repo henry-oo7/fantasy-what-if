@@ -29,8 +29,9 @@ class UserRole(StrEnum):
 class SessionRevocationReason(StrEnum):
     """Why one authentication session was revoked.
 
-    Each value has a current call site. ``replaced`` is the only reason
-    disclosed to the client, as the ``session_replaced`` error code.
+    ``replaced`` is the only reason disclosed to the client, as the
+    ``session_replaced`` error code. ``workspace_deletion_requested`` is
+    schema-only until the deletion-request slice adds its call site.
     """
 
     REPLACED = "replaced"
@@ -38,6 +39,14 @@ class SessionRevocationReason(StrEnum):
     PASSWORD_RESET = "password_reset"
     SPECTATOR_PASSWORD_RESET = "spectator_password_reset"
     SPECTATOR_DISABLED = "spectator_disabled"
+    WORKSPACE_DELETION_REQUESTED = "workspace_deletion_requested"
+
+
+class AuthSessionPurpose(StrEnum):
+    """What one authentication session is authorized to do."""
+
+    STANDARD = "standard"
+    DELETION_RECOVERY = "deletion_recovery"
 
 
 class User(TimestampMixin, Base):
@@ -304,6 +313,17 @@ class AuthSession(Base):
             values_callable=lambda enum_type: [member.value for member in enum_type],
         ),
         nullable=True,
+    )
+
+    purpose: Mapped[AuthSessionPurpose] = mapped_column(
+        Enum(
+            AuthSessionPurpose,
+            name="auth_session_purpose",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+        default=AuthSessionPurpose.STANDARD,
+        server_default=AuthSessionPurpose.STANDARD.value,
     )
 
     ip_address: Mapped[str | None] = mapped_column(

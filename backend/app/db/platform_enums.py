@@ -36,6 +36,16 @@ class WorkspaceRegistrationStatus(StrEnum):
     DELETED = "deleted"
 
 
+class WorkspaceDeletionOutcome(StrEnum):
+    """Durable terminal outcome of one workspace deletion record.
+
+    Only successful final deletion is recorded. A terminal failure leaves
+    the workspace intact and ``deletion_pending``, so no record exists.
+    """
+
+    COMPLETED = "completed"
+
+
 class OnboardingStage(StrEnum):
     REGISTRATION_PENDING = "registration_pending"
     EMAIL_VERIFICATION_PENDING = "email_verification_pending"

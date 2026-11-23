@@ -35,6 +35,7 @@ from app.db.platform_enums import (
     InstallationStatus,
     OnboardingStage,
     ProviderAccessMode,
+    WorkspaceDeletionOutcome,
     WorkspaceRegistrationStatus,
 )
 
@@ -50,6 +51,25 @@ class Installation(TimestampMixin, Base):
             "normalized_slug",
             unique=True,
             postgresql_where=text("normalized_slug IS NOT NULL"),
+        ),
+        # NULL-safe: the CASE never evaluates to NULL, so a row cannot pass
+        # the CHECK through an unknown result. A NULL registration_status
+        # takes the ELSE branch and must carry no deletion timestamps.
+        CheckConstraint(
+            "CASE WHEN registration_status = 'deletion_pending'::workspace_registration_status "
+            "THEN deletion_requested_at IS NOT NULL "
+            "AND deletion_scheduled_for IS NOT NULL "
+            "AND deletion_scheduled_for > deletion_requested_at "
+            "ELSE deletion_requested_at IS NULL "
+            "AND deletion_scheduled_for IS NULL END",
+            name="ck_installations_deletion_lifecycle",
+        ),
+        Index(
+            "ix_installations_deletion_scheduled_for_pending",
+            "deletion_scheduled_for",
+            postgresql_where=text(
+                "registration_status = 'deletion_pending'::workspace_registration_status"
+            ),
         ),
     )
 
@@ -145,6 +165,16 @@ class Installation(TimestampMixin, Base):
             ondelete="SET NULL",
             use_alter=True,
         ),
+        nullable=True,
+    )
+
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    deletion_scheduled_for: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
 
@@ -372,6 +402,115 @@ class ProviderLeagueClaim(TimestampMixin, Base):
     normalized_provider_league_id: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+
+
+class WorkspaceDeletionRecord(Base):
+    """Anonymized operational record of one completed workspace deletion.
+
+    Deliberately has no foreign key to ``installations`` and stores no
+    slug, email, name, user, username, IP, credential, token, job payload,
+    or error text. Historical records for a reused provider identity or
+    former workspace ID are expected, so neither is unique.
+    """
+
+    __tablename__ = "workspace_deletion_records"
+    __table_args__ = (
+        CheckConstraint(
+            "scheduled_for > requested_at",
+            name="ck_workspace_deletion_records_scheduled_after_requested",
+        ),
+        CheckConstraint(
+            "completed_at >= scheduled_for",
+            name="ck_workspace_deletion_records_completed_after_scheduled",
+        ),
+        CheckConstraint(
+            "retention_expires_at > completed_at",
+            name="ck_workspace_deletion_records_retention_after_completed",
+        ),
+        CheckConstraint(
+            "btrim(normalized_provider_league_id) <> ''",
+            name="ck_workspace_deletion_records_league_id_not_blank",
+        ),
+        CheckConstraint(
+            "outcome IN ('completed')",
+            name="ck_workspace_deletion_records_outcome",
+        ),
+        Index(
+            "ix_workspace_deletion_records_former_workspace_id",
+            "former_workspace_id",
+        ),
+        Index(
+            "ix_workspace_deletion_records_retention_expires_at",
+            "retention_expires_at",
+        ),
+        Index(
+            "ix_workspace_deletion_records_provider_identity",
+            "provider",
+            "normalized_provider_league_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    former_workspace_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    provider: Mapped[FantasyProvider] = mapped_column(
+        Enum(
+            FantasyProvider,
+            name="fantasy_provider",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+    )
+
+    normalized_provider_league_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    scheduled_for: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    outcome: Mapped[WorkspaceDeletionOutcome] = mapped_column(
+        Enum(
+            WorkspaceDeletionOutcome,
+            name="workspace_deletion_outcome",
+            native_enum=False,
+            create_constraint=False,
+            length=32,
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+    )
+
+    retention_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
 
 
