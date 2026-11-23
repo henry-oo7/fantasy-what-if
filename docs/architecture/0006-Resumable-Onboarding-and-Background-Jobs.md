@@ -514,7 +514,7 @@ Non-retryable failures include:
 - Invalid canonical data
 - Invalid job payload
 - Suspended workspace
-- Deleted workspace
+- Workspace deleted or deletion pending
 - Failed schema validation
 
 The provider error hierarchy remains the source for retry classification.
@@ -793,7 +793,7 @@ If initial synchronization fails:
 
 The claim remains held because provider validation and claim creation succeeded for the provisional owner.
 
-Claim release is governed by cleanup and deletion policy, not automatic synchronization failure.
+Claim release is governed by cleanup and deletion policy, not automatic synchronization failure. Workspace deletion releases the claim only at final deletion.
 
 ## Workspace Activation
 
@@ -1094,6 +1094,21 @@ Canceled jobs:
 Synchronization runs may have a longer retention policy because synchronization history is part of the product and operational record.
 
 Deleting old jobs must not delete canonical data or required audit events.
+
+Tenant-owned job and synchronization history is not retained past workspace deletion. Final workspace deletion removes it with the tenant, overriding the retention periods above. The anonymized `workspace_deletion_record`, retained for 365 days, is the durable completion authority.
+
+## Workspace Deletion Job
+
+The `workspace_deletion` job follows FR-20 and ADR 0004.
+
+- Requesting deletion cancels the workspace's pending and retry-scheduled jobs and queues exactly one `workspace_deletion` job scheduled for `scheduled_for`.
+- Cancelling deletion cancels that job.
+- The job runs no earlier than `scheduled_for`, then performs one ordered transaction: lock and recheck the workspace, delete synchronization runs not otherwise removed, delete leagues (cascading seasons and imported data), write the anonymized `workspace_deletion_record`, and delete the workspace (cascading provider connections, users, sessions, tokens, claims, and jobs).
+- The `seasons.provider_connection_id` `RESTRICT` foreign key stays in place. Ordered deletion satisfies it.
+- The job may delete its own `BackgroundJob` row. The deletion record, not the job row, proves completion.
+- The job holds no provider network call inside the transaction and stores no secrets in its payload.
+- A terminal failure leaves the workspace `deletion_pending` and inaccessible. Operators re-enqueue after repair. Automatic retries follow the normal job retry policy.
+- Deletion-request confirmation, seven-day reminder, and completion notice depend on durable email delivery, not on best-effort worker email.
 
 ## Safe Errors
 

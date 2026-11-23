@@ -330,7 +330,7 @@ UNIQUE (
 )
 ```
 
-The final schema may use a partial unique index if released claims remain as historical rows.
+The claim is held until final workspace deletion (see Workspace Deletion) and is then removed by cascade with the workspace. Released claims are not retained, so a plain unique constraint remains sufficient.
 
 ## Atomic League Claiming
 
@@ -709,32 +709,39 @@ Suspension, security investigation, and abuse response must not release the prov
 
 ## Workspace Deletion
 
-Workspace deletion is a tenant-wide background workflow with a 30-day grace period.
+Workspace deletion applies to active workspaces. It is a tenant-wide background workflow with a 30-day grace period. FR-20 in `docs/product/SAAS_REQUIREMENTS.md` defines the full behavior; this section records the tenancy consequences.
 
-When deletion is requested:
+Only the workspace administrator may request deletion, and only for an `active` workspace. The request requires a verified administrator, a standard session, CSRF and origin validation, the current password, and exact normalized workspace-slug confirmation. Suspended workspaces cannot request self-service deletion.
 
-- The workspace enters `deletion_pending`.
-- Every administrator and spectator session is revoked.
-- New login and workspace activity are blocked.
-- Synchronization and historical imports stop.
-- Provider changes and administrative writes are blocked.
-- The provider league claim remains reserved.
-- The administrator may cancel deletion through a verified recovery process during the grace period.
+When deletion is requested, one transaction:
 
-After the 30-day grace period, a background deletion job must:
+- Sets `registration_status = deletion_pending` and records `requested_at` and `scheduled_for`.
+- Revokes every administrator and spectator session.
+- Cancels pending and retry-scheduled workspace jobs.
+- Queues one scheduled `workspace_deletion` job.
+- Blocks all ordinary workspace access, provider changes, and administrative writes.
 
-1. Recheck that the workspace remains `deletion_pending`.
-2. Revoke provider authorization when supported.
-3. Cancel pending workspace jobs.
-4. Remove provider credentials and OAuth tokens.
-5. Delete tenant-owned application data.
-6. Apply the audit-event retention policy.
-7. Release the active provider league claim.
-8. Mark deletion complete.
+During the grace period the workspace retains its provider claim, slug, administrator email, provider connection, and encrypted credentials. The claim, slug, and email stay reserved until final deletion.
 
-A released claim may remain as a historical audit record, but the released claim must no longer block a new registration.
+Cancellation is available only while now is earlier than `scheduled_for`. It uses a restricted `deletion_recovery` session (see ADR 0005). Password reset remains available but never reactivates the workspace.
 
-Operator suspension, security investigation, or abuse action must not release the provider league claim.
+Final cleanup is one ordered transaction:
+
+1. Lock the workspace and recheck that it is `deletion_pending` and due.
+2. Delete synchronization runs not otherwise removed.
+3. Delete the workspace's leagues, cascading seasons and imported data.
+4. Write an anonymized `workspace_deletion_record`.
+5. Delete the workspace, cascading provider connections, users, sessions, tokens, provider league claims, and jobs.
+
+The workspace row is hard-deleted. `deleted` is not a persisted `registration_status`. Final deletion releases the claim, slug, and email together. The existing `RESTRICT` foreign key from `seasons.provider_connection_id` is retained and satisfied by the explicit ordering above. It must not become `CASCADE`, `SET NULL`, or `DEFERRABLE` unless implementation testing proves explicit ordering insufficient.
+
+Credentials are removed by cascade at final deletion, not before. Provider-side authorization revocation (for example, OAuth token revocation) is not part of the approved cleanup transaction and remains an open item for the provider credential and Yahoo OAuth design.
+
+Anonymized `workspace_deletion_records` are retained for 365 days and contain only the former workspace ID, provider, normalized provider League ID, requested, scheduled, and completed timestamps, outcome, and retention expiration. Tenant-owned job and synchronization history is deleted with the tenant. Login-attempt and registration-rate-limit rows expire normally. Audit-event retention is deferred.
+
+A terminal cleanup failure leaves the workspace `deletion_pending` and inaccessible; operators re-enqueue after repair.
+
+Provisional duplicate-claim cleanup is separate from this workflow. Operator suspension, security investigation, or abuse action must not release the provider league claim.
 
 Encrypted tenant data may remain in backups until the applicable backup-retention period expires.
 
@@ -918,7 +925,7 @@ The following subjects require separate architecture decisions:
 3. Background synchronization execution
 4. Provider credential and Yahoo OAuth lifecycle
 5. Tenant-aware operator controls
-6. Workspace deletion and claim-release policy
+6. Operator-initiated deletion policy for suspended workspaces (self-service deletion and claim release are decided in this ADR and FR-20)
 7. Homelab SaaS deployment and recovery
 8. Mobile API authentication strategy
 

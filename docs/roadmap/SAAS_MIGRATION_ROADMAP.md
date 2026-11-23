@@ -1120,7 +1120,7 @@ Public registration must remain closed unless all of the following are true:
 - Cross-tenant endpoint tests pass.
 - Provider claims are atomic.
 - Duplicate claims reveal no owner information.
-- Workspace deletion behavior is documented.
+- Workspace deletion behavior is documented (FR-20 and ADR 0004).
 
 #### Authentication
 
@@ -1165,6 +1165,8 @@ Public registration must remain closed unless all of the following are true:
 - Terms of service are published.
 - Acceptable-use expectations are published.
 - Data-deletion process is documented.
+- Self-service workspace deletion is implemented per FR-20, including the 30-day grace period, `deletion_recovery` cancellation, ordered final cleanup, and anonymized 365-day deletion records.
+- Durable email delivery supports the deletion-request confirmation, seven-day reminder, and deletion-completion notice. Best-effort worker email does not satisfy this gate.
 - Homelab availability limitations are disclosed.
 - Mobile registration works at 320 pixels.
 

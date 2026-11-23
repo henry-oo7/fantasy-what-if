@@ -431,29 +431,81 @@ Internal numeric IDs must never be considered authorization.
 
 ### FR-20: Workspace Deletion
 
-The SaaS design must support administrator-requested workspace deletion.
+The SaaS design must support administrator-requested deletion of an active workspace.
 
-Workspace deletion must use a 30-day grace period.
+Workspace deletion uses a 30-day grace period.
 
-When deletion is requested:
+#### Request
 
-- The workspace enters `deletion_pending`.
-- Administrator and spectator sessions are revoked.
-- New login and workspace activity are blocked.
-- Synchronization and imports stop.
-- The provider league claim remains reserved.
-- The administrator may cancel deletion through a verified recovery process during the grace period.
+Only the workspace administrator may request deletion. A request requires all of the following:
 
-After the 30-day grace period, a background deletion job must:
+- A verified administrator.
+- An `active` workspace. Suspended workspaces cannot request self-service deletion; operator handling of suspended workspaces is a separate policy.
+- A standard administrator session. A `deletion_recovery` session cannot request deletion.
+- CSRF and origin validation.
+- The administrator's current password.
+- Exact confirmation of the workspace slug, compared after slug normalization.
 
-- Revoke provider authorization when supported.
-- Delete provider credentials and OAuth tokens.
-- Delete tenant-owned canonical data.
-- Apply the audit-event retention policy.
-- Complete tenant deletion.
-- Release the active provider league claim.
+When deletion is requested, one transaction must:
 
-A released claim may remain as a nonblocking audit record.
+- Set `registration_status` to `deletion_pending`.
+- Record `requested_at` and `scheduled_for` (`requested_at` plus 30 days).
+- Revoke every administrator and spectator session.
+- Cancel pending and retry-scheduled workspace jobs.
+- Queue exactly one scheduled `workspace_deletion` job.
+- Block all ordinary workspace access, including login, reads, writes, synchronization, and imports.
+
+#### Grace-Period Retention
+
+During the grace period the workspace retains its provider league claim, workspace slug, administrator email, provider connection, and encrypted provider credentials. The claim, slug, and email remain reserved and cannot be used by another registration until final deletion.
+
+#### Cancellation and Recovery
+
+Cancellation is available only while the current time is earlier than `scheduled_for`. At or after `scheduled_for`, cancellation is refused even if the deletion job has not yet run.
+
+Cancellation uses a restricted `deletion_recovery` session:
+
+- It is created only by a correct administrator email and password login to a `deletion_pending` workspace.
+- It lasts 15 minutes and cannot be renewed.
+- It is denied by default outside `/auth/me`, deletion status, cancellation, and logout.
+- Cancellation requires the current password again.
+- Previously revoked sessions stay revoked, and cancellation does not create a standard session. The administrator must log in again after cancellation.
+
+Password reset remains available while deletion is pending. A successful reset never reactivates the workspace and never cancels deletion.
+
+#### Final Cleanup
+
+At or after `scheduled_for`, the `workspace_deletion` job performs final cleanup in one ordered transaction:
+
+1. Lock the workspace and recheck that it is still `deletion_pending` and due.
+2. Delete synchronization runs that are not otherwise removed.
+3. Delete the workspace's leagues, cascading seasons and imported data.
+4. Write an anonymized `workspace_deletion_record`.
+5. Delete the workspace, cascading provider connections, users, sessions, tokens, provider league claims, and jobs.
+
+The workspace row is hard-deleted. `deleted` is not a persisted workspace state. Final deletion releases the provider claim, slug, and administrator email together. No claim is retained as a released or historical row.
+
+The `seasons.provider_connection_id` foreign key remains `RESTRICT`. Explicit deletion order, not a weaker foreign key, must satisfy it.
+
+The job may delete its own `BackgroundJob` row. `workspace_deletion_records` is the durable completion authority.
+
+If cleanup fails terminally, the workspace remains `deletion_pending` and inaccessible. Operators re-enqueue the job after repair.
+
+#### Retention After Deletion
+
+Anonymized deletion records are retained for 365 days. A record contains only the former workspace ID, provider, normalized provider League ID, requested, scheduled, and completed timestamps, outcome, and retention expiration. It must not contain the slug, email, display name, credentials, passwords, tokens, or internal usernames.
+
+- Tenant-owned background-job and synchronization history is deleted with the tenant.
+- Login-attempt and registration-rate-limit rows remain until their normal expiration. They are hashed and not workspace-linked.
+- Audit-event retention is deferred until audit infrastructure exists.
+
+#### Notification Dependency
+
+Before public deletion launches, durable email delivery must support a deletion-request confirmation, a seven-day reminder, and a deletion-completion notice. Best-effort email from a worker is not an acceptable substitute.
+
+#### Boundaries
+
+Provisional duplicate-claim cleanup is separate from FR-20.
 
 Operator suspension, security investigation, or abuse response must not release the provider league claim.
 
