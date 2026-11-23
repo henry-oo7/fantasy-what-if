@@ -501,7 +501,13 @@ Anonymized deletion records are retained for 365 days. A record contains only th
 
 #### Notification Dependency
 
-Before public deletion launches, durable email delivery must support a deletion-request confirmation, a seven-day reminder, and a deletion-completion notice. Best-effort email from a worker is not an acceptable substitute.
+Before public deletion launches, durable email delivery (ADR 0009) must support a deletion-request confirmation, a seven-day reminder, and a deletion-completion notice. Best-effort email from a worker is not an acceptable substitute.
+
+- The request transaction creates the confirmation and the reminder intents. The reminder is scheduled for `scheduled_for` minus seven days.
+- Cancellation suppresses the pending reminder.
+- The final deletion transaction creates the completion intent and its encrypted recipient. The recipient is wiped when delivery reaches a final state.
+- The deletion worker never sends email directly.
+- A deletion-cancellation confirmation is recommended but not launch-blocking.
 
 #### Boundaries
 
@@ -942,6 +948,8 @@ Before public launch, the product must define:
 - Reset-token expiration
 - Reset-token single use
 - Administrator account recovery when provider credentials are unavailable
+
+Decision (ADR 0009): administrator email is mandatory and verified. Transactional email uses Resend on the permanent free plan at $0 spend, with durable delivery, a configured daily limit (initially 100) and monthly ceiling (initially 2,900), and reserved capacity for recovery and deletion notices. Registration success means delivery was queued. Quota exhaustion or failed email readiness closes public registration. Resend acceptance means sent, and inbox delivery is not claimed. Required initial email: verification, verification resend, password reset, password-changed confirmation, deletion-request confirmation, seven-day deletion reminder, and deletion-completion notice.
 
 ### SER-4: Credential Encryption
 

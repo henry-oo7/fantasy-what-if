@@ -205,7 +205,7 @@ The recommended sequence is:
 2. Create provisional registration state.
 3. Generate a random verification token.
 4. Store only a hash of the token.
-5. Send a verification link.
+5. Queue durable delivery of a verification email. The delivery worker generates the token, stores its hash, and builds the link (ADR 0009). The registration transaction creates no token and calls no provider.
 6. Mark the email as verified after successful token redemption.
 7. Revoke the token after use.
 8. Continue or resume onboarding.
@@ -228,7 +228,9 @@ Recommended initial expiration:
 
 The administrator may request another verification message.
 
-A new verification request should invalidate prior unused verification tokens for that user.
+A verification resend queues a new delivery. Tokens from earlier deliveries are invalidated once the newer message is accepted by the provider, and consuming any verification token invalidates the remaining verification tokens for the user. An uncertain provider outcome may create another token for the same delivery without invalidating earlier tokens from that delivery. See ADR 0009.
+
+Registration success means delivery was queued, not that email arrived. Provider outages and quota exhaustion are not reported by the public routes; the former public `503 email_delivery_unavailable` response is removed when durable delivery is implemented.
 
 The resend endpoint must be rate limited.
 
@@ -238,7 +240,7 @@ The registration and onboarding sequence will be:
 
 1. Submit administrator registration.
 2. Create provisional workspace and administrator.
-3. Send email verification.
+3. Queue email verification delivery.
 4. Verify administrator email.
 5. Create an onboarding administrator session.
 6. Select a provider.
@@ -662,16 +664,17 @@ The recovery process must:
 
 1. Accept an email address.
 2. Return a generic response regardless of account existence.
-3. Generate a random reset token.
-4. Store only a hash of the reset token.
+3. Queue durable delivery of a reset email. The delivery worker generates the random reset token (ADR 0009).
+4. The worker stores only a hash of the reset token.
 5. Associate the token with the administrator.
 6. Set a short expiration.
-7. Send a reset link.
+7. The worker builds the reset link in memory and sends it. Plaintext is discarded.
 8. Require a new valid password.
 9. Mark the token used.
-10. Invalidate other outstanding reset tokens.
+10. Invalidate every other outstanding reset token for the account.
 11. Revoke active administrator sessions.
 12. Create an audit event.
+13. Queue a password-changed confirmation email.
 
 Password reset remains available while the workspace is `deletion_pending`. A successful reset never reactivates the workspace and never cancels deletion. Cancellation still requires a `deletion_recovery` session.
 
@@ -688,6 +691,8 @@ Recommended generic response:
 Spectator password recovery is not offered directly to spectators.
 
 The workspace administrator resets the shared spectator password.
+
+Resend, reset-request, and duplicate-registration paths apply a configurable minimum response floor, initially 350 ms plus up to 75 ms of jitter, so that account existence is not revealed by response time. These routes never call the email provider synchronously.
 
 ## Email Change
 
@@ -1030,7 +1035,7 @@ Transport-specific authentication will be added separately.
 ### Negative
 
 - Administrator and spectator login flows differ.
-- Email delivery becomes required before public registration.
+- Durable email delivery (ADR 0009, Resend on the free plan) becomes required before public registration. Registration stays closed unless email readiness passes, and quota exhaustion pauses it.
 - Durable email delivery must also support the deletion-request confirmation, seven-day reminder, and deletion-completion notice before public deletion launches.
 - Username-based login is removed, so no v1 client remains compatible.
 - Workspace slugs become public identifiers.

@@ -464,7 +464,7 @@ Secrets include:
 - Application secret key
 - PostgreSQL password
 - Provider credential encryption keys
-- Email-service API key or SMTP password
+- Email-service API key
 - Yahoo OAuth client secret
 - Cloudflare Tunnel credential
 - Backup repository password
@@ -514,29 +514,18 @@ Initial email functions include:
 - Provider reauthorization notification
 - Important service notices
 
-The selected email provider must support:
+Provider decision (ADR 0009):
 
-- Verified sending domain
-- HTTPS API or authenticated SMTP
-- Delivery status
-- Bounce handling
-- Rate limiting
-- Domain authentication
-- SPF
-- DKIM
-- DMARC planning
+- Resend is the approved initial provider.
+- Integration uses direct bounded HTTP through the existing `httpx` dependency, with no provider SDK.
+- The application retains a provider-neutral interface so the provider can change later.
+- SMTP and Amazon SES are not current implementation targets.
+- The deployment stays on the permanent free plan with no automatic paid upgrade and no pay-as-you-go spending.
+- Provider quotas are configurable operational settings, not hard-coded guarantees.
 
-Potential providers include:
+The provider must support a verified sending domain with SPF and DKIM. DMARC planning, bounce handling, and delivery status are desirable and deferred until after launch.
 
-- Amazon Simple Email Service
-- Postmark
-- Mailgun
-- Resend
-- SendGrid
-
-The final provider should be selected based on current pricing, sender-domain requirements, API reliability, and expected low initial volume.
-
-Email-provider selection remains an implementation decision and requires current pricing and documentation review.
+Email delivery is durable and asynchronous. ADR 0009 governs delivery, quota, retention, and registration readiness.
 
 The application must not expose whether an email exists through verification or password-reset responses.
 
@@ -1598,7 +1587,7 @@ After this ADR is accepted:
 1. Update `docs/OPERATIONS.md` with SaaS process roles.
 2. Add backup and restore runbooks.
 3. Select an off-host backup destination.
-4. Select a transactional email provider.
+4. Transactional email provider: Resend, per ADR 0009 (decided; configuration and DNS remain to be done).
 5. Define production registration controls.
 6. Add liveness and readiness endpoints.
 7. Add worker and queue monitoring.
