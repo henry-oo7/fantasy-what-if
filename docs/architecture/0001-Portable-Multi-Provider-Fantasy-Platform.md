@@ -249,6 +249,8 @@ Server-side sessions, Argon2id password hashing, CSRF protection, session revoca
 
 ## First-Run Setup
 
+> **Superseded for the hosted SaaS.** The single-installation setup wizard described here was removed. SaaS onboarding is the sole setup path, a fresh database offers no bootstrap, and `/setup` is not a route. See the hosted deployment decision in `docs/product/SAAS_REQUIREMENTS.md`.
+
 A fresh database leaves the installation in an incomplete state.
 
 Before setup is complete, application access redirects to `/setup`.

@@ -417,8 +417,9 @@ The production frontend must continue to support:
 
 ```text
 /
-/setup
 /login
+/register
+/onboarding
 /admin
 /all-play
 /league-average

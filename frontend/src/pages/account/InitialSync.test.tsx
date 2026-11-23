@@ -27,7 +27,6 @@ const PROGRESS = "GET /api/onboarding/synchronization";
 const START = "POST /api/onboarding/synchronization";
 const SESSION_CSRF = "synthetic-session-csrf";
 const ALLOWED_PATHS = new Set([
-  "/api/setup/status",
   "/api/auth/me",
   "/api/onboarding/synchronization",
   // The spectator setup step reads its safe state after success.

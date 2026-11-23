@@ -152,21 +152,22 @@ Trusting every forwarding source allows untrusted clients to spoof forwarded cli
 
 ## Provider Credentials
 
-ESPN credentials are encrypted before database storage.
+ESPN credentials are stored per workspace and encrypted before database storage. The application never reads ESPN credentials from environment variables.
 
-The encryption key is:
+Encryption uses only the versioned keyring:
 
 ```text
-PROVIDER_CREDENTIAL_KEY
+PROVIDER_CREDENTIAL_KEYS
+PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION
 ```
 
-Losing this key prevents recovery of encrypted provider credentials.
+Losing a key version still referenced by a provider connection prevents recovery of that connection's encrypted credentials.
 
-If the key or database is exposed:
+If a key or the database is exposed:
 
-1. Rotate ESPN credentials.
-2. Generate a new provider encryption key.
-3. Reconfigure the provider connection.
+1. Add a new key version and make it current.
+2. Re-encrypt stored credentials with the key rotation script.
+3. Ask affected workspace administrators to replace their ESPN credentials.
 4. Review application and proxy logs.
 5. Review administrator and spectator access.
 6. Replace affected backups.

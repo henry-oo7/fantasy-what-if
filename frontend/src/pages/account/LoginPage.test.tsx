@@ -7,6 +7,7 @@ import {
   ADMIN_USER,
   SPECTATOR_USER,
   createApiMock,
+  isRetiredApiPath,
   renderWithProviders,
   signInAs,
 } from "../../test/accountHarness";
@@ -121,7 +122,9 @@ describe("administrator email login", () => {
       await screen.findByRole("heading", { name: "Your workspace is reserved" }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/onboarding");
-    expect(api.requests.some((request) => request.path.startsWith("/api/setup/") && request.method === "POST")).toBe(false);
+    // Email sign-in only: the retired username login is never called.
+    expect(api.calls("POST /api/auth/admin/login")).toHaveLength(1);
+    expect(api.requests.some((request) => isRetiredApiPath(request.path))).toBe(false);
   });
 
   it("returns an active administrator to a safe in-app destination", async () => {

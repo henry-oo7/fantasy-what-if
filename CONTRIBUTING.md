@@ -90,7 +90,6 @@ Pull requests that affect container behavior should verify:
 - Backend health
 - Frontend health
 - `/health`
-- `/api/setup/status`
 - `/api/auth/csrf`
 - SPA route fallback
 - Read-only root filesystems

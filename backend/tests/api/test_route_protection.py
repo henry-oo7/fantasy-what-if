@@ -253,38 +253,3 @@ def test_all_admin_routes_reject_unauthenticated_requests() -> None:
         assert response.json() == {
             "detail": "Authentication is required.",
         }, path
-
-
-def test_public_setup_discovery_routes_remain_public() -> None:
-    app.dependency_overrides.pop(
-        get_current_user,
-        None,
-    )
-
-    providers_response = client.get("/api/setup/providers")
-    status_response = client.get("/api/setup/status")
-
-    assert providers_response.status_code == (status.HTTP_200_OK)
-    assert status_response.status_code == (status.HTTP_200_OK)
-
-
-def test_bootstrap_admin_is_not_an_unprotected_general_admin_route() -> None:
-    app.dependency_overrides.pop(
-        get_current_user,
-        None,
-    )
-
-    response = client.post(
-        "/api/setup/bootstrap-admin",
-        json={
-            "username": "replacement-admin",
-            "display_name": "Replacement Administrator",
-            "email": None,
-            "password": ("correct horse battery staple"),
-        },
-    )
-
-    assert response.status_code == (status.HTTP_403_FORBIDDEN)
-    assert response.json() == {
-        "detail": "CSRF validation failed.",
-    }

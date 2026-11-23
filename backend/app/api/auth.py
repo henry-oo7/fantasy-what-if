@@ -28,7 +28,6 @@ from app.auth.authentication import (
     InvalidCredentialsError,
     LoginThrottledError,
     log_in_administrator_by_email,
-    log_in_user,
     log_in_workspace_spectator,
 )
 from app.auth.cookies import (
@@ -62,11 +61,8 @@ from app.schemas.auth import (
     AdministratorAuthenticatedUserResponse,
     AdministratorAuthenticationResponse,
     AdministratorLoginRequest,
-    AuthenticatedUserResponse,
-    AuthenticationResponse,
     CsrfTokenResponse,
     CurrentUserResponse,
-    LoginRequest,
     LogoutResponse,
     PasswordResetCompletionRequest,
     PasswordResetCompletionResponse,
@@ -119,95 +115,6 @@ def issue_pre_auth_csrf_token(
     )
 
     return CsrfTokenResponse(csrf_token=csrf_token)
-
-
-@router.post("/login")
-def login(
-    payload: LoginRequest,
-    response: Response,
-    request: Request,
-    settings: Annotated[
-        Settings,
-        Depends(get_settings),
-    ],
-    _: Annotated[
-        None,
-        Depends(validate_request_origin),
-    ],
-    __: Annotated[
-        None,
-        Depends(require_pre_auth_csrf),
-    ],
-) -> AuthenticationResponse:
-    with SessionFactory() as session:
-        try:
-            result = log_in_user(
-                session,
-                username=payload.username,
-                password=payload.password,
-                session_lifetime_hours=(settings.session_lifetime_hours),
-                ip_address=_client_ip(request),
-                user_agent=request.headers.get("user-agent"),
-                throttle_secret=(settings.app_secret_key.get_secret_value()),
-                browser_id=(
-                    get_login_browser_id(request)
-                    or ensure_login_browser_cookie(
-                        request,
-                        response,
-                        settings=settings,
-                    )
-                ),
-                maximum_attempts=5,
-                attempt_window_minutes=(settings.login_attempt_window_minutes),
-                lockout_minutes=(settings.login_lockout_minutes),
-            )
-        except LoginThrottledError as exc:
-            session.commit()
-
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Invalid username or password.",
-                headers={
-                    "Retry-After": str(exc.retry_after_seconds),
-                },
-            ) from exc
-        except (
-            InvalidCredentialsError,
-            InactiveAccountError,
-        ) as exc:
-            session.commit()
-
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password.",
-            ) from exc
-
-        user_response = _build_user_response(
-            user_id=result.user.id,
-            username=result.user.username,
-            display_name=result.user.display_name,
-            email=result.user.email,
-            role=result.user.role.value,
-            is_active=result.user.is_active,
-        )
-
-        session.commit()
-
-        set_authentication_cookies(
-            response,
-            settings=settings,
-            session_token=result.session_token,
-            csrf_token=result.csrf_token,
-        )
-        clear_pre_auth_csrf_cookie(
-            response,
-            settings=settings,
-        )
-
-        return AuthenticationResponse(
-            user=user_response,
-            csrf_token=result.csrf_token,
-        )
 
 
 @router.post("/admin/login")
@@ -682,27 +589,6 @@ def _build_workspace_lifecycle(
         registration_status=workspace.registration_status,
         onboarding_stage=(workspace.onboarding_stage if role is UserRole.ADMIN else None),
         workspace_access=access,
-    )
-
-
-def _build_user_response(
-    *,
-    user_id: int,
-    username: str,
-    display_name: str,
-    email: str | None,
-    role: str,
-    is_active: bool,
-) -> AuthenticatedUserResponse:
-    """Return role-based account identity without team ownership."""
-
-    return AuthenticatedUserResponse(
-        id=user_id,
-        username=username,
-        display_name=display_name,
-        email=email,
-        role=role,
-        is_active=is_active,
     )
 
 

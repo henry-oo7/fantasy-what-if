@@ -31,14 +31,6 @@ class AuthenticationRepository:
     ) -> User | None:
         return self.session.get(User, user_id)
 
-    def get_user_by_username(
-        self,
-        username: str,
-    ) -> User | None:
-        normalized_username = normalize_username(username)
-
-        return self.session.scalar(select(User).where(User.username == normalized_username))
-
     def get_user_by_email(
         self,
         email: str,

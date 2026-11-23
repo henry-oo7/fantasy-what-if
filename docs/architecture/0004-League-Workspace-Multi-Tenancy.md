@@ -738,26 +738,11 @@ Operator suspension, security investigation, or abuse action must not release th
 
 Encrypted tenant data may remain in backups until the applicable backup-retention period expires.
 
-## Existing Production Migration
+## No Existing Production Migration
 
-The v1.0.1 production installation becomes the first League Workspace.
+The hosted deployment is new. No v1.0.1 installation, user, session, provider connection, claim, or imported data is migrated or preserved. Every League Workspace is created through SaaS onboarding, which is the sole setup path. See the hosted deployment decision in `docs/product/SAAS_REQUIREMENTS.md`.
 
-The migration must:
-
-1. Preserve the existing installation row.
-2. Assign existing administrator and spectator identities to the installation.
-3. Preserve active sessions only if the new ownership fields can be backfilled safely.
-4. Preserve the provider connection and encrypted credentials.
-5. Create the provider league claim.
-6. Preserve league and season IDs.
-7. Preserve analytics and synchronization history.
-8. Preserve active league and season selections.
-9. Verify all ownership paths.
-10. Reject migration if the existing database violates the target cardinality rules.
-
-The migration must not silently delete extra or inconsistent records.
-
-A pre-migration audit command must report any violations before schema constraints are applied.
+The schema migrations listed below were applied to development databases only. They are not a production data migration.
 
 ## Migration Sequence
 

@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -6,10 +6,10 @@ import { AppRouter } from "../router";
 import {
   ADMIN_USER,
   GENERIC_UNAUTHENTICATED,
-  SAAS_ONLY_SETUP,
   SESSION_REPLACED_BODY,
   SPECTATOR_USER,
   createApiMock,
+  isRetiredApiPath,
   renderWithProviders,
   signInAs,
 } from "../test/accountHarness";
@@ -215,50 +215,59 @@ describe("workspace lifecycle", () => {
 
 describe("routing", () => {
   it.each(["/login", "/register", "/forgot-password", "/verify-email", "/reset-password"])(
-    "serves %s publicly on a SaaS deployment without legacy setup",
+    "serves %s publicly without any installation setup status",
     async (path) => {
       const api = createApiMock();
-      api.reply("GET /api/setup/status", 200, SAAS_ONLY_SETUP);
 
       renderWithProviders(<AppRouter />, path);
 
       expect(await screen.findByRole("heading", { level: 1 })).toBeInTheDocument();
       expect(screen.getByTestId("location")).toHaveTextContent(path);
+      expect(api.requests.some((request) => isRetiredApiPath(request.path))).toBe(false);
     },
   );
 
-  it("sends SaaS visitors from legacy /setup to sign in", async () => {
+  it("treats the retired /setup path as an unknown route and asks visitors to sign in", async () => {
     const api = createApiMock();
-    api.reply("GET /api/setup/status", 200, SAAS_ONLY_SETUP);
 
     renderWithProviders(<AppRouter />, "/setup");
 
     expect(await screen.findByRole("heading", { name: "Sign in to continue" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/login");
+    expect(screen.queryByRole("heading", { name: /installation|setup/i })).not.toBeInTheDocument();
+    expect(api.requests.some((request) => isRetiredApiPath(request.path))).toBe(false);
   });
 
-  it("lets an authenticated SaaS user reach the application", async () => {
+  it("sends a signed-in administrator from /setup to the application", async () => {
     const api = createApiMock();
-    api.reply("GET /api/setup/status", 200, SAAS_ONLY_SETUP);
+    signInAs(api, ADMIN_USER);
+
+    renderWithProviders(<AppRouter />, "/setup");
+
+    expect(await screen.findByRole("heading", { name: "Application home" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/);
+  });
+
+  it("lets an authenticated user reach the application from /me alone", async () => {
+    const api = createApiMock();
     signInAs(api, ADMIN_USER);
 
     renderWithProviders(<AppRouter />, "/");
 
     expect(await screen.findByRole("heading", { name: "Application home" })).toBeInTheDocument();
+    expect(api.requests.map((request) => request.path)).not.toContain("/api/setup/status");
   });
 
-  it("still sends a legacy installation in progress to /setup", async () => {
+  it("opens provisional onboarding without consulting installation setup", async () => {
     const api = createApiMock();
-    api.reply("GET /api/setup/status", 200, {
-      ...SAAS_ONLY_SETUP,
-      status: "setup_in_progress",
-      installation_exists: true,
-    });
+    signInAs(api, ADMIN_USER, "provisional");
 
-    renderWithProviders(<AppRouter />, "/");
+    renderWithProviders(<AppRouter />, "/onboarding");
 
-    await waitFor(() => {
-      expect(screen.getByTestId("location")).toHaveTextContent("/setup");
-    });
+    expect(
+      await screen.findByRole("heading", { name: "Your workspace is reserved" }),
+    ).toBeInTheDocument();
+    expect(api.requests.some((request) => isRetiredApiPath(request.path))).toBe(false);
   });
 
   it("redirects an authenticated user away from the sign-in page", async () => {

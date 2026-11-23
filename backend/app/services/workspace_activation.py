@@ -3,7 +3,7 @@
 ``onboarding_stage = complete`` is necessary but never sufficient: the
 persisted state is rechecked independently before activation. Activation
 performs no provider I/O, decryption, synchronization or job work, and
-creates or repairs no domain rows. Legacy setup finalization is not used.
+creates or repairs no domain rows.
 
 Transaction boundary: one short transaction that locks the workspace, the
 active provider connection and the claim, evaluates every invariant, and

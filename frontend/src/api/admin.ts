@@ -9,8 +9,6 @@ import {
 } from "./client";
 import type {
   CreateSpectatorRequest,
-} from "../types/setup";
-import type {
   SpectatorAccount,
   StandingsTiebreakerConfiguration,
   StandingsTiebreakerRule,

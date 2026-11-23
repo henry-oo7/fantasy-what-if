@@ -366,22 +366,22 @@ Check the public endpoint:
 curl https://fantasy.example.com/health
 ```
 
-## Complete First-Run Setup
+## Onboard the First Workspace
 
-Open the configured HTTPS address in a browser.
+Open the configured HTTPS address in a browser and register a workspace administrator. The hosted deployment starts empty; there is no installation setup wizard, bootstrap administrator, or v1 data migration.
 
-The setup flow will:
+SaaS onboarding then:
 
-1. Create the administrator account.
-2. Configure the ESPN provider connection.
-3. Validate the provider credentials.
-4. Import the league and current season.
-5. Import league-specific lineup and schedule rules.
-6. Create the optional shared spectator account.
-7. Finalize the installation.
-8. Calculate and persist optimal-lineup results.
+1. Verifies the administrator's email address.
+2. Validates the ESPN league (public, or private with `SWID` and `espn_s2`).
+3. Claims the league for the workspace.
+4. Runs the initial synchronization in the background worker.
+5. Sets the shared spectator password.
+6. Activates the workspace after an administrator review.
 
-Provider credentials are encrypted before database storage.
+Administrators sign in by email. Spectators sign in with the workspace slug and the shared spectator password.
+
+Provider credentials are encrypted with the versioned `PROVIDER_CREDENTIAL_KEYS` keyring before database storage.
 
 ## Verify the Scheduler
 

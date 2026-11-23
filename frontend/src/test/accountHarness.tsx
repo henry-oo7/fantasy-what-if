@@ -8,7 +8,7 @@ import {
   MemoryRouter,
   type InitialEntry,
 } from "react-router-dom";
-import { vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 
 import { AuthProvider } from "../auth/AuthProvider";
 import type {
@@ -17,7 +17,6 @@ import type {
   ResolvedWorkspaceAccess,
   WorkspaceLifecycle,
 } from "../types/auth";
-import type { SetupStatus } from "../types/setup";
 import { LocationDisplay } from "./LocationDisplay";
 
 export interface RecordedRequest {
@@ -43,27 +42,6 @@ export function jsonResponse(
     },
   });
 }
-
-export const LEGACY_ACTIVE_SETUP: SetupStatus = {
-  status: "active",
-  installation_exists: true,
-  bootstrap_available: false,
-  administrator_configured: true,
-  provider_configured: true,
-  spectator_configured: true,
-  active_league_configured: true,
-};
-
-/** A SaaS deployment with no legacy installation. */
-export const SAAS_ONLY_SETUP: SetupStatus = {
-  status: "setup_required",
-  installation_exists: false,
-  bootstrap_available: false,
-  administrator_configured: true,
-  provider_configured: false,
-  spectator_configured: false,
-  active_league_configured: false,
-};
 
 export const ACTIVE_WORKSPACE: WorkspaceLifecycle = {
   workspace_id: 7,
@@ -149,6 +127,27 @@ export const SESSION_REPLACED_BODY = {
 };
 
 /**
+ * Retired single-installation endpoints. They no longer exist on the
+ * server, and no frontend code may call them.
+ */
+export function isRetiredApiPath(path: string): boolean {
+  return (
+    path === "/api/setup" ||
+    path.startsWith("/api/setup/") ||
+    path === "/api/auth/login"
+  );
+}
+
+const retiredRequests: string[] = [];
+
+// Every test that uses the API mock fails if it reached a retired endpoint.
+afterEach(() => {
+  const reached = retiredRequests.splice(0);
+
+  expect(reached).toEqual([]);
+});
+
+/**
  * Route-table fetch mock keyed by "METHOD /api/path".
  *
  * Unhandled requests return 404 so unexpected calls are visible.
@@ -171,6 +170,10 @@ export function createApiMock() {
       };
 
       requests.push(recorded);
+
+      if (isRetiredApiPath(url.pathname)) {
+        retiredRequests.push(`${method} ${url.pathname}`);
+      }
 
       const handler = handlers.get(`${method} ${url.pathname}`);
 
@@ -210,8 +213,7 @@ export function createApiMock() {
     },
   };
 
-  // Defaults: legacy-active installation, anonymous visitor, CSRF issued.
-  api.reply("GET /api/setup/status", 200, LEGACY_ACTIVE_SETUP);
+  // Defaults: anonymous visitor, CSRF issued.
   api.reply("GET /api/auth/me", 401, GENERIC_UNAUTHENTICATED);
   api.reply("GET /api/auth/csrf", 200, { csrf_token: "pre-auth-csrf" });
 

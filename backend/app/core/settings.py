@@ -246,7 +246,7 @@ class Settings(BaseSettings):
     def validate_provider_credential_keyring(
         self,
     ) -> Settings:
-        """Validate legacy or versioned credential encryption settings."""
+        """Validate the versioned provider credential keyring."""
 
         from app.providers.credential_keyring import (
             ProviderCredentialKeyringConfigurationError,
@@ -274,24 +274,6 @@ class Settings(BaseSettings):
             serialized_keys=self.provider_credential_keys,
             current_version=(self.provider_credential_current_key_version),
         )
-
-    @classmethod
-    def normalize_swid(
-        cls,
-        value: SecretStr | None,
-    ) -> SecretStr | None:
-        if value is None:
-            return None
-
-        swid = value.get_secret_value()
-
-        if not swid.startswith("{"):
-            swid = "{" + swid
-
-        if not swid.endswith("}"):
-            swid = swid + "}"
-
-        return SecretStr(swid)
 
     @field_validator(
         "frontend_origin",

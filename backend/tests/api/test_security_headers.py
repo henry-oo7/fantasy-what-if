@@ -65,10 +65,10 @@ def test_authentication_response_disables_caching() -> None:
     assert response.headers["Pragma"] == "no-cache"
 
 
-def test_setup_response_disables_caching() -> None:
-    response = client.get("/api/setup/status")
+def test_onboarding_response_disables_caching() -> None:
+    response = client.get("/api/onboarding/activation")
 
-    assert response.status_code == 200
+    assert response.status_code == 401
     assert response.headers["Cache-Control"] == "no-store"
 
 
@@ -98,8 +98,10 @@ def test_regular_analytics_response_is_not_forced_no_store() -> None:
 
 
 def test_sensitive_path_classification() -> None:
-    assert requires_no_store("/api/auth/login")
-    assert requires_no_store("/api/setup/status")
+    assert requires_no_store("/api/auth/admin/login")
+    assert requires_no_store("/api/auth/spectator/login")
+    assert requires_no_store("/api/registration")
+    assert requires_no_store("/api/onboarding/activation")
     assert requires_no_store("/api/admin/spectator")
     assert not requires_no_store("/api/leagues/current")
     assert not requires_no_store("/api/analytics/all-play")

@@ -33,7 +33,6 @@ const REVIEW = "GET /api/onboarding/activation";
 const ACTIVATE = "POST /api/onboarding/activate";
 const SESSION_CSRF = "synthetic-session-csrf";
 const ALLOWED_PATHS = new Set([
-  "/api/setup/status",
   "/api/auth/me",
   "/api/onboarding/activation",
   "/api/onboarding/activate",
@@ -154,7 +153,6 @@ describe("activation", () => {
       expect(
         queryClient.getQueryCache().getAll().filter((query) => query.queryKey[0] === "onboarding"),
       ).toHaveLength(0);
-      expect(api.requests.some((request) => request.path.startsWith("/api/setup/") && request.method !== "GET")).toBe(false);
       expectOnlyActivationRequests(api);
     },
   );

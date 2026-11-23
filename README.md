@@ -195,22 +195,24 @@ Expected response:
 {"status":"ok"}
 ```
 
-Open the configured HTTPS address and complete the browser setup flow.
+Open the configured HTTPS address and register the first workspace administrator.
 
 See [Installation](docs/INSTALLATION.md) for detailed ingress, network, and troubleshooting instructions.
 
-## First-Run Setup
+## Workspace Onboarding
 
-The browser setup flow will:
+A hosted deployment starts empty. There is no installation setup wizard, bootstrap administrator, or v1 data import. Each League Workspace is created through SaaS onboarding:
 
-1. Create the administrator account.
-2. Configure the ESPN provider connection.
-3. Validate and import the league.
-4. Create the optional shared spectator account.
-5. Finalize the installation.
-6. Calculate and persist optimal-lineup results.
+1. An administrator registers with an email address, password, and workspace slug, then verifies the email address. Public registration depends on `REGISTRATION_MODE`.
+2. The administrator connects an ESPN league. Public leagues need only the League ID and season; private leagues also need `SWID` and `espn_s2`.
+3. The workspace claims the league. Each provider league can belong to only one workspace.
+4. A background worker runs the initial synchronization.
+5. The administrator sets the shared spectator password.
+6. The administrator reviews and activates the workspace.
 
-Provider credentials are encrypted before database storage.
+Administrators sign in with their email address. Spectators sign in with the workspace slug and the shared spectator password. Internal usernames stored for compatibility are never login credentials.
+
+Provider credentials are encrypted with the versioned `PROVIDER_CREDENTIAL_KEYS` keyring before database storage.
 
 ## Cloudflare Tunnel
 

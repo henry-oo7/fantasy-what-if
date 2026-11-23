@@ -69,7 +69,7 @@ def test_validation_handler_removes_input_and_context() -> None:
 
     response = asyncio.run(
         validation_exception_handler(
-            request_for("/api/auth/login"),
+            request_for("/api/auth/admin/login"),
             exception,
         )
     )
@@ -130,13 +130,13 @@ def test_live_login_validation_does_not_echo_password() -> None:
         csrf_token = csrf_response.json()["csrf_token"]
 
         response = client.post(
-            "/api/auth/login",
+            "/api/auth/admin/login",
             headers={
                 "Origin": TRUSTED_ORIGIN,
                 "X-CSRF-Token": csrf_token,
             },
             json={
-                "username": "example-user",
+                "email": "owner@example.com",
                 "password": secret,
             },
         )
@@ -159,13 +159,13 @@ def test_live_validation_identifies_field_without_value() -> None:
         csrf_token = csrf_response.json()["csrf_token"]
 
         response = client.post(
-            "/api/auth/login",
+            "/api/auth/admin/login",
             headers={
                 "Origin": TRUSTED_ORIGIN,
                 "X-CSRF-Token": csrf_token,
             },
             json={
-                "username": "example-user",
+                "email": "owner@example.com",
                 "password": secret,
             },
         )

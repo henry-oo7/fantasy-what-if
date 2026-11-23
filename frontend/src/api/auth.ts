@@ -7,8 +7,6 @@ import type {
   AdministratorLoginRequest,
   AuthenticatedUser,
   CsrfTokenResponse,
-  LegacyAuthenticationResponse,
-  LegacyUsernameLoginRequest,
   LogoutResponse,
   PasswordResetCompletionRequest,
   PasswordResetCompletionResponse,
@@ -75,19 +73,6 @@ export function loginSpectator(
 ): Promise<SpectatorAuthenticationResponse> {
   return postPublic<SpectatorAuthenticationResponse>(
     "/auth/spectator/login",
-    request,
-  );
-}
-
-/**
- * Legacy username login, kept only for the single-installation setup
- * bootstrap. New SaaS sign-in must not call this.
- */
-export function loginLegacyUsername(
-  request: LegacyUsernameLoginRequest,
-): Promise<LegacyAuthenticationResponse> {
-  return postPublic<LegacyAuthenticationResponse>(
-    "/auth/login",
     request,
   );
 }

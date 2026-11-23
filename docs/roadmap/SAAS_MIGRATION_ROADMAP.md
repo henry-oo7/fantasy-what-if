@@ -54,7 +54,7 @@ The hosted multi-workspace SaaS is initialized as a new deployment.
 
 Existing version-1 single-installation databases are not migrated, backfilled, or preserved as League Workspaces in the hosted deployment.
 
-Backfill steps that remain in earlier phases apply only to development databases that still contain a legacy installation. They are not a production requirement.
+Backfill steps that remain in earlier phases are historical: they described development databases that still contained a legacy installation. They are not a production requirement. The hosted deployment decision in `SAAS_REQUIREMENTS.md` is authoritative, and the v1 production migration plan is superseded.
 
 ### Add Before Removing
 
@@ -193,21 +193,7 @@ Make the current single-installation assumptions measurable before modifying the
 
 ### Pre-Migration Audit
 
-The audit must verify:
-
-- Exactly one existing `Installation`
-- Exactly one administrator
-- Zero or one spectator
-- Every league belongs to the installation
-- Every provider connection belongs to the installation
-- Every season belongs through its league
-- Active league belongs to the installation
-- Active season belongs to the active league
-- Every season's provider connection belongs to the installation
-- Existing encrypted credentials can be decrypted
-- Existing ESPN league identity is valid
-- No duplicate provider league identities exist
-- Current Alembic revision is expected
+Retired. The read-only v1 migration audit command was removed with the single-installation paths because no v1 database is migrated.
 
 ### Global Assumption Inventory
 
@@ -356,25 +342,7 @@ email
 password
 ```
 
-During migration, the application may temporarily support the existing username login behind a compatibility boundary.
-
-The compatibility boundary must have a documented removal phase.
-
-The legacy username administrator-login path is temporary and must be
-removed after all of the following conditions are satisfied:
-
-- No supported administrator depends on username login. The hosted SaaS
-  deployment does not migrate v1 installation administrators.
-- The web frontend uses only `POST /api/auth/admin/login` for administrator login.
-- Administrator password recovery uses the normalized email identity.
-- No supported client submits administrator usernames.
-- Compatibility telemetry shows no legitimate administrator use of
-  `POST /api/auth/login` through the documented sunset window.
-- Username-login tests, schemas, service paths, and frontend types are
-  removed together in an explicit compatibility-cleanup release.
-
-The compatibility route must not be extended to newly registered SaaS
-administrators or treated as a permanent public authentication contract.
+Username login has been removed. `POST /api/auth/login`, its schemas, service path, tests, and frontend types were retired together; the route now returns ordinary 404 routing behavior. No v1 administrator is migrated, so no sunset window was required.
 
 ### Spectator Login
 
@@ -758,7 +726,8 @@ The registration-foundation slice deliberately defers the following work. Each i
 - **League claim confirmation:** Implemented by the onboarding league-claim slice. The administrator confirms the safe validated target. One transaction inserts the authoritative claim (provider plus League ID, independent of season) and advances to `initial_sync_pending`. A duplicate claim returns `409 provider_league_already_claimed`, deletes the losing provisional registration in the same transaction, clears its cookies and discloses no existing workspace details.
 - **Initial synchronization:** Implemented by the onboarding initial-sync slice. The start request only queues one idempotent `initial_workspace_sync` job. The worker fetches ESPN data, creates the League and Season from real provider values, attaches the claim, and runs the existing full-season importer. Success advances to `spectator_setup_pending`; terminal failure advances to `initial_sync_failed` with an administrator retry. Spectator setup is the next slice, and activation follows it.
 - **Shared spectator access:** Implemented by the onboarding spectator-access slice. At `spectator_setup_pending`, the administrator creates the single shared spectator password; onboarding then moves to `complete` without activating the workspace. Administration shows the workspace slug and the configured and enabled flags, changes the password, disables access, and re-enables access only with a new password. Each of these revokes spectator sessions with the existing explicit reasons. Spectators sign in with the workspace slug and the shared password only. Workspace activation is the next slice.
-- **Workspace activation gate:** Implemented by the onboarding workspace-activation slice. At `complete`, the administrator reviews a safe summary and activates the workspace. The server independently rechecks every persisted invariant in one locked transaction, sets the active League and Season, and marks the workspace active, without provider I/O or synchronization. It is idempotent under repeats and concurrency. SaaS onboarding is now complete end to end; the next slice retires obsolete single-installation paths.
+- **Workspace activation gate:** Implemented by the onboarding workspace-activation slice. At `complete`, the administrator reviews a safe summary and activates the workspace. The server independently rechecks every persisted invariant in one locked transaction, sets the active League and Season, and marks the workspace active, without provider I/O or synchronization. It is idempotent under repeats and concurrency. SaaS onboarding is now complete end to end.
+- **Single-installation path retirement:** Implemented by the retirement slice. The `/api/setup` API, setup services and schemas, `POST /api/auth/login`, username authentication, the `create_admin` and v1 migration-audit scripts, the frontend `/setup` route, setup pages, legacy spectator panel and installation route guard were removed. `/setup` is now an unknown frontend route. Historical season import is scoped to the authenticated workspace. Removed endpoints return ordinary 404 responses with no aliases. Workspace deletion, which still fails on the restrictive `seasons.provider_connection_id` foreign key, is deferred to FR-20 with a deferrable `NO ACTION` recommendation.
 - **Durable asynchronous email delivery and response-timing equality:** Verification and password-reset email delivery currently runs synchronously after commit. Durable asynchronous delivery and timing equality for enumeration-sensitive routes are required before public registration opens.
 - **Audit-event infrastructure:** Structured identity audit events required by ADR 0005 are required before public SaaS launch.
 

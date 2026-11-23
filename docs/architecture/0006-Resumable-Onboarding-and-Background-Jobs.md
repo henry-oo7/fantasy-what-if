@@ -711,7 +711,7 @@ On success it:
 
 A failure returns `409 activation_not_ready` with a safe category and changes nothing. A repeat after success returns `already_active`.
 
-Activation performs no provider I/O, decryption, synchronization or job work, and creates or repairs no data. Legacy setup finalization is not used by SaaS onboarding.
+Activation performs no provider I/O, decryption, synchronization or job work, and creates or repairs no data. SaaS onboarding is the sole setup path; the legacy setup API and finalization service have been removed.
 
 ## Atomic League Claim
 
@@ -1299,8 +1299,8 @@ The migration should proceed incrementally.
 
 - Existing synchronous synchronization results remain valid.
 - Existing `SyncRun` data is preserved.
-- v1.0.1 production data can enqueue a workspace-scoped synchronization.
-- Existing scheduler behavior migrates without global installation resolution.
+- Scheduler behavior runs without global installation resolution.
+- No v1.0.1 production data is migrated; the hosted deployment is new.
 
 ## Security Consequences
 
@@ -1391,7 +1391,7 @@ After this ADR is accepted:
 6. Add worker process entry point.
 7. Move administrator synchronization to queued execution.
 8. Move historical import to queued execution.
-9. Replace initial setup finalization with resumable onboarding.
+9. Replace initial setup finalization with resumable onboarding (complete; legacy setup removed).
 10. Add queue metrics and operator inspection commands.
 11. Update production Compose with the worker role.
 12. Load-test one-worker and two-worker configurations.

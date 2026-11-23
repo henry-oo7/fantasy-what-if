@@ -27,7 +27,6 @@ const TARGET = "GET /api/onboarding/provider/target";
 const CLAIM = "POST /api/onboarding/provider/claim";
 const SESSION_CSRF = "synthetic-session-csrf";
 const ALLOWED_PATHS = new Set([
-  "/api/setup/status",
   "/api/auth/me",
   "/api/auth/csrf",
   "/api/onboarding/provider/target",
@@ -165,7 +164,7 @@ describe("league claim confirmation", () => {
     expect(screen.getByText(LEAGUE_ALREADY_CLAIMED_MESSAGE)).toBeInTheDocument();
     expect(queryClient.getQueryData(["onboarding", "provider-target"])).toBeUndefined();
     expect(
-      queryClient.getQueryCache().getAll().filter((query) => query.queryKey[0] !== "setup"),
+      queryClient.getQueryCache().getAll(),
     ).toHaveLength(0);
 
     // Not replaced by a generic sign-in error, and no workspace details.

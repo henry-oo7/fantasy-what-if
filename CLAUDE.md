@@ -55,17 +55,22 @@ Use this order:
 
 Use additional context only when needed to resolve a material uncertainty.
 
-## Current Checkout Warning
+## Current Product Baseline
 
-The initial Claude Code setup occurred while `feature/registration-state-foundation` contained substantial pre-existing, uncommitted implementation work.
+The hosted multi-workspace SaaS is a new deployment. It does not
+migrate or preserve version-1 installation data.
 
-Always verify the current repository state. Never assume those changes belong to the current Claude task. Never format, stage, commit, restore, reorganize, or otherwise alter those changes without explicit authorization.
+SaaS onboarding is the only supported setup path. The legacy setup
+wizard, bootstrap routes, username login, environment-based ESPN
+credential fallback, and single-installation runtime paths are retired.
 
-## Current Documentation Conflict
+Administrator authentication uses verified email. Spectator
+authentication uses the workspace slug and the administrator-managed
+shared spectator password. Generated usernames remain internal storage
+values only and are not login credentials.
 
-The current product decision is to initialize the hosted multi-workspace SaaS as a new deployment without migrating legacy version-1 installation data.
-
-Some roadmap and architecture documents still describe preserving the v1.0.1 installation as the first League Workspace. Treat this as a known conflict. Do not implement the legacy-migration direction. Report the conflict and recommend a dedicated documentation reconciliation task.
+Always verify the current branch and worktree before editing. Do not
+alter unrelated changes without explicit authorization.
 
 ## First-Session Restriction
 

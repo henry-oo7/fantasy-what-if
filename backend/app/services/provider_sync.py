@@ -64,9 +64,9 @@ def synchronize_provider(
     """Synchronize one season through a provider adapter.
 
     By default, this function preserves the existing standalone
-    transaction behavior. Setup finalization may pass
-    commit_transaction=False so the caller can atomically combine
-    synchronization with installation activation.
+    transaction behavior. Callers such as season import may pass
+    commit_transaction=False so they can atomically combine
+    synchronization with their own state changes.
     """
 
     repository = ProviderSyncRepository(session)

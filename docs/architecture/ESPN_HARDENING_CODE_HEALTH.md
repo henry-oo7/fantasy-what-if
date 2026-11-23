@@ -48,9 +48,7 @@ Those values encode distinct business policy and are not generic payload concern
 
 ### Setup finalization
 
-`setup_finalization.py` remains until resumable onboarding and the `initial_workspace_sync` job replace synchronous first-run setup.
-
-Removing it earlier would discard current league claiming, season creation, activation, locking, and transaction semantics.
+Removed. Resumable onboarding, the `initial_workspace_sync` job, and the activation gate replaced synchronous first-run setup, and the legacy setup services were retired.
 
 ### Historical season import
 
@@ -91,12 +89,9 @@ The highest-complexity production functions include:
 
 | Function or class | Complexity |
 | --- | ---: |
-| `audit_saas_migration_readiness` | 55 |
 | `_build_substitutions` | 26 |
 | `import_provider_season` | 23 |
-| `log_in_user` | 20 |
 | `select_completed_weeks` | 19 |
-| `finalize_installation_setup` | 19 |
 | `providers.domain.ProviderMatchup` | 15 |
 | `providers.domain.ProviderLeague` | 15 |
 
@@ -106,9 +101,9 @@ The highest-complexity production functions include:
 
 The following work should use separate characterization-first slices:
 
-1. Split migration-readiness auditing into individually named invariant checks.
+1. Split migration-readiness auditing into individually named invariant checks (obsolete: the v1 migration audit was removed).
 2. Extract historical-import validation, persistence, and activation phases before moving import to a durable job.
-3. Replace setup finalization with resumable onboarding rather than merely splitting the synchronous function.
+3. Replace setup finalization with resumable onboarding rather than merely splitting the synchronous function (complete).
 4. Simplify optimal-lineup substitution logic with dedicated behavioral fixtures.
 5. Review provider-domain validation helpers before adding Sleeper DTOs.
 6. Split large provider and repository classes only where responsibilities and transaction ownership remain explicit.

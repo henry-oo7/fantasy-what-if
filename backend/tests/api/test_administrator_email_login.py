@@ -330,3 +330,48 @@ def test_suspended_workspace_login_is_generic(
     assert response.json() == {
         "detail": "Invalid email or password.",
     }
+
+
+def test_repeated_administrator_failures_are_throttled_account_wide(
+    active_administrator: tuple[str, str, int],
+) -> None:
+    """Email login inherits the account-wide administrator lockout."""
+
+    email, password, administrator_id = active_administrator
+    inherited_override = app.dependency_overrides.pop(get_current_user, None)
+    throttled = None
+
+    try:
+        with TestClient(app) as first_browser:
+            for _ in range(12):
+                response = administrator_login(
+                    first_browser,
+                    email=email,
+                    password="incorrect password",
+                )
+
+                if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+                    throttled = response
+                    break
+
+                assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+        assert throttled is not None
+        assert throttled.json() == {"detail": "Invalid email or password."}
+        assert int(throttled.headers["Retry-After"]) > 0
+
+        # A different browser with the correct password is still refused.
+        with TestClient(app) as second_browser:
+            blocked = administrator_login(second_browser, email=email, password=password)
+    finally:
+        if inherited_override is not None:
+            app.dependency_overrides[get_current_user] = inherited_override
+
+    assert blocked.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    with SessionFactory() as session:
+        sessions = session.scalars(
+            select(AuthSession).where(AuthSession.user_id == administrator_id)
+        ).all()
+
+    assert sessions == []

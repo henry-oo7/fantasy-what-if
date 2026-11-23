@@ -65,29 +65,6 @@ export interface LogoutResponse {
   logged_out: boolean;
 }
 
-/**
- * POST /api/auth/login: legacy username compatibility.
- *
- * Used only by the legacy single-installation setup bootstrap. New SaaS
- * sign-in uses the administrator email and spectator workspace routes.
- */
-export interface LegacyUsernameLoginRequest {
-  username: string;
-  password: string;
-}
-
-export interface LegacyAuthenticationResponse {
-  user: {
-    id: number;
-    username: string;
-    display_name: string;
-    email: string | null;
-    role: UserRole;
-    is_active: boolean;
-  };
-  csrf_token: string;
-}
-
 /** POST /api/auth/admin/login */
 export interface AdministratorLoginRequest {
   email: string;

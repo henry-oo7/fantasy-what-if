@@ -28,7 +28,6 @@ describe("safeReturnPath", () => {
     "/reset-password",
     "/forgot-password",
     "/onboarding",
-    "/setup",
   ])("rejects unsafe or account path %s", (path) => {
     expect(safeReturnPath(path)).toBeNull();
   });
