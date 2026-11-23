@@ -18,6 +18,7 @@ from app.services.background_job_worker import (
     BackgroundJobHandler,
     BackgroundJobSnapshot,
 )
+from app.services.onboarding_initial_sync import InitialWorkspaceSyncHandler
 from app.services.synchronization_job_contract import (
     SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
     synchronization_payload_contains_prohibited_names,
@@ -90,6 +91,11 @@ def build_background_job_handlers(
                 full_sync=True,
                 registry=registry,
             )
+        ),
+        BackgroundJobType.INITIAL_WORKSPACE_SYNC: InitialWorkspaceSyncHandler(
+            session_factory=session_factory,
+            settings=settings,
+            registry=registry,
         ),
     }
 

@@ -15,6 +15,13 @@ export const CLAIM_ACTION_LABEL =
 export const LEAGUE_CONNECTED_MESSAGE =
   "Your ESPN league is connected. Initial synchronization is the next step.";
 
+export const LEAGUE_DATA_READY_MESSAGE =
+  "Your league data is ready. Shared spectator access is the next step.";
+
+export const START_INITIAL_SYNC_LABEL = "Start initial synchronization";
+
+export const RETRY_INITIAL_SYNC_LABEL = "Try initial synchronization again";
+
 export const LEAGUE_ALREADY_CLAIMED_MESSAGE =
   "This fantasy league is already connected to Fantasy What-If. Contact the league owner and ask for the workspace's spectator access if you need viewing access.";
 

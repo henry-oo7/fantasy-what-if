@@ -42,3 +42,29 @@ export interface ProviderClaimResponse {
   onboarding_stage: "initial_sync_pending";
   target: ProviderTarget;
 }
+
+export type InitialSyncJobStatus =
+  | "pending"
+  | "running"
+  | "retry_scheduled"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+
+/** Safe job fields only. No payload, lease, worker or raw error data. */
+export interface InitialSyncJob {
+  id: number;
+  status: InitialSyncJobStatus;
+  retryable: boolean;
+  detail: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  failed_at: string | null;
+}
+
+/** GET and POST /api/onboarding/synchronization */
+export interface InitialSyncProgress {
+  onboarding_stage: OnboardingStage;
+  job: InitialSyncJob | null;
+}

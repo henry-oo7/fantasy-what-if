@@ -15,6 +15,7 @@ from app.services.background_job_worker import (
     BackgroundJobExecutionError,
     BackgroundJobSnapshot,
 )
+from app.services.onboarding_initial_sync import InitialWorkspaceSyncHandler
 
 
 def snapshot(
@@ -284,7 +285,12 @@ def test_handler_registry_contains_sync_jobs_only() -> None:
     assert set(handlers) == {
         (BackgroundJobType.INCREMENTAL_SEASON_SYNC),
         BackgroundJobType.FULL_SEASON_SYNC,
+        BackgroundJobType.INITIAL_WORKSPACE_SYNC,
     }
+    assert isinstance(
+        handlers[BackgroundJobType.INITIAL_WORKSPACE_SYNC],
+        InitialWorkspaceSyncHandler,
+    )
 
     incremental_handler = handlers[BackgroundJobType.INCREMENTAL_SEASON_SYNC]
     full_handler = handlers[BackgroundJobType.FULL_SEASON_SYNC]

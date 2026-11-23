@@ -20,6 +20,7 @@ from app.services.background_job_heartbeat import (
     BackgroundJobHeartbeatError,
     BackgroundJobLeaseHeartbeat,
 )
+from app.services.onboarding_sync_outcome import apply_initial_sync_outcome
 
 DEFAULT_RETRY_DELAYS = (
     timedelta(seconds=30),
@@ -439,6 +440,7 @@ def _persist_success(
             worker_id=worker_id,
             now=now,
         )
+        apply_initial_sync_outcome(session, job=job, succeeded=True)
         session.commit()
 
 
@@ -493,6 +495,7 @@ def _persist_terminal_failure(
             retryable=retryable,
             now=now,
         )
+        apply_initial_sync_outcome(session, job=job, succeeded=False)
         session.commit()
 
 

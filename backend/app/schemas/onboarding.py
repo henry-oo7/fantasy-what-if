@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-from app.db.platform_enums import OnboardingStage, ProviderAccessMode
+from app.db.platform_enums import BackgroundJobStatus, OnboardingStage, ProviderAccessMode
 
 MINIMUM_SEASON_YEAR = 2000
 
@@ -92,3 +92,27 @@ class ProviderClaimResponse(BaseModel):
     code: Literal["provider_league_claimed"]
     onboarding_stage: Literal["initial_sync_pending"]
     target: ProviderTargetResponse
+
+
+class InitialSyncStartRequest(BaseModel):
+    """Empty start body. Workspace, league, season and job data come from the server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class InitialSyncJobResponse(BaseModel):
+    """Safe job fields only: no payload, lease, worker or raw error data."""
+
+    id: int
+    status: BackgroundJobStatus
+    retryable: bool
+    detail: str
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    failed_at: datetime | None
+
+
+class InitialSyncProgressResponse(BaseModel):
+    onboarding_stage: OnboardingStage
+    job: InitialSyncJobResponse | None
