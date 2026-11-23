@@ -35,6 +35,9 @@ from app.db.platform_enums import (
     InstallationStatus,
     OnboardingStage,
     ProviderAccessMode,
+    TransactionalEmailDeliveryStatus,
+    TransactionalEmailEventType,
+    TransactionalEmailScope,
     WorkspaceDeletionOutcome,
     WorkspaceRegistrationStatus,
 )
@@ -515,7 +518,10 @@ class WorkspaceDeletionRecord(Base):
 
 
 class BackgroundJob(TimestampMixin, Base):
-    """Durable workspace-owned background work."""
+    """Durable workspace-owned background work.
+
+    ``workspace_id`` is NULL only for unscoped transactional-email jobs.
+    """
 
     __tablename__ = "background_jobs"
     __table_args__ = (
@@ -565,6 +571,27 @@ class BackgroundJob(TimestampMixin, Base):
             "status <> 'canceled'::background_job_status OR canceled_at IS NOT NULL",
             name="ck_background_jobs_canceled_timestamp",
         ),
+        # A NULL workspace is allowed only for transactional-email jobs whose
+        # delivery is explicitly unscoped. job_type is NOT NULL, so the OR
+        # never evaluates to SQL NULL.
+        CheckConstraint(
+            "workspace_id IS NOT NULL OR job_type::text = 'transactional_email_delivery'",
+            name="ck_background_jobs_workspace_required_except_email",
+        ),
+        # Email job payloads carry exactly {version, delivery_id}, both numbers.
+        # COALESCE keeps every branch NULL-safe.
+        CheckConstraint(
+            "job_type::text <> 'transactional_email_delivery' "
+            "OR COALESCE("
+            "jsonb_typeof(payload) = 'object' "
+            "AND (payload - 'version' - 'delivery_id') = '{}'::jsonb "
+            "AND payload ? 'version' "
+            "AND payload ? 'delivery_id' "
+            "AND jsonb_typeof(payload -> 'version') = 'number' "
+            "AND jsonb_typeof(payload -> 'delivery_id') = 'number', "
+            "false)",
+            name="ck_background_jobs_transactional_email_payload_shape",
+        ),
         Index(
             "ix_background_jobs_queue_order",
             "status",
@@ -592,13 +619,13 @@ class BackgroundJob(TimestampMixin, Base):
         primary_key=True,
     )
 
-    workspace_id: Mapped[int] = mapped_column(
+    workspace_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "installations.id",
             name=("fk_background_jobs_workspace_id_installations"),
             ondelete="CASCADE",
         ),
-        nullable=False,
+        nullable=True,
         index=True,
     )
 
@@ -720,5 +747,255 @@ class BackgroundJob(TimestampMixin, Base):
 
     retryable: Mapped[bool | None] = mapped_column(
         Boolean,
+        nullable=True,
+    )
+
+
+_DELIVERY_NONTERMINAL = "status IN ('pending', 'sending', 'retry_scheduled')"
+
+
+class TransactionalEmailDelivery(TimestampMixin, Base):
+    """Durable transactional-email intent and state.
+
+    The row records what must be sent and what happened. BackgroundJob
+    remains the only queue and lease authority. No plaintext recipient,
+    token, link, subject, or body is ever stored. Scoped rows derive the
+    recipient from the active user at send time; the unscoped completion
+    row carries an encrypted recipient only until it reaches a final state.
+    """
+
+    __tablename__ = "transactional_email_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_transactional_email_deliveries_idempotency_key",
+        ),
+        CheckConstraint(
+            "idempotency_key = btrim(idempotency_key) AND idempotency_key <> ''",
+            name="ck_transactional_email_deliveries_idempotency_key_clean",
+        ),
+        # Every CASE has an ELSE false branch, so an unexpected or NULL scope
+        # can never pass through an unknown result.
+        CheckConstraint(
+            "CASE "
+            "WHEN scope = 'workspace' THEN "
+            "workspace_id IS NOT NULL "
+            "AND encrypted_recipient IS NULL "
+            "AND recipient_key_version IS NULL "
+            "AND event_type <> 'workspace_deletion_completed' "
+            "WHEN scope = 'unscoped' THEN "
+            "workspace_id IS NULL "
+            "AND user_id IS NULL "
+            "AND event_type = 'workspace_deletion_completed' "
+            "AND ((" + _DELIVERY_NONTERMINAL + ") "
+            "= (encrypted_recipient IS NOT NULL)) "
+            "ELSE false END",
+            name="ck_transactional_email_deliveries_scope_shape",
+        ),
+        CheckConstraint(
+            "(encrypted_recipient IS NULL) = (recipient_key_version IS NULL)",
+            name="ck_transactional_email_deliveries_recipient_pair",
+        ),
+        CheckConstraint(
+            "recipient_key_version IS NULL OR recipient_key_version > 0",
+            name="ck_transactional_email_deliveries_key_version_positive",
+        ),
+        CheckConstraint(
+            "CASE WHEN event_type IN ("
+            "'administrator_email_verification', "
+            "'administrator_password_reset', "
+            "'administrator_password_changed'"
+            ") THEN user_id IS NOT NULL ELSE true END",
+            name="ck_transactional_email_deliveries_identity_event_user",
+        ),
+        CheckConstraint(
+            "attempt_count >= 0",
+            name="ck_transactional_email_deliveries_attempt_count_nonnegative",
+        ),
+        CheckConstraint(
+            "maximum_attempts > 0",
+            name="ck_transactional_email_deliveries_maximum_attempts_positive",
+        ),
+        CheckConstraint(
+            "attempt_count <= maximum_attempts",
+            name="ck_transactional_email_deliveries_attempt_limit",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN status IN ('pending', 'sending', 'retry_scheduled') THEN "
+            "sent_at IS NULL AND failed_at IS NULL AND canceled_at IS NULL "
+            "WHEN status = 'sent' THEN "
+            "sent_at IS NOT NULL AND failed_at IS NULL AND canceled_at IS NULL "
+            "WHEN status = 'permanently_failed' THEN "
+            "failed_at IS NOT NULL AND sent_at IS NULL AND canceled_at IS NULL "
+            "WHEN status = 'canceled' THEN "
+            "canceled_at IS NOT NULL AND sent_at IS NULL AND failed_at IS NULL "
+            "ELSE false END",
+            name="ck_transactional_email_deliveries_state_timestamps",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN status IN ('pending', 'sending', 'retry_scheduled') THEN "
+            "retention_expires_at IS NULL "
+            "ELSE COALESCE("
+            "retention_expires_at > COALESCE(sent_at, failed_at, canceled_at), "
+            "false) END",
+            name="ck_transactional_email_deliveries_retention_state",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN provider_message_id IS NULL THEN "
+            "provider_message_id_expires_at IS NULL "
+            "ELSE provider_message_id = btrim(provider_message_id) "
+            "AND provider_message_id <> '' "
+            "AND status = 'sent' "
+            "AND COALESCE(provider_message_id_expires_at > sent_at, false) END",
+            name="ck_transactional_email_deliveries_provider_message_state",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN safe_failure_code IS NULL THEN status <> 'permanently_failed' "
+            "ELSE safe_failure_code ~ '^[a-z][a-z0-9_]{0,63}$' "
+            "AND status IN ('sending', 'retry_scheduled', 'permanently_failed') END",
+            name="ck_transactional_email_deliveries_safe_failure_code_state",
+        ),
+        Index(
+            "ix_transactional_email_deliveries_status_available_at",
+            "status",
+            "available_at",
+        ),
+        Index(
+            "ix_transactional_email_deliveries_retention_expires_at",
+            "retention_expires_at",
+            postgresql_where=text("retention_expires_at IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    workspace_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "installations.id",
+            name="fk_transactional_email_deliveries_workspace_id_installations",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "users.id",
+            name="fk_transactional_email_deliveries_user_id_users",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    scope: Mapped[TransactionalEmailScope] = mapped_column(
+        Enum(
+            TransactionalEmailScope,
+            name="transactional_email_scope",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+    )
+
+    event_type: Mapped[TransactionalEmailEventType] = mapped_column(
+        Enum(
+            TransactionalEmailEventType,
+            name="transactional_email_event_type",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+    )
+
+    status: Mapped[TransactionalEmailDeliveryStatus] = mapped_column(
+        Enum(
+            TransactionalEmailDeliveryStatus,
+            name="transactional_email_delivery_status",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=False,
+        default=TransactionalEmailDeliveryStatus.PENDING,
+        server_default=TransactionalEmailDeliveryStatus.PENDING.value,
+    )
+
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    attempt_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    maximum_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=5,
+        server_default="5",
+    )
+
+    last_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    canceled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    safe_failure_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    provider_message_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    provider_message_id_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    retention_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    encrypted_recipient: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    recipient_key_version: Mapped[int | None] = mapped_column(
+        Integer,
         nullable=True,
     )

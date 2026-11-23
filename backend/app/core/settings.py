@@ -187,6 +187,12 @@ class Settings(BaseSettings):
         ge=1,
     )
 
+    transactional_email_keys: SecretStr | None = None
+    transactional_email_current_key_version: int = Field(
+        default=1,
+        ge=1,
+    )
+
     database_url: str
     database_echo: bool = False
 
@@ -273,6 +279,39 @@ class Settings(BaseSettings):
         return build_provider_credential_keyring(
             serialized_keys=self.provider_credential_keys,
             current_version=(self.provider_credential_current_key_version),
+        )
+
+    @model_validator(mode="after")
+    def validate_transactional_email_keyring(
+        self,
+    ) -> Settings:
+        """Validate the versioned transactional-email recipient keyring."""
+
+        from app.notifications.recipient_encryption import (
+            TransactionalEmailKeyringConfigurationError,
+            build_transactional_email_keyring,
+        )
+
+        try:
+            build_transactional_email_keyring(
+                serialized_keys=self.transactional_email_keys,
+                current_version=self.transactional_email_current_key_version,
+            )
+        except TransactionalEmailKeyringConfigurationError as exc:
+            raise ValueError(str(exc)) from exc
+
+        return self
+
+    def transactional_email_keyring(self):
+        """Return validated transactional-email recipient key configuration."""
+
+        from app.notifications.recipient_encryption import (
+            build_transactional_email_keyring,
+        )
+
+        return build_transactional_email_keyring(
+            serialized_keys=self.transactional_email_keys,
+            current_version=self.transactional_email_current_key_version,
         )
 
     @field_validator(

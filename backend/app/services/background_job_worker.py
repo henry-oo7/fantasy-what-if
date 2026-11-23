@@ -50,7 +50,7 @@ class BackgroundJobSnapshot:
     """Non-secret job data passed outside the claim transaction."""
 
     id: int
-    workspace_id: int
+    workspace_id: int | None
     job_type: BackgroundJobType
     payload_version: int
     payload: dict[str, Any]
