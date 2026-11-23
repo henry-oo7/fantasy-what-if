@@ -18,6 +18,9 @@ from app.core.settings import Settings, get_settings
 from app.db.session import SessionFactory
 from app.providers.espn.league_access import HttpGet
 from app.schemas.onboarding import (
+    ActivationRequest,
+    ActivationResponse,
+    ActivationReviewResponse,
     InitialSyncJobResponse,
     InitialSyncProgressResponse,
     InitialSyncStartRequest,
@@ -56,6 +59,11 @@ from app.services.provider_onboarding import (
 from app.services.spectator_account import (
     SpectatorAlreadyExistsError,
     SpectatorPasswordError,
+)
+from app.services.workspace_activation import (
+    ActivationNotReadyError,
+    activate_workspace,
+    read_activation_readiness,
 )
 
 router = APIRouter(
@@ -381,3 +389,79 @@ def set_up_onboarding_spectator_access(
         )
 
     return _spectator_response(state)
+
+
+@router.get("/activation", response_model=ActivationReviewResponse)
+def read_onboarding_activation(
+    context: Annotated[AuthenticationContext, Depends(get_authentication_context)],
+) -> ActivationReviewResponse | JSONResponse:
+    """Safe activation review for a completed provisional workspace."""
+
+    try:
+        with SessionFactory() as session:
+            readiness = read_activation_readiness(
+                session, user_id=context.user_id, workspace_id=context.workspace_id
+            )
+    except ProviderWorkspaceAccessError as exc:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.", code=exc.code
+        ) from exc
+    except ProviderOnboardingError as exc:
+        return _error_response(exc)
+
+    return ActivationReviewResponse(
+        workspace_slug=readiness.workspace_slug,
+        provider="espn" if readiness.provider == "espn" else None,
+        league_id=readiness.league_id,
+        season_year=readiness.season_year,
+        access_mode=readiness.access_mode,
+        synchronization_complete=readiness.synchronization_complete,
+        spectator_access_ready=readiness.spectator_access_ready,
+        ready=readiness.blocking_category is None,
+        blocking_category=(
+            readiness.blocking_category.value if readiness.blocking_category else None
+        ),
+    )
+
+
+@router.post("/activate", response_model=ActivationResponse)
+def activate_onboarding_workspace(
+    context: Annotated[AuthenticationContext, Depends(require_session_csrf)],
+    _: Annotated[None, Depends(validate_request_origin)],
+    payload: ActivationRequest | None = None,
+) -> ActivationResponse | JSONResponse:
+    """Activate the workspace after rechecking every persisted invariant.
+
+    No provider call, decryption, synchronization or job work happens here.
+    """
+
+    del payload
+
+    try:
+        with SessionFactory() as session:
+            result = activate_workspace(
+                session, user_id=context.user_id, workspace_id=context.workspace_id
+            )
+    except ProviderWorkspaceAccessError as exc:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.", code=exc.code
+        ) from exc
+    except ProviderOnboardingError as exc:
+        return _error_response(exc)
+    except ActivationNotReadyError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": exc.detail,
+                "code": "activation_not_ready",
+                "category": exc.category.value,
+                "retryable": False,
+            },
+        )
+
+    return ActivationResponse(
+        status="already_active" if result.already_active else "activated",
+        workspace_slug=result.workspace_slug,
+        workspace_access="active",
+        onboarding_stage="complete",
+    )

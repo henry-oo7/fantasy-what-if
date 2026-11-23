@@ -21,6 +21,8 @@ export const LEAGUE_DATA_READY_MESSAGE =
 export const SPECTATOR_ACCESS_READY_MESSAGE =
   "Shared spectator access is ready. Workspace activation is the final step.";
 
+export const ACTIVATE_WORKSPACE_LABEL = "Activate workspace";
+
 export const START_INITIAL_SYNC_LABEL = "Start initial synchronization";
 
 export const RETRY_INITIAL_SYNC_LABEL = "Try initial synchronization again";

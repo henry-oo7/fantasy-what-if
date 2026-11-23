@@ -686,6 +686,33 @@ Spectator setup follows successful initial synchronization. `GET /api/onboarding
 
 A repeat after success returns the configured state without replacing the password; later changes use workspace administration. Workspace activation is the next and final step.
 
+### Implemented Workspace Activation Gate
+
+Activation is a separate final gate. `onboarding_stage = complete` is necessary but never sufficient.
+
+`GET /api/onboarding/activation` returns a safe review: provider, workspace slug, League ID, initial season, access mode, synchronization and spectator readiness, and a blocking category.
+
+`POST /api/onboarding/activate` takes an empty body. In one short transaction it locks the workspace, the active provider connection and the claim, and independently rechecks:
+
+- the validated connection and its complete target;
+- the claim matching that target and attached to the workspace's own League;
+- the Season for the validated year, imported through that connection, with an imported lifecycle status;
+- that the latest `initial_workspace_sync` job succeeded;
+- core league data (the same rule the initial-sync worker uses);
+- one enabled shared spectator with a password and no email;
+- no conflicting active selection.
+
+On success it:
+
+- sets `active_league_id`;
+- sets `active_season_id`, only for a synchronization-enabled (active) season, following the existing import convention;
+- sets registration and installation status to active;
+- sets `setup_completed_at`.
+
+A failure returns `409 activation_not_ready` with a safe category and changes nothing. A repeat after success returns `already_active`.
+
+Activation performs no provider I/O, decryption, synchronization or job work, and creates or repairs no data. Legacy setup finalization is not used by SaaS onboarding.
+
 ## Atomic League Claim
 
 The provider league claim remains a short database transaction.

@@ -83,6 +83,26 @@ START_STAGES = frozenset(
 PROGRESS_STAGES = START_STAGES | {OnboardingStage.SPECTATOR_SETUP_PENDING}
 
 
+def has_required_core_data(session: Session, season_id: int) -> bool:
+    """Single rule for "core league data exists": at least two teams and one matchup.
+
+    Shared by the initial-sync handler and workspace activation.
+    """
+
+    team_count = int(
+        session.scalar(select(func.count()).select_from(Team).where(Team.season_id == season_id))
+        or 0
+    )
+    matchup_count = int(
+        session.scalar(
+            select(func.count()).select_from(Matchup).where(Matchup.season_id == season_id)
+        )
+        or 0
+    )
+
+    return team_count >= 2 and matchup_count >= 1
+
+
 def initial_sync_idempotency_key(workspace_id: int) -> str:
     return f"onboarding-initial-sync:{workspace_id}"
 
@@ -553,20 +573,8 @@ class InitialWorkspaceSyncHandler:
 
         with self.session_factory() as session:
             season = session.get(Season, season_id)
-            team_count = int(
-                session.scalar(
-                    select(func.count()).select_from(Team).where(Team.season_id == season_id)
-                )
-                or 0
-            )
-            matchup_count = int(
-                session.scalar(
-                    select(func.count()).select_from(Matchup).where(Matchup.season_id == season_id)
-                )
-                or 0
-            )
 
-            if season is None or team_count < 2 or matchup_count < 1:
+            if season is None or not has_required_core_data(session, season_id):
                 raise _job_error(
                     "initial_sync_incomplete",
                     "The first import did not produce the required league data.",
