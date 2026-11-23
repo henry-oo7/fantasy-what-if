@@ -612,12 +612,10 @@ Create:
 
 - Provisional workspace
 - Administrator
-- Email-verification token
+- Verification delivery intent and its email job (no token; the worker creates it)
 - Audit event
 
-Commit before email delivery.
-
-If email delivery fails, the registration remains provisional and resendable.
+Commit before the worker sends anything. Registration success means delivery was queued. If the provider is unavailable or the quota is exhausted, delivery is deferred and the registration remains provisional and resendable.
 
 ### Transaction 2: Email Verification
 
@@ -974,6 +972,7 @@ provisional_workspace_cleanup
 expired_session_cleanup
 expired_token_cleanup
 workspace_deletion
+transactional_email_delivery
 credential_reencryption
 ```
 
@@ -1288,31 +1287,41 @@ Requirements include:
 
 ## Email Architecture
 
-Transactional email is required for:
+ADR 0009 governs transactional email. Delivery is durable and asynchronous.
+
+Required initial email:
 
 ```text
-Email verification
+Administrator email verification and resend
 Password reset
-Security notification
-Provider reauthorization
-Workspace suspension
-Important service notices
+Password-changed confirmation
+Deletion-request confirmation
+Seven-day deletion reminder
+Deletion-completion notice
 ```
 
-Email delivery should use an application notification contract so the external provider can change later.
+Recommended: deletion-cancellation confirmation. Deferred: duplicate-registration notification, provider webhooks, bounce processing, and suppression synchronization. Provider reauthorization, suspension, and other service notices are later use cases.
 
-Conceptual interface:
+Provider and boundary:
 
-```python
-class TransactionalEmailSender(Protocol):
-    def send_email_verification(...): ...
-    def send_password_reset(...): ...
-    def send_security_notification(...): ...
-    # Public deletion launch also requires durable delivery of:
-    #   deletion-request confirmation, seven-day reminder, completion notice
-```
+- Resend on the permanent free plan, called through direct bounded `httpx` (3-second connect and 7-second read timeouts, no adapter retries, idempotency keys, redacted failures).
+- $0 spend, pay-as-you-go disabled, no automatic paid upgrade, no credit card.
+- A configured daily limit (initially 100) and monthly ceiling (initially 2,900), with the daily budget split 45 verification, 25 password reset and security, 15 deletion notices, and 15 operational reserve. Quota exhaustion defers delivery and pauses new registration.
+- Resend acceptance means sent. Inbox delivery is not claimed.
 
-The initial implementation may enqueue email delivery later, but token state remains canonical in PostgreSQL.
+Architecture:
+
+- `BackgroundJob` is the only queue. Job type `transactional_email_delivery` carries only `version` and `delivery_id`.
+- `transactional_email_deliveries` holds durable delivery state, not a competing queue.
+- `BackgroundJob.workspace_id` is nullable only for this job type, guarded by a database check constraint and allowed only for explicitly unscoped deliveries, so the deletion-completion job survives tenant deletion. Workspace-scoped deliveries are deleted with the workspace.
+- The worker generates verification and reset tokens, stores only hashes, builds links in memory from `TRANSACTIONAL_EMAIL_PUBLIC_BASE_URL` (separate from `FRONTEND_ORIGIN`, HTTPS outside development and test), and discards plaintext. Raw tokens never enter payloads, delivery metadata, logs, provider tags, metrics, or browser storage.
+- Public routes queue delivery and never call the provider. The public `503 email_delivery_unavailable` response is removed.
+- Resend, reset-request, and duplicate-registration paths share a configurable response floor (initially 350 ms plus up to 75 ms jitter).
+- The deletion-completion recipient is encrypted under a separate versioned transactional-email keyring and wiped when the delivery reaches a final state. Rendered bodies are never persisted.
+- Retention: provider message ID and attempts 30 days; safe state and failure code 90 days. Workspace-scoped delivery rows are deleted with the workspace. The unscoped completion delivery has no workspace or user link, and its recipient ciphertext is wiped at its final state.
+- Registration stays closed unless readiness passes: provider enabled, API key, sender identity, valid public base URL, queue and worker health, and protected capacity. No probe sends an email.
+
+The application may still wrap the provider behind a small sender interface so that the provider can change later, but the interface does not own retries, scheduling, or token creation.
 
 ## Operator Boundary
 
@@ -1409,11 +1418,11 @@ Final cleanup is one ordered transaction:
 
 The `seasons.provider_connection_id` `RESTRICT` foreign key is unchanged. It must not become `CASCADE`, `SET NULL`, or `DEFERRABLE` unless implementation testing proves explicit ordering insufficient.
 
-Final deletion releases the claim, slug, and email together. The job may delete its own `BackgroundJob` row. A terminal failure leaves the workspace `deletion_pending` and inaccessible until operators re-enqueue.
+Final deletion releases the claim, slug, and email together. The final transaction also creates the deletion-completion email intent with an encrypted recipient and a NULL-workspace email job (ADR 0009). The job may delete its own `BackgroundJob` row. A terminal failure leaves the workspace `deletion_pending` and inaccessible until operators re-enqueue.
 
 `workspace_deletion_records` are retained for 365 days and hold only the former workspace ID, provider, normalized provider League ID, requested, scheduled, and completed timestamps, outcome, and retention expiration. Slug, email, display name, credentials, passwords, tokens, and internal usernames are never retained. Tenant-owned job and synchronization history is deleted with the tenant. Login-attempt and registration-rate-limit rows expire normally. Audit-event retention is deferred.
 
-Public deletion launch requires durable email delivery for the request confirmation, a seven-day reminder, and a completion notice. Best-effort worker email is not a substitute.
+Public deletion launch requires durable email delivery (ADR 0009) for the request confirmation, a seven-day reminder scheduled for `scheduled_for` minus seven days and suppressed on cancellation, and a completion notice. The deletion worker never sends email directly. Best-effort worker email is not a substitute.
 
 Provisional duplicate-claim cleanup is separate from FR-20. Operator suspension, security investigation, or abuse action must not release the claim.
 
@@ -1765,10 +1774,11 @@ Expected behavior:
 
 Expected behavior:
 
-- Registration remains provisional.
-- Verification and reset delivery may retry.
+- Registration remains provisional and public routes do not fail.
+- Deliveries stay queued or deferred and retry through the job system.
+- Registration pauses when email readiness or protected capacity fails.
 - Existing authenticated users continue.
-- Safe messages do not claim successful delivery when none occurred.
+- Safe messages say instructions were queued or sent, never that they arrived.
 
 ### Duplicate League Claim
 
@@ -1805,21 +1815,24 @@ Implementation should not begin with:
 
 These features may be considered after the tenancy foundation is stable.
 
+## Resolved Decisions
+
+- Final email provider: Resend on the permanent free plan with durable delivery (ADR 0009).
+
 ## Open Decisions
 
 The following decisions remain open and must be resolved before their implementation phase:
 
-1. Final email provider
-2. Final email normalization implementation
-4. Provisional workspace cleanup implementation
-5. Exact worker lease duration
-6. Exact retry schedule
-7. Exact PostgreSQL pool sizes
-8. Initial monitoring stack
-9. Off-host backup destination
-10. Audit-event retention duration (deferred until audit infrastructure exists)
-11. Native authentication transport
-12. Cloud platform, if migration becomes necessary
+1. Final email normalization implementation
+2. Provisional workspace cleanup implementation
+3. Exact worker lease duration
+4. Exact retry schedule
+5. Exact PostgreSQL pool sizes
+6. Initial monitoring stack
+7. Off-host backup destination
+8. Audit-event retention duration (deferred until audit infrastructure exists)
+9. Native authentication transport
+10. Cloud platform, if migration becomes necessary
 
 Open decisions must not be guessed inside implementation code.
 

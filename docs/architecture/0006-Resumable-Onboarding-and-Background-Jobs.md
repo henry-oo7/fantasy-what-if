@@ -162,7 +162,7 @@ The target job model is represented conceptually as:
 ```text
 BackgroundJob
 ├── id
-├── workspace_id
+├── workspace_id            (nullable only for transactional_email_delivery)
 ├── job_type
 ├── status
 ├── priority
@@ -202,6 +202,7 @@ provisional_workspace_cleanup
 expired_session_cleanup
 expired_token_cleanup
 workspace_deletion
+transactional_email_delivery
 ```
 
 Not every job type must be implemented in the first migration.
@@ -606,7 +607,7 @@ The exact storage representation may use one enum plus supporting timestamps or 
 
 Email verification is not a background provider job.
 
-Email delivery may be queued later, but verification state remains part of registration.
+Email delivery is queued as a `transactional_email_delivery` job and sent by the worker (ADR 0009). Verification state remains part of registration, and registration success means delivery was queued.
 
 After email verification succeeds:
 
@@ -1108,7 +1109,18 @@ The `workspace_deletion` job follows FR-20 and ADR 0004.
 - The job may delete its own `BackgroundJob` row. The deletion record, not the job row, proves completion.
 - The job holds no provider network call inside the transaction and stores no secrets in its payload.
 - A terminal failure leaves the workspace `deletion_pending` and inaccessible. Operators re-enqueue after repair. Automatic retries follow the normal job retry policy.
-- Deletion-request confirmation, seven-day reminder, and completion notice depend on durable email delivery, not on best-effort worker email.
+- Deletion-request confirmation, seven-day reminder, and completion notice use durable email intents (ADR 0009), not best-effort worker email. The request transaction creates the confirmation and the reminder (scheduled for `scheduled_for` minus seven days) and must not cancel email jobs when it cancels pending workspace jobs. Cancellation cancels the reminder. The final deletion transaction creates the completion delivery with its encrypted recipient and a job with `workspace_id` NULL. The deletion worker sends no email directly.
+
+## Transactional Email Jobs
+
+ADR 0009 governs `transactional_email_delivery`. This job type is the only exception to the workspace-ownership rule.
+
+- The payload contains only `version` and `delivery_id`. It never contains an address, token, link, or body.
+- `workspace_id` may be NULL only for this job type, enforced by a database check constraint (`workspace_id IS NOT NULL OR job_type = 'transactional_email_delivery'`), and only when its delivery intent is explicitly unscoped. The deletion-completion job needs this because it must survive tenant deletion. The schema must also enforce that a NULL-workspace job references only an unscoped delivery.
+- Tenant-bound email jobs keep their `workspace_id` and are removed with the tenant. Their workspace-scoped delivery rows are deleted with the workspace. Only the unscoped deletion-completion delivery survives.
+- Workspace-scoped job reads and cancellation never match NULL-workspace rows.
+- Quota deferral reschedules the job through `available_at` without spending an attempt.
+- The job holds no database transaction open across the provider call.
 
 ## Safe Errors
 
