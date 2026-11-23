@@ -373,7 +373,9 @@ A League Workspace may become active only when:
 - Required canonical settings exist
 - The workspace ownership graph is internally consistent
 
-Spectator creation may occur before or immediately after activation, depending on the final onboarding design.
+Spectator setup happens before activation: activation also requires one enabled shared spectator with a password and no email.
+
+Activation is a separate final gate. `onboarding_stage = complete` alone is not sufficient: activation independently rechecks the persisted invariants (validated connection and target, claim attached to the workspace's own League, the Season for the validated year, a succeeded initial synchronization, core league data, and spectator access). It performs no provider I/O, decryption or synchronization. On success it sets the active League and Season and makes the workspace available. SaaS onboarding never uses legacy setup finalization.
 
 ### FR-17: Workspace-Scoped Season Import
 

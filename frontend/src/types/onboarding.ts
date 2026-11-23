@@ -76,3 +76,30 @@ export interface OnboardingSpectatorState {
   enabled: boolean;
   onboarding_stage: OnboardingStage;
 }
+
+export type ActivationCategory =
+  | "provider_connection"
+  | "synchronization"
+  | "league_data"
+  | "spectator_access";
+
+/** GET /api/onboarding/activation: safe review, never credentials or internal IDs. */
+export interface ActivationReview {
+  workspace_slug: string | null;
+  provider: "espn" | null;
+  league_id: string | null;
+  season_year: number | null;
+  access_mode: "public" | "private" | null;
+  synchronization_complete: boolean;
+  spectator_access_ready: boolean;
+  ready: boolean;
+  blocking_category: ActivationCategory | null;
+}
+
+/** POST /api/onboarding/activate */
+export interface ActivationResult {
+  status: "activated" | "already_active";
+  workspace_slug: string | null;
+  workspace_access: "active";
+  onboarding_stage: "complete";
+}

@@ -1,5 +1,7 @@
 import { getJson, postJson } from "./client";
 import type {
+  ActivationResult,
+  ActivationReview,
   InitialSyncProgress,
   OnboardingSpectatorState,
   ProviderClaimResponse,
@@ -13,6 +15,7 @@ export const onboardingQueryKeys = {
   providerTarget: () => [...onboardingQueryKeys.all, "provider-target"] as const,
   synchronization: () => [...onboardingQueryKeys.all, "synchronization"] as const,
   spectator: () => [...onboardingQueryKeys.all, "spectator"] as const,
+  activation: () => [...onboardingQueryKeys.all, "activation"] as const,
 };
 
 /**
@@ -65,4 +68,13 @@ export function setUpOnboardingSpectator(
   csrfToken: string | null,
 ): Promise<OnboardingSpectatorState> {
   return postJson<OnboardingSpectatorState>("/onboarding/spectator", { password }, { csrfToken });
+}
+
+export function getActivationReview(signal?: AbortSignal): Promise<ActivationReview> {
+  return getJson<ActivationReview>("/onboarding/activation", signal);
+}
+
+/** Activate after the server rechecks every invariant. The body is empty. */
+export function activateWorkspace(csrfToken: string | null): Promise<ActivationResult> {
+  return postJson<ActivationResult>("/onboarding/activate", {}, { csrfToken });
 }

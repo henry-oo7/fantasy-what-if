@@ -133,3 +133,32 @@ class OnboardingSpectatorResponse(BaseModel):
     configured: bool
     enabled: bool
     onboarding_stage: OnboardingStage
+
+
+class ActivationRequest(BaseModel):
+    """Empty body. Workspace, league, season and status come only from the server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ActivationReviewResponse(BaseModel):
+    """Safe activation summary. No credentials, internal IDs or job internals."""
+
+    workspace_slug: str | None
+    provider: Literal["espn"] | None
+    league_id: str | None
+    season_year: int | None
+    access_mode: ProviderAccessMode | None
+    synchronization_complete: bool
+    spectator_access_ready: bool
+    ready: bool
+    blocking_category: (
+        Literal["provider_connection", "synchronization", "league_data", "spectator_access"] | None
+    )
+
+
+class ActivationResponse(BaseModel):
+    status: Literal["activated", "already_active"]
+    workspace_slug: str | None
+    workspace_access: Literal["active"]
+    onboarding_stage: Literal["complete"]

@@ -6,7 +6,7 @@ import { useAuth } from "../../auth/AuthProvider";
 import { AccountLayout } from "../../components/account/AccountLayout";
 import { FormAlert } from "../../components/account/FormAlert";
 import { onboardingStageMessage } from "../../auth/workspaceLifecycle";
-import { SPECTATOR_ACCESS_READY_MESSAGE } from "../../auth/accountMessages";
+import { ActivationStep } from "./ActivationStep";
 import { InitialSyncStep } from "./InitialSyncStep";
 import { LeagueClaimStep } from "./LeagueClaimStep";
 import { ProviderSetupStep } from "./ProviderSetupStep";
@@ -20,7 +20,7 @@ import { SpectatorSetupStep } from "./SpectatorSetupStep";
  * - league_claim_pending: confirm and claim the validated league
  * - initial_sync_pending / running / failed: start, follow or retry the import
  * - spectator_setup_pending: create the shared spectator password
- * - complete: activation placeholder (activation is a separate step)
+ * - complete: review and activate the workspace
  * - any other stage: saved-progress placeholder
  *
  * This page never links to legacy setup routes.
@@ -92,7 +92,7 @@ export function OnboardingPage() {
         ) : spectatorSetup ? (
           <SpectatorSetupStep />
         ) : onboardingComplete ? (
-          <FormAlert tone="success">{SPECTATOR_ACCESS_READY_MESSAGE}</FormAlert>
+          <ActivationStep />
         ) : (
           <FormAlert tone="notice">
             League data, standings, and spectator access become available
