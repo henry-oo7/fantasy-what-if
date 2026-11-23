@@ -11,7 +11,12 @@ import {
 import { vi } from "vitest";
 
 import { AuthProvider } from "../auth/AuthProvider";
-import type { AuthenticatedUser } from "../types/auth";
+import type {
+  AuthenticatedUser,
+  OnboardingStage,
+  ResolvedWorkspaceAccess,
+  WorkspaceLifecycle,
+} from "../types/auth";
 import type { SetupStatus } from "../types/setup";
 import { LocationDisplay } from "./LocationDisplay";
 
@@ -60,22 +65,76 @@ export const SAAS_ONLY_SETUP: SetupStatus = {
   active_league_configured: false,
 };
 
+export const ACTIVE_WORKSPACE: WorkspaceLifecycle = {
+  workspace_id: 7,
+  workspace_slug: "alpha-league",
+  installation_status: "active",
+  registration_status: "active",
+  onboarding_stage: "complete",
+  workspace_access: "active",
+};
+
+/** The GET /api/auth/me workspace object for a given access state. */
+export function workspaceFor(
+  access: ResolvedWorkspaceAccess,
+  {
+    onboardingStage = "provider_setup_pending",
+    workspaceId = ACTIVE_WORKSPACE.workspace_id,
+    workspaceSlug = ACTIVE_WORKSPACE.workspace_slug,
+  }: {
+    onboardingStage?: OnboardingStage;
+    workspaceId?: number;
+    workspaceSlug?: string | null;
+  } = {},
+): WorkspaceLifecycle {
+  const identity = { workspace_id: workspaceId, workspace_slug: workspaceSlug };
+
+  switch (access) {
+    case "active":
+      return { ...ACTIVE_WORKSPACE, ...identity };
+    case "provisional":
+      return {
+        ...identity,
+        installation_status: "setup_in_progress",
+        registration_status: "provisional",
+        onboarding_stage: onboardingStage,
+        workspace_access: "provisional",
+      };
+    case "suspended":
+      return {
+        ...identity,
+        installation_status: "active",
+        registration_status: "suspended",
+        onboarding_stage: "complete",
+        workspace_access: "suspended",
+      };
+    case "inactive":
+      return {
+        ...identity,
+        installation_status: null,
+        registration_status: null,
+        onboarding_stage: null,
+        workspace_access: "inactive",
+      };
+  }
+}
+
 export const ADMIN_USER: AuthenticatedUser = {
   id: 11,
-  username: "admin-internal-value",
   display_name: "Example Administrator",
   email: "administrator@example.test",
   role: "admin",
   is_active: true,
+  workspace: ACTIVE_WORKSPACE,
 };
 
 export const SPECTATOR_USER: AuthenticatedUser = {
   id: 12,
-  username: "spectator-internal-value",
   display_name: "League Spectator",
   email: null,
   role: "spectator",
   is_active: true,
+  workspace: { ...ACTIVE_WORKSPACE, onboarding_stage: null },
 };
 
 export const GENERIC_UNAUTHENTICATED = {
@@ -155,30 +214,37 @@ export function createApiMock() {
   api.reply("GET /api/setup/status", 200, LEGACY_ACTIVE_SETUP);
   api.reply("GET /api/auth/me", 401, GENERIC_UNAUTHENTICATED);
   api.reply("GET /api/auth/csrf", 200, { csrf_token: "pre-auth-csrf" });
-  api.reply("GET /api/leagues/seasons", 200, { seasons: [] });
 
   return api;
 }
 
 export type ApiMock = ReturnType<typeof createApiMock>;
 
-/** Make GET /api/auth/me and the workspace probe reflect a session. */
+/**
+ * Make GET /api/auth/me reflect a session, including its authoritative
+ * workspace lifecycle. No other endpoint decides lifecycle state.
+ */
 export function signInAs(
   api: ApiMock,
   user: AuthenticatedUser,
-  access: "active" | "provisional" | "suspended" | "inactive" = "active",
+  access?: ResolvedWorkspaceAccess,
+  options?: { onboardingStage?: OnboardingStage },
 ) {
-  api.reply("GET /api/auth/me", 200, user);
+  const body: AuthenticatedUser =
+    access === undefined
+      ? user
+      : {
+          ...user,
+          workspace: workspaceFor(access, {
+            ...options,
+            workspaceId: user.workspace.workspace_id,
+            workspaceSlug: user.workspace.workspace_slug,
+          }),
+        };
 
-  if (access === "active") {
-    api.reply("GET /api/leagues/seasons", 200, { seasons: [] });
-  } else {
-    api.reply("GET /api/leagues/seasons", 403, {
-      detail: "Workspace access is unavailable.",
-      code: access === "suspended" ? "workspace_suspended" : "workspace_inactive",
-      retryable: false,
-    });
-  }
+  api.reply("GET /api/auth/me", 200, body);
+
+  return body;
 }
 
 export function renderWithProviders(

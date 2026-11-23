@@ -17,16 +17,16 @@ from app.auth.csrf import CSRF_HEADER_NAME
 from app.auth.security import csrf_tokens_match
 from app.core.settings import Settings, get_settings
 from app.db.auth_models import AuthSession, User, UserRole
-from app.db.platform_enums import (
-    InstallationStatus,
-    WorkspaceRegistrationStatus,
-)
 from app.db.platform_models import Installation
 from app.db.session import SessionFactory
 from app.repositories.session_repository import (
     ResolvedSession,
     SessionRepository,
     SessionResolutionFailure,
+)
+from app.services.workspace_lifecycle import (
+    WorkspaceAccess,
+    resolve_workspace_access,
 )
 
 SESSION_REPLACED_CODE = "session_replaced"
@@ -232,27 +232,15 @@ def require_active_workspace(
             workspace_id,
         )
 
-    if workspace is None:
-        raise WorkspaceAccessError(
-            detail="Workspace access is unavailable.",
-            code="workspace_inactive",
-        )
+    access = resolve_workspace_access(workspace, user.role)
 
-    if workspace.registration_status is WorkspaceRegistrationStatus.SUSPENDED:
+    if access is WorkspaceAccess.SUSPENDED:
         raise WorkspaceAccessError(
             detail="Workspace access is unavailable.",
             code="workspace_suspended",
         )
 
-    legacy_active = (
-        workspace.registration_status is None and workspace.status is InstallationStatus.ACTIVE
-    )
-    saas_active = (
-        workspace.registration_status is WorkspaceRegistrationStatus.ACTIVE
-        and workspace.status is InstallationStatus.ACTIVE
-    )
-
-    if not legacy_active and not saas_active:
+    if workspace is None or access is not WorkspaceAccess.ACTIVE:
         raise WorkspaceAccessError(
             detail="Workspace access is unavailable.",
             code="workspace_inactive",

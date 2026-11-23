@@ -1,13 +1,60 @@
 export type UserRole = "spectator" | "admin";
 
-/** GET /api/auth/me */
+export type InstallationStatus =
+  | "setup_required"
+  | "setup_in_progress"
+  | "active";
+
+export type WorkspaceRegistrationStatus =
+  | "provisional"
+  | "active"
+  | "suspended"
+  | "deletion_pending"
+  | "deleted";
+
+export type OnboardingStage =
+  | "registration_pending"
+  | "email_verification_pending"
+  | "provider_setup_pending"
+  | "league_claim_pending"
+  | "initial_sync_pending"
+  | "initial_sync_running"
+  | "spectator_setup_pending"
+  | "complete"
+  | "provider_validation_failed"
+  | "league_claim_conflict"
+  | "initial_sync_failed";
+
+/** Authoritative workspace access returned by GET /api/auth/me. */
+export type ResolvedWorkspaceAccess =
+  | "active"
+  | "provisional"
+  | "suspended"
+  | "inactive";
+
+/**
+ * The signed-in user's own workspace lifecycle.
+ *
+ * Lifecycle detail is null when access is inactive, and onboarding_stage
+ * is returned only to administrators.
+ */
+export interface WorkspaceLifecycle {
+  workspace_id: number;
+  workspace_slug: string | null;
+  installation_status: InstallationStatus | null;
+  registration_status: WorkspaceRegistrationStatus | null;
+  onboarding_stage: OnboardingStage | null;
+  workspace_access: ResolvedWorkspaceAccess;
+}
+
+/** GET /api/auth/me: identity plus authoritative workspace lifecycle. */
 export interface AuthenticatedUser {
   id: number;
-  username: string;
   display_name: string;
   email: string | null;
   role: UserRole;
   is_active: boolean;
+  workspace: WorkspaceLifecycle;
 }
 
 export interface CsrfTokenResponse {
@@ -30,7 +77,14 @@ export interface LegacyUsernameLoginRequest {
 }
 
 export interface LegacyAuthenticationResponse {
-  user: AuthenticatedUser;
+  user: {
+    id: number;
+    username: string;
+    display_name: string;
+    email: string | null;
+    role: UserRole;
+    is_active: boolean;
+  };
   csrf_token: string;
 }
 
@@ -97,20 +151,17 @@ export interface PasswordResetCompletionResponse {
 }
 
 /**
- * Workspace lifecycle as observed through an active-workspace route.
+ * Workspace access used for routing.
  *
  * - active: ordinary application access
  * - provisional: administrator still in SaaS onboarding
- * - suspended: workspace_suspended
- * - inactive: workspace_inactive for a non-onboarding user
- * - checking: not yet determined
+ * - suspended: the workspace is suspended
+ * - inactive: any other unusable workspace, or an unknown value
+ * - checking: no session has been resolved yet
  */
 export type WorkspaceAccess =
   | "checking"
-  | "active"
-  | "provisional"
-  | "suspended"
-  | "inactive";
+  | ResolvedWorkspaceAccess;
 
 /** Messages shown on the login page after a lifecycle event. */
 export type AuthenticationNotice =

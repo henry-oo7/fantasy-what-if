@@ -5,6 +5,7 @@ import { Flag } from "lucide-react";
 import { useAuth } from "../../auth/AuthProvider";
 import { AccountLayout } from "../../components/account/AccountLayout";
 import { FormAlert } from "../../components/account/FormAlert";
+import { onboardingStageMessage } from "../../auth/workspaceLifecycle";
 
 /**
  * Safe resume point for a provisional administrator.
@@ -16,6 +17,9 @@ export function OnboardingPage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
+  const stageMessage = onboardingStageMessage(
+    auth.user?.workspace.onboarding_stage,
+  );
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -46,6 +50,11 @@ export function OnboardingPage() {
             Your email is verified and your league workspace has been
             created.
           </p>
+          {stageMessage ? (
+            <p data-testid="onboarding-stage">
+              <strong>{stageMessage}</strong>
+            </p>
+          ) : null}
           <p>
             Connecting your fantasy provider and claiming your league will
             open in the next product release. Your progress is saved, so you

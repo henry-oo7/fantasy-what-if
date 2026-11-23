@@ -21,11 +21,6 @@ from app.db.auth_models import (
     User,
     UserRole,
 )
-from app.db.platform_enums import (
-    InstallationStatus,
-    OnboardingStage,
-    WorkspaceRegistrationStatus,
-)
 from app.db.platform_models import Installation
 from app.repositories.auth_repository import (
     AuthenticationRepository,
@@ -42,6 +37,10 @@ from app.repositories.session_repository import (
 from app.services.administrator_registration import (
     InvalidWorkspaceSlugError,
     normalize_workspace_slug,
+)
+from app.services.workspace_lifecycle import (
+    is_active_workspace,
+    is_resumable_onboarding,
 )
 
 
@@ -468,28 +467,7 @@ def log_in_administrator_by_email(
         candidate_user.workspace_id,
     )
 
-    active_workspace = (
-        workspace is not None
-        and workspace.status is InstallationStatus.ACTIVE
-        and workspace.registration_status
-        in (
-            None,
-            WorkspaceRegistrationStatus.ACTIVE,
-        )
-    )
-    resumable_onboarding = (
-        workspace is not None
-        and workspace.status is not InstallationStatus.ACTIVE
-        and workspace.registration_status is WorkspaceRegistrationStatus.PROVISIONAL
-        and workspace.onboarding_stage
-        not in (
-            None,
-            OnboardingStage.REGISTRATION_PENDING,
-            OnboardingStage.EMAIL_VERIFICATION_PENDING,
-        )
-    )
-
-    if not active_workspace and not resumable_onboarding:
+    if not is_active_workspace(workspace) and not is_resumable_onboarding(workspace):
         _record_login_failure(
             throttle=throttle,
             policy=policy,
@@ -653,15 +631,7 @@ def log_in_workspace_spectator(
                 retry_after_seconds=retry_after,
             )
 
-    active_workspace = (
-        workspace is not None
-        and workspace.status is InstallationStatus.ACTIVE
-        and workspace.registration_status
-        in (
-            None,
-            WorkspaceRegistrationStatus.ACTIVE,
-        )
-    )
+    active_workspace = is_active_workspace(workspace)
 
     credentials_valid = (
         spectator is not None

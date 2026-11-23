@@ -45,11 +45,6 @@ from app.auth.csrf import (
 from app.auth.security import InvalidPasswordError
 from app.core.settings import Settings, get_settings
 from app.db.auth_models import SessionRevocationReason, UserRole
-from app.db.platform_enums import (
-    InstallationStatus,
-    OnboardingStage,
-    WorkspaceRegistrationStatus,
-)
 from app.db.platform_models import Installation
 from app.db.session import SessionFactory
 from app.notifications.transactional_email import (
@@ -70,6 +65,7 @@ from app.schemas.auth import (
     AuthenticatedUserResponse,
     AuthenticationResponse,
     CsrfTokenResponse,
+    CurrentUserResponse,
     LoginRequest,
     LogoutResponse,
     PasswordResetCompletionRequest,
@@ -79,12 +75,19 @@ from app.schemas.auth import (
     SpectatorAuthenticatedUserResponse,
     SpectatorAuthenticationResponse,
     SpectatorLoginRequest,
+    WorkspaceLifecycleResponse,
 )
 from app.services.password_recovery import (
     PasswordRecoveryError,
     PasswordRecoveryStateError,
     issue_password_reset_token,
     reset_administrator_password,
+)
+from app.services.workspace_lifecycle import (
+    WorkspaceAccess,
+    is_active_workspace,
+    is_resumable_onboarding,
+    resolve_workspace_access,
 )
 
 router = APIRouter(
@@ -483,28 +486,7 @@ def request_administrator_password_reset(
                 administrator.workspace_id,
             )
 
-            active_workspace = (
-                workspace is not None
-                and workspace.status is InstallationStatus.ACTIVE
-                and workspace.registration_status
-                in (
-                    None,
-                    WorkspaceRegistrationStatus.ACTIVE,
-                )
-            )
-            resumable_onboarding = (
-                workspace is not None
-                and workspace.status is not InstallationStatus.ACTIVE
-                and workspace.registration_status is WorkspaceRegistrationStatus.PROVISIONAL
-                and workspace.onboarding_stage
-                not in (
-                    None,
-                    OnboardingStage.REGISTRATION_PENDING,
-                    OnboardingStage.EMAIL_VERIFICATION_PENDING,
-                )
-            )
-
-            if active_workspace or resumable_onboarding:
+            if is_active_workspace(workspace) or is_resumable_onboarding(workspace):
                 issued = issue_password_reset_token(
                     session,
                     user=administrator,
@@ -644,14 +626,62 @@ def read_current_user(
         AuthenticationContext,
         Depends(get_authentication_context),
     ],
-) -> AuthenticatedUserResponse:
-    return _build_user_response(
-        user_id=context.user.id,
-        username=context.user.username,
+) -> CurrentUserResponse:
+    """Return identity and the authoritative workspace lifecycle."""
+
+    with SessionFactory() as session:
+        workspace = session.get(
+            Installation,
+            context.workspace_id,
+        )
+
+        workspace_response = _build_workspace_lifecycle(
+            workspace_id=context.workspace_id,
+            workspace=workspace,
+            role=context.role,
+        )
+
+    return CurrentUserResponse(
+        id=context.user.id,
         display_name=context.user.display_name,
         email=context.user.email,
-        role=context.user.role.value,
+        role=context.role,
         is_active=context.user.is_active,
+        workspace=workspace_response,
+    )
+
+
+def _build_workspace_lifecycle(
+    *,
+    workspace_id: int,
+    workspace: Installation | None,
+    role: UserRole,
+) -> WorkspaceLifecycleResponse:
+    """Serialize only the caller's own workspace lifecycle.
+
+    An inactive result carries no lifecycle detail, so deletion, missing
+    rows, and inconsistent states look identical to the client.
+    """
+
+    access = resolve_workspace_access(workspace, role)
+
+    if workspace is None or access is WorkspaceAccess.INACTIVE:
+        return WorkspaceLifecycleResponse(
+            workspace_id=workspace_id,
+            workspace_slug=workspace.slug if workspace is not None else None,
+            installation_status=None,
+            registration_status=None,
+            onboarding_stage=None,
+            workspace_access=access,
+        )
+
+    return WorkspaceLifecycleResponse(
+        workspace_id=workspace.id,
+        workspace_slug=workspace.slug,
+        installation_status=workspace.status,
+        registration_status=workspace.registration_status,
+        onboarding_stage=(workspace.onboarding_stage if role is UserRole.ADMIN else None),
+        workspace_access=access,
     )
 
 
