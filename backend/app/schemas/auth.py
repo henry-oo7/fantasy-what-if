@@ -5,6 +5,14 @@ from pydantic import (
     Field,
 )
 
+from app.db.auth_models import UserRole
+from app.db.platform_enums import (
+    InstallationStatus,
+    OnboardingStage,
+    WorkspaceRegistrationStatus,
+)
+from app.services.workspace_lifecycle import WorkspaceAccess
+
 
 class LoginRequest(BaseModel):
     username: str = Field(
@@ -28,6 +36,37 @@ class AuthenticatedUserResponse(BaseModel):
     email: EmailStr | None
     role: str
     is_active: bool
+
+
+class WorkspaceLifecycleResponse(BaseModel):
+    """The authenticated user's own workspace lifecycle.
+
+    workspace_access is authoritative for routing. Lifecycle detail is
+    null whenever access is inactive, so unusable or inconsistent states
+    are not distinguishable to the client, and onboarding_stage is
+    returned only to administrators.
+    """
+
+    workspace_id: int
+    workspace_slug: str | None
+    installation_status: InstallationStatus | None
+    registration_status: WorkspaceRegistrationStatus | None
+    onboarding_stage: OnboardingStage | None
+    workspace_access: WorkspaceAccess
+
+
+class CurrentUserResponse(BaseModel):
+    """GET /api/auth/me: identity plus authoritative workspace lifecycle.
+
+    The internal compatibility username is intentionally omitted.
+    """
+
+    id: int
+    display_name: str
+    email: EmailStr | None
+    role: UserRole
+    is_active: bool
+    workspace: WorkspaceLifecycleResponse
 
 
 class AuthenticationResponse(BaseModel):

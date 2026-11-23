@@ -19,7 +19,6 @@ import {
   loginLegacyUsername as requestLegacyUsernameLogin,
   loginSpectator as requestSpectatorLogin,
   logout,
-  probeActiveWorkspace,
 } from "../api/auth";
 import {
   ApiError,
@@ -34,6 +33,7 @@ import type {
   SpectatorLoginRequest,
   WorkspaceAccess,
 } from "../types/auth";
+import { workspaceAccessFor } from "./workspaceLifecycle";
 
 type AuthenticationStatus =
   | "loading"
@@ -135,10 +135,15 @@ function identityKey(user: AuthenticatedUser): string {
   return `${user.role}:${user.id}`;
 }
 
+/**
+ * Lifecycle change reported by a protected request after sign-in.
+ *
+ * Provisional onboarding is decided only by GET /api/auth/me, never
+ * inferred from an error response.
+ */
 function workspaceAccessFromError(
   error: ApiError,
-  role: AuthenticatedUser["role"] | undefined,
-): WorkspaceAccess | null {
+): "suspended" | "inactive" | null {
   if (error.status !== 403) {
     return null;
   }
@@ -148,9 +153,7 @@ function workspaceAccessFromError(
   }
 
   if (error.code === "workspace_inactive") {
-    // Administrator login succeeds for an inactive workspace only during
-    // resumable SaaS onboarding, so this administrator is provisional.
-    return role === "admin" ? "provisional" : "inactive";
+    return "inactive";
   }
 
   return null;
@@ -217,34 +220,6 @@ export function AuthProvider({
     setStatus("anonymous");
   }, [purgeCache]);
 
-  const resolveWorkspaceAccess = useCallback(
-    async (
-      currentUser: AuthenticatedUser,
-    ): Promise<WorkspaceAccess> => {
-      try {
-        await probeActiveWorkspace();
-
-        return "active";
-      } catch (probeError) {
-        if (probeError instanceof ApiError) {
-          const access = workspaceAccessFromError(
-            probeError,
-            currentUser.role,
-          );
-
-          if (access !== null) {
-            return access;
-          }
-        }
-
-        // Other failures are not lifecycle decisions. Allow the
-        // application to load and report its own data errors.
-        return "active";
-      }
-    },
-    [],
-  );
-
   const establishSession = useCallback(
     async (): Promise<EstablishedSession> => {
       const currentUser = await getCurrentUser();
@@ -261,23 +236,22 @@ export function AuthProvider({
 
       cachedIdentityRef.current = nextIdentity;
       userRef.current = currentUser;
-      workspaceAccessRef.current = "checking";
+
+      // GET /api/auth/me is authoritative: no separate lifecycle probe.
+      const access = workspaceAccessFor(currentUser);
+
+      applyWorkspaceAccess(access);
       setUser(currentUser);
       setCsrfToken(readSessionCsrfToken());
       setError(null);
-      setWorkspaceAccess("checking");
       setStatus("authenticated");
-
-      const access = await resolveWorkspaceAccess(currentUser);
-
-      applyWorkspaceAccess(access);
 
       return {
         user: currentUser,
         workspaceAccess: access,
       };
     },
-    [applyWorkspaceAccess, purgeCache, resolveWorkspaceAccess],
+    [applyWorkspaceAccess, purgeCache],
   );
 
   const refreshUser = useCallback(async () => {
@@ -327,12 +301,15 @@ export function AuthProvider({
           return;
         }
 
-        const access = workspaceAccessFromError(
-          apiError,
-          userRef.current?.role,
-        );
+        const access = workspaceAccessFromError(apiError);
 
-        if (access !== null && userRef.current !== null) {
+        // A provisional administrator is already outside the active
+        // application; an inactive response does not change that.
+        if (
+          access !== null &&
+          userRef.current !== null &&
+          !(access === "inactive" && workspaceAccessRef.current === "provisional")
+        ) {
           applyWorkspaceAccess(access);
         }
       }),

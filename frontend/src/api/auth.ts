@@ -43,21 +43,6 @@ export function getCurrentUser(
 }
 
 /**
- * Probe an active-workspace route to learn the workspace lifecycle.
- *
- * The route is gated by require_active_workspace, so a 403 carries the
- * stable workspace_inactive or workspace_suspended code.
- */
-export function probeActiveWorkspace(
-  signal?: AbortSignal,
-): Promise<unknown> {
-  return getJson<unknown>(
-    "/leagues/seasons",
-    signal,
-  );
-}
-
-/**
  * POST a public account request with a fresh pre-auth CSRF token.
  *
  * Public account endpoints never report errors to global listeners:

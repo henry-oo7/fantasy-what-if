@@ -311,7 +311,12 @@ def test_login_me_and_logout_flow(
     me_response = client.get("/api/auth/me")
 
     assert me_response.status_code == status.HTTP_200_OK
-    assert me_response.json()["username"] == username
+    me_payload = me_response.json()
+    assert me_payload["id"] == payload["user"]["id"]
+    # The modern /me contract never returns the compatibility username.
+    assert "username" not in me_payload
+    # The fixture's legacy installation is still in setup.
+    assert me_payload["workspace"]["workspace_access"] == "inactive"
 
     logout_response = client.post(
         "/api/auth/logout",
