@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -122,6 +122,7 @@ def seed() -> Iterator[Callable[..., Seeded]]:
         email = f"claim-{suffix}@example.com"
 
         with SessionFactory() as session:
+            is_pending = registration_status is WorkspaceRegistrationStatus.DELETION_PENDING
             workspace = Installation(
                 application_name="Claim League",
                 slug=slug,
@@ -129,6 +130,10 @@ def seed() -> Iterator[Callable[..., Seeded]]:
                 timezone="America/Chicago",
                 status=installation_status,
                 registration_status=registration_status,
+                deletion_requested_at=datetime.now(UTC) if is_pending else None,
+                deletion_scheduled_for=(
+                    datetime.now(UTC) + timedelta(days=7) if is_pending else None
+                ),
                 onboarding_stage=onboarding_stage,
             )
             session.add(workspace)

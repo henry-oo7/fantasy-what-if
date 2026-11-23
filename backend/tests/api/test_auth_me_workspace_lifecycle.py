@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -84,6 +84,7 @@ def seed_members() -> Iterator[Callable[..., SeededMembers]]:
         slug = f"me-lifecycle-{suffix}"
 
         with SessionFactory() as session:
+            is_pending = registration_status is WorkspaceRegistrationStatus.DELETION_PENDING
             workspace = Installation(
                 application_name="Lifecycle League",
                 slug=slug,
@@ -91,6 +92,10 @@ def seed_members() -> Iterator[Callable[..., SeededMembers]]:
                 timezone="America/Chicago",
                 status=installation_status,
                 registration_status=registration_status,
+                deletion_requested_at=datetime.now(UTC) if is_pending else None,
+                deletion_scheduled_for=(
+                    datetime.now(UTC) + timedelta(days=7) if is_pending else None
+                ),
                 onboarding_stage=onboarding_stage,
             )
             session.add(workspace)
