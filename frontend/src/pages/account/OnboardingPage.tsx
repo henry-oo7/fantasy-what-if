@@ -6,7 +6,8 @@ import { useAuth } from "../../auth/AuthProvider";
 import { AccountLayout } from "../../components/account/AccountLayout";
 import { FormAlert } from "../../components/account/FormAlert";
 import { onboardingStageMessage } from "../../auth/workspaceLifecycle";
-import { LEAGUE_CONNECTED_MESSAGE } from "../../auth/accountMessages";
+import { LEAGUE_DATA_READY_MESSAGE } from "../../auth/accountMessages";
+import { InitialSyncStep } from "./InitialSyncStep";
 import { LeagueClaimStep } from "./LeagueClaimStep";
 import { ProviderSetupStep } from "./ProviderSetupStep";
 
@@ -16,7 +17,8 @@ import { ProviderSetupStep } from "./ProviderSetupStep";
  *
  * - provider_setup_pending / provider_validation_failed: provider step
  * - league_claim_pending: confirm and claim the validated league
- * - initial_sync_pending: connected placeholder (synchronization is next)
+ * - initial_sync_pending / running / failed: start, follow or retry the import
+ * - spectator_setup_pending: data-ready placeholder (spectator setup is next)
  * - any other stage: saved-progress placeholder
  *
  * This page never links to legacy setup routes.
@@ -30,7 +32,11 @@ export function OnboardingPage() {
   const providerStep =
     stage === "provider_setup_pending" || stage === "provider_validation_failed";
   const claimStep = stage === "league_claim_pending";
-  const leagueConnected = stage === "initial_sync_pending";
+  const initialSync =
+    stage === "initial_sync_pending" ||
+    stage === "initial_sync_running" ||
+    stage === "initial_sync_failed";
+  const dataReady = stage === "spectator_setup_pending";
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -78,8 +84,10 @@ export function OnboardingPage() {
           <ProviderSetupStep priorFailure={stage === "provider_validation_failed"} />
         ) : claimStep ? (
           <LeagueClaimStep />
-        ) : leagueConnected ? (
-          <FormAlert tone="success">{LEAGUE_CONNECTED_MESSAGE}</FormAlert>
+        ) : initialSync && stage !== null ? (
+          <InitialSyncStep stage={stage} />
+        ) : dataReady ? (
+          <FormAlert tone="success">{LEAGUE_DATA_READY_MESSAGE}</FormAlert>
         ) : (
           <FormAlert tone="notice">
             League data, standings, and spectator access become available

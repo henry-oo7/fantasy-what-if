@@ -651,7 +651,32 @@ If provider validation proves too slow for reliable HTTP execution, it may becom
 3. Success advances to `initial_sync_pending` and commits. The workspace stays provisional, and no League, Season, synchronization job or spectator access is created.
 4. A provider-identity conflict rolls back only the savepoint, deletes the losing provisional workspace in the same transaction (the database cascades users, sessions, account tokens, provider connections, claims, leagues, seasons and jobs), commits, clears authentication cookies, and returns `409 provider_league_already_claimed`.
 
-Repeated confirmation from the winning workspace is serialized by the workspace lock and returns `onboarding_stage_invalid` without creating another claim. Initial synchronization is the next onboarding step, followed by spectator setup and activation.
+Repeated confirmation from the winning workspace is serialized by the workspace lock and returns `onboarding_stage_invalid` without creating another claim.
+
+### Implemented Initial Synchronization Step
+
+Claim confirmation precedes initial synchronization.
+
+`POST /api/onboarding/synchronization` only queues work. In one short transaction it:
+
+- locks the workspace and requires `initial_sync_pending` or `initial_sync_failed` (a repeat at `initial_sync_running` returns the active job);
+- re-checks the claim and the validated connection;
+- creates or returns the single active `initial_workspace_sync` job, keyed `onboarding-initial-sync:{workspace_id}` and enforced by `uq_background_jobs_active_idempotency_key`;
+- sets `initial_sync_running`.
+
+It makes no provider call, decrypts no credentials, and creates no League or Season. The payload carries no target or credentials.
+
+The worker performs all provider I/O:
+
+1. It loads the workspace, claim and validated connection from the database.
+2. Private credentials are decrypted only while building the adapter; public leagues use none.
+3. It fetches the authoritative league snapshot outside any database transaction.
+4. A short transaction creates or reuses the workspace-owned League (real name) and the Season (unique by league and year, with real week values), and attaches `provider_league_claims.league_id`.
+5. The existing full-season importer runs with its established transaction boundary.
+
+Provider-derived domain rows are created only from that snapshot; no placeholder League or Season is ever written.
+
+Job success moves onboarding to `spectator_setup_pending` in the same transaction as the job status. Retryable failures keep `initial_sync_running`. A terminal failure, including an exhausted expired lease, moves onboarding to `initial_sync_failed` in the same transaction, preserving the claim, connection, League and Season for an administrator retry. The workspace stays provisional; spectator setup and activation remain later steps.
 
 ## Atomic League Claim
 

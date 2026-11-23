@@ -6,6 +6,7 @@ import {
   CLAIM_ACTION_LABEL,
   LEAGUE_ALREADY_CLAIMED_MESSAGE,
   LEAGUE_CONNECTED_MESSAGE,
+  START_INITIAL_SYNC_LABEL,
 } from "../../auth/accountMessages";
 import { AppRouter } from "../../router";
 import {
@@ -131,8 +132,9 @@ describe("league claim confirmation", () => {
     expect(claims[0].headers.get("X-CSRF-Token")).toBe(SESSION_CSRF);
     expect(api.calls("GET /api/auth/me").length - meBefore).toBe(1);
 
-    // The connected placeholder offers no synchronization action.
-    expect(screen.queryByRole("button", { name: /sync|connect/i })).not.toBeInTheDocument();
+    // Synchronization is offered but never started by the claim itself.
+    expect(screen.getByRole("button", { name: START_INITIAL_SYNC_LABEL })).toBeEnabled();
+    expect(api.calls("POST /api/onboarding/synchronization")).toHaveLength(0);
     expectNoForeignRequests(api);
   });
 
@@ -218,7 +220,7 @@ describe("league claim confirmation", () => {
 });
 
 describe("initial_sync_pending", () => {
-  it("shows the connected message with no claim or sync action", async () => {
+  it("shows the connected message and only an unstarted sync action", async () => {
     const api = createApiMock();
     atStage(api, "initial_sync_pending");
 
@@ -226,10 +228,12 @@ describe("initial_sync_pending", () => {
 
     expect(await screen.findByText(LEAGUE_CONNECTED_MESSAGE)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: CLAIM_ACTION_LABEL })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /sync/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: START_INITIAL_SYNC_LABEL })).toBeEnabled();
     await waitFor(() => {
       expect(api.calls(TARGET)).toHaveLength(0);
     });
+    expect(api.calls("POST /api/onboarding/synchronization")).toHaveLength(0);
+    expect(api.calls("GET /api/onboarding/synchronization")).toHaveLength(0);
     expect(document.body.textContent).not.toContain("initial_sync_pending");
   });
 });

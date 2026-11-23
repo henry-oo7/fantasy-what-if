@@ -96,7 +96,7 @@ def _authorize(session: Session, *, user_id: int, workspace_id: int, lock: bool)
     )
 
 
-def _complete_target(connection: ProviderConnection | None) -> ValidatedTarget:
+def validated_target_from_connection(connection: ProviderConnection | None) -> ValidatedTarget:
     if (
         connection is None
         or connection.provider is not FantasyProvider.ESPN
@@ -129,7 +129,7 @@ def _active_connection_query(workspace_id: int):
 def read_validated_target(session: Session, *, user_id: int, workspace_id: int) -> ValidatedTarget:
     _authorize(session, user_id=user_id, workspace_id=workspace_id, lock=False)
 
-    return _complete_target(session.scalar(_active_connection_query(workspace_id)))
+    return validated_target_from_connection(session.scalar(_active_connection_query(workspace_id)))
 
 
 def claim_validated_league(session: Session, *, user_id: int, workspace_id: int) -> ValidatedTarget:
@@ -139,7 +139,7 @@ def claim_validated_league(session: Session, *, user_id: int, workspace_id: int)
     """
 
     workspace = _authorize(session, user_id=user_id, workspace_id=workspace_id, lock=True)
-    target = _complete_target(
+    target = validated_target_from_connection(
         session.scalar(_active_connection_query(workspace_id).with_for_update())
     )
 

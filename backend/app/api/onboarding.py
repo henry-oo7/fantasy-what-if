@@ -18,6 +18,9 @@ from app.core.settings import Settings, get_settings
 from app.db.session import SessionFactory
 from app.providers.espn.league_access import HttpGet
 from app.schemas.onboarding import (
+    InitialSyncJobResponse,
+    InitialSyncProgressResponse,
+    InitialSyncStartRequest,
     ProviderClaimRequest,
     ProviderClaimResponse,
     ProviderTargetResponse,
@@ -30,6 +33,11 @@ from app.services.league_claim import (
     ValidatedTarget,
     claim_validated_league,
     read_validated_target,
+)
+from app.services.onboarding_initial_sync import (
+    InitialSyncProgress,
+    read_initial_sync_progress,
+    start_initial_sync,
 )
 from app.services.provider_onboarding import (
     ProviderOnboardingError,
@@ -224,3 +232,71 @@ def claim_provider_league(
         onboarding_stage="initial_sync_pending",
         target=_target_response(target),
     )
+
+
+def _progress_response(progress: InitialSyncProgress) -> InitialSyncProgressResponse:
+    job = progress.job
+
+    return InitialSyncProgressResponse(
+        onboarding_stage=progress.onboarding_stage,
+        job=(
+            InitialSyncJobResponse(
+                id=job.id,
+                status=job.status,
+                retryable=job.retryable,
+                detail=job.detail,
+                created_at=job.created_at,
+                started_at=job.started_at,
+                completed_at=job.completed_at,
+                failed_at=job.failed_at,
+            )
+            if job is not None
+            else None
+        ),
+    )
+
+
+@router.post("/synchronization", response_model=InitialSyncProgressResponse)
+def start_onboarding_synchronization(
+    context: Annotated[AuthenticationContext, Depends(require_session_csrf)],
+    _: Annotated[None, Depends(validate_request_origin)],
+    payload: InitialSyncStartRequest | None = None,
+) -> InitialSyncProgressResponse | JSONResponse:
+    """Queue the first import, or return the active one. Never calls ESPN."""
+
+    del payload
+
+    try:
+        with SessionFactory() as session:
+            progress = start_initial_sync(
+                session, user_id=context.user_id, workspace_id=context.workspace_id
+            )
+    except ProviderWorkspaceAccessError as exc:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.", code=exc.code
+        ) from exc
+    except ProviderOnboardingError as exc:
+        return _error_response(exc)
+
+    return _progress_response(progress)
+
+
+@router.get("/synchronization", response_model=InitialSyncProgressResponse)
+def read_onboarding_synchronization(
+    context: Annotated[AuthenticationContext, Depends(get_authentication_context)],
+) -> InitialSyncProgressResponse | JSONResponse:
+    """Safe progress of this workspace's latest first-import job."""
+
+    try:
+        with SessionFactory() as session:
+            progress = read_initial_sync_progress(
+                session, user_id=context.user_id, workspace_id=context.workspace_id
+            )
+    except ProviderWorkspaceAccessError as exc:
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.", code=exc.code
+        ) from exc
+    except ProviderOnboardingError as exc:
+        return _error_response(exc)
+
+    return _progress_response(progress)

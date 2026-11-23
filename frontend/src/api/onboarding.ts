@@ -1,5 +1,6 @@
 import { getJson, postJson } from "./client";
 import type {
+  InitialSyncProgress,
   ProviderClaimResponse,
   ProviderTarget,
   ProviderValidationRequest,
@@ -9,6 +10,7 @@ import type {
 export const onboardingQueryKeys = {
   all: ["onboarding"] as const,
   providerTarget: () => [...onboardingQueryKeys.all, "provider-target"] as const,
+  synchronization: () => [...onboardingQueryKeys.all, "synchronization"] as const,
 };
 
 /**
@@ -37,4 +39,13 @@ export function claimProviderLeague(
   csrfToken: string | null,
 ): Promise<ProviderClaimResponse> {
   return postJson<ProviderClaimResponse>("/onboarding/provider/claim", {}, { csrfToken });
+}
+
+export function getInitialSyncProgress(signal?: AbortSignal): Promise<InitialSyncProgress> {
+  return getJson<InitialSyncProgress>("/onboarding/synchronization", signal);
+}
+
+/** Queue (or return the active) first import. The body carries no ownership data. */
+export function startInitialSync(csrfToken: string | null): Promise<InitialSyncProgress> {
+  return postJson<InitialSyncProgress>("/onboarding/synchronization", {}, { csrfToken });
 }
