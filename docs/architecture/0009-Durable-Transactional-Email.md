@@ -83,7 +83,7 @@ TransactionalEmailDelivery
 
 Attempts are recorded in a child table with the attempt number, outcome code, timestamps, and the provider message ID. They never contain a body, a link, a token, or a raw provider response.
 
-Ordinary deliveries are workspace-scoped. Verification, reset, password-changed, deletion-request, reminder, and cancellation deliveries carry `workspace_id` (and `user_id` where a user exists) with cascading foreign keys. They are deleted with the workspace and are never retained as orphaned metadata by nulling the relationship. Final deletion cancels any non-final tenant delivery in its transaction, and the cascade then removes the rows.
+Ordinary deliveries are workspace-scoped. Verification, reset, password-changed, deletion-request, reminder, and cancellation deliveries carry `workspace_id` (and `user_id` where a user exists) with cascading foreign keys. They are deleted with the workspace and are never retained as orphaned metadata by nulling the relationship. Final deletion does not cancel them separately; any workspace-scoped delivery rows and jobs that still exist are removed by the workspace cascade in the final-deletion transaction.
 
 The deletion-completion delivery is the sole special case. The final-deletion transaction creates it as an explicitly **unscoped** delivery: `scope = 'unscoped'`, `workspace_id = NULL`, no user foreign key (`user_id = NULL`), the encrypted recipient and key version, and only the minimum template and event metadata (`purpose`, timestamps, status). It holds no slug, League ID, display name, or other tenant attribute.
 
@@ -207,11 +207,19 @@ Most deliveries derive the recipient from the existing user row at send time. Th
 
 Deletion email uses durable intents so that no crash window loses or duplicates a required notice. The deletion worker never sends email directly and has no best-effort path.
 
-- **Request confirmation.** The deletion-request transaction creates the delivery and its job. The job becomes visible when that transaction commits, so a crash cannot commit the request without the confirmation intent. The request transaction's existing cancellation of pending and retry-scheduled jobs must exclude email jobs.
+- **Request confirmation.** The deletion-request transaction creates the delivery and its job. The job becomes visible when that transaction commits, so a crash cannot commit the request without the confirmation intent.
+- **Request-transaction job and delivery rules.** Email jobs are not exempted wholesale, and not canceled wholesale:
+  - Ordinary pending and retry-scheduled workspace jobs are canceled.
+  - Transactional-email deliveries are handled explicitly by event and deletion generation, each together with its queued job.
+  - Stale verification deliveries and stale deletion-request, reminder, and cancellation deliveries are canceled with their queued jobs.
+  - Password-reset and password-changed deliveries are retained and remain governed by worker-time eligibility.
+  - The current request creates its confirmation and reminder only after stale delivery cancellation, so the same transaction never cancels the new jobs.
+  - A running email job is not force-rewritten. The canceled delivery state is authoritative, and the worker ignores the stale attempt's outcome.
 - **Seven-day reminder.** The same transaction creates a reminder delivery and job with `available_at = deletion_scheduled_for - 7 days`.
 - **Cancellation.** The cancellation transaction cancels the reminder delivery and job, along with any not-yet-sent confirmation. A stale reminder cannot fire. The worker also rechecks that the workspace is still `deletion_pending` before sending a reminder.
 - **Completion.** The final deletion transaction creates the completion delivery (with the encrypted recipient) and its email job with `workspace_id = NULL`, in the same transaction that deletes the workspace. The commit that removes the tenant is the commit that creates the intent, so the notice is neither lost nor sent for a deletion that rolled back.
-- Final deletion cancels any remaining non-final tenant deliveries (for example an unsent reminder) in the same transaction. The workspace cascade then deletes them. Only the unscoped completion delivery remains.
+- Final deletion creates the encrypted unscoped completion delivery and its NULL-workspace job inside the destructive transaction. Workspace-scoped delivery rows and jobs that still exist (for example an unsent reminder) are removed by the approved workspace cascade, not canceled separately. The completion delivery and its job survive because they have no workspace or user foreign key.
+- No user-visible email is sent directly from the deletion transaction.
 - **Cancellation confirmation** (recommended, not launch-blocking) follows the same pattern if implemented.
 
 The completion notice states only that the workspace was deleted. It does not echo the slug or the League ID.

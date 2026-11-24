@@ -18,7 +18,10 @@ CONTEXTS: dict[Event, dict[str, object]] = {
     Event.ADMINISTRATOR_EMAIL_VERIFICATION: {"token": TOKEN, "expires_hours": 24},
     Event.ADMINISTRATOR_PASSWORD_RESET: {"token": TOKEN, "expires_minutes": 30},
     Event.ADMINISTRATOR_PASSWORD_CHANGED: {},
-    Event.WORKSPACE_DELETION_REQUESTED: {"scheduled_for": date(2030, 2, 1)},
+    Event.WORKSPACE_DELETION_REQUESTED: {
+        "requested_on": date(2030, 1, 2),
+        "scheduled_for": date(2030, 2, 1),
+    },
     Event.WORKSPACE_DELETION_REMINDER: {"scheduled_for": date(2030, 2, 1)},
     Event.WORKSPACE_DELETION_COMPLETED: {},
     Event.WORKSPACE_DELETION_CANCELED: {},
@@ -116,8 +119,14 @@ def test_href_attribute_is_escaped() -> None:
             {"token": TOKEN, "expires_hours": 24, "workspace_id": 1},
         ),
         (Event.WORKSPACE_DELETION_COMPLETED, {"provider_league_id": "529250970"}),
-        (Event.WORKSPACE_DELETION_REQUESTED, {"scheduled_for": "2030-02-01"}),
-        (Event.WORKSPACE_DELETION_REQUESTED, {"scheduled_for": datetime(2030, 2, 1)}),
+        (
+            Event.WORKSPACE_DELETION_REQUESTED,
+            {"requested_on": date(2030, 1, 2), "scheduled_for": "2030-02-01"},
+        ),
+        (
+            Event.WORKSPACE_DELETION_REQUESTED,
+            {"requested_on": date(2030, 1, 2), "scheduled_for": datetime(2030, 2, 1)},
+        ),
         (Event.ADMINISTRATOR_PASSWORD_RESET, {"token": TOKEN, "expires_minutes": 0}),
         (Event.ADMINISTRATOR_PASSWORD_RESET, {"token": TOKEN, "expires_minutes": True}),
     ],
@@ -150,3 +159,103 @@ def test_deletion_notices_contain_no_internal_identifiers(event: Event) -> None:
     for forbidden in ("league id", "username", "password", "credential", "job", "slug", "token"):
         assert forbidden not in combined
     assert "http" not in rendered.text_body
+
+
+DELETION_EVENTS = [
+    Event.WORKSPACE_DELETION_REQUESTED,
+    Event.WORKSPACE_DELETION_REMINDER,
+    Event.WORKSPACE_DELETION_COMPLETED,
+    Event.WORKSPACE_DELETION_CANCELED,
+]
+
+
+def test_requested_notice_renders_both_dates_as_iso_and_subject_is_generic() -> None:
+    rendered = render_transactional_email(
+        Event.WORKSPACE_DELETION_REQUESTED,
+        public_base_url=BASE_URL,
+        fields=CONTEXTS[Event.WORKSPACE_DELETION_REQUESTED],
+    )
+
+    for body in (rendered.text_body, rendered.html_body):
+        assert "2030-01-02" in body
+        assert "2030-02-01" in body
+    assert not any(character.isdigit() for character in rendered.subject)
+    assert "synthetic" not in rendered.subject.casefold()
+
+
+@pytest.mark.parametrize(
+    ("event", "fields"),
+    [
+        (
+            Event.WORKSPACE_DELETION_REQUESTED,
+            {"requested_on": datetime(2030, 1, 2), "scheduled_for": date(2030, 2, 1)},
+        ),
+        (
+            Event.WORKSPACE_DELETION_REQUESTED,
+            {"requested_on": date(2030, 1, 2), "scheduled_for": datetime(2030, 2, 1)},
+        ),
+        (Event.WORKSPACE_DELETION_REQUESTED, {"scheduled_for": date(2030, 2, 1)}),
+        (Event.WORKSPACE_DELETION_REQUESTED, {"requested_on": date(2030, 1, 2)}),
+        (
+            Event.WORKSPACE_DELETION_REQUESTED,
+            {
+                "requested_on": date(2030, 1, 2),
+                "scheduled_for": date(2030, 2, 1),
+                "extra": 1,
+            },
+        ),
+        (Event.WORKSPACE_DELETION_REMINDER, {"scheduled_for": datetime(2030, 2, 1)}),
+        (Event.WORKSPACE_DELETION_REMINDER, {}),
+        (
+            Event.WORKSPACE_DELETION_REMINDER,
+            {"scheduled_for": date(2030, 2, 1), "requested_on": date(2030, 1, 2)},
+        ),
+    ],
+)
+def test_requested_and_reminder_reject_datetimes_and_wrong_fields(
+    event: Event, fields: dict
+) -> None:
+    with pytest.raises(EmailRenderingError):
+        render_transactional_email(event, public_base_url=BASE_URL, fields=fields)
+
+
+@pytest.mark.parametrize(
+    "event", [Event.WORKSPACE_DELETION_COMPLETED, Event.WORKSPACE_DELETION_CANCELED]
+)
+def test_completed_and_canceled_accept_only_empty_fields(event: Event) -> None:
+    assert allowed_render_fields(event) == frozenset()
+    render_transactional_email(event, public_base_url=BASE_URL, fields={})
+
+    with pytest.raises(EmailRenderingError):
+        render_transactional_email(
+            event, public_base_url=BASE_URL, fields={"scheduled_for": date(2030, 2, 1)}
+        )
+
+
+def test_completed_notice_contains_no_digits() -> None:
+    rendered = render_transactional_email(
+        Event.WORKSPACE_DELETION_COMPLETED, public_base_url=BASE_URL, fields={}
+    )
+    body_markup = rendered.html_body.split("<body>", 1)[1]
+
+    for text in (rendered.subject, rendered.text_body, body_markup):
+        assert not any(character.isdigit() for character in text)
+
+
+def test_requested_notice_tells_administrator_to_sign_in_again_after_cancel() -> None:
+    rendered = render_transactional_email(
+        Event.WORKSPACE_DELETION_REQUESTED,
+        public_base_url=BASE_URL,
+        fields=CONTEXTS[Event.WORKSPACE_DELETION_REQUESTED],
+    )
+
+    assert "sign in again" in rendered.text_body
+
+
+@pytest.mark.parametrize("event", DELETION_EVENTS)
+def test_deletion_notices_never_name_providers_or_internal_terms(event: Event) -> None:
+    rendered = render_transactional_email(event, public_base_url=BASE_URL, fields=CONTEXTS[event])
+    combined = f"{rendered.subject}\n{rendered.text_body}\n{rendered.html_body}".casefold()
+
+    for forbidden in ("espn", "sleeper", "yahoo", "league id", "username", "job", "password"):
+        assert forbidden not in combined

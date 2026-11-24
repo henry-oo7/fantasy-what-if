@@ -33,6 +33,13 @@ from app.services.administrator_registration import (
     InvalidWorkspaceSlugError,
     normalize_workspace_slug,
 )
+from app.services.workspace_deletion_email import (
+    STALE_ON_DELETION_CANCEL,
+    STALE_ON_DELETION_REQUEST,
+    queue_deletion_canceled_email,
+    queue_deletion_request_emails,
+    suppress_workspace_emails,
+)
 from app.services.workspace_lifecycle import is_active_workspace, is_deletion_pending
 
 WORKSPACE_DELETION_GRACE_PERIOD_DAYS = 30
@@ -192,9 +199,24 @@ def request_workspace_deletion(
     )
 
     jobs = BackgroundJobRepository(session)
+    # Ordinary queued workspace work stops. Email jobs are not exempted
+    # wholesale: they are handled per delivery below, so a delivery and its
+    # job are always canceled together.
     jobs.cancel_queued_workspace_jobs(
         workspace_id=workspace.id,
-        exclude_job_types=(BackgroundJobType.WORKSPACE_DELETION,),
+        exclude_job_types=(
+            BackgroundJobType.WORKSPACE_DELETION,
+            BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY,
+        ),
+        now=current_time,
+    )
+    # Stale identity and earlier deletion-lifecycle intents are canceled
+    # before this request's intents are created, so the new confirmation
+    # and reminder are never caught by the same transaction's suppression.
+    suppress_workspace_emails(
+        session,
+        workspace_id=workspace.id,
+        event_types=STALE_ON_DELETION_REQUEST,
         now=current_time,
     )
     # Any queued deletion job is stale here (the workspace was active), so
@@ -210,6 +232,14 @@ def request_workspace_deletion(
         payload={},
         idempotency_key=workspace_deletion_idempotency_key(workspace.id),
         available_at=scheduled_for,
+    )
+    # Any failure here raises and the caller rolls back the whole request.
+    queue_deletion_request_emails(
+        session,
+        workspace_id=workspace.id,
+        user_id=administrator.id,
+        requested_at=current_time,
+        scheduled_for=scheduled_for,
     )
 
     session.flush()
@@ -271,6 +301,13 @@ def cancel_workspace_deletion(
         job_types=(BackgroundJobType.WORKSPACE_DELETION,),
         now=current_time,
     )
+    suppress_workspace_emails(
+        session,
+        workspace_id=workspace.id,
+        event_types=STALE_ON_DELETION_CANCEL,
+        now=current_time,
+    )
+    canceled_requested_at = workspace.deletion_requested_at
 
     workspace.registration_status = WorkspaceRegistrationStatus.ACTIVE
     workspace.deletion_requested_at = None
@@ -282,6 +319,14 @@ def cancel_workspace_deletion(
     SessionRepository(session).revoke_session(
         recovery_session,
         reason=SessionRevocationReason.LOGOUT,
+        now=current_time,
+    )
+    # A failure here raises and the caller rolls back the cancellation.
+    queue_deletion_canceled_email(
+        session,
+        workspace_id=workspace.id,
+        user_id=administrator.id,
+        requested_at=canceled_requested_at,
         now=current_time,
     )
 

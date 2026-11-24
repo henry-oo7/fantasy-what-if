@@ -18,6 +18,7 @@ from datetime import datetime
 from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.db.auth_models import User, UserRole
 from app.db.models import League, Season, SyncRun
 from app.db.platform_enums import FantasyProvider, WorkspaceDeletionOutcome
 from app.db.platform_models import (
@@ -55,6 +56,22 @@ class WorkspaceDeletionRepository:
             .where(BackgroundJob.id == job_id)
             .with_for_update()
             .execution_options(populate_existing=True)
+        )
+
+    def lock_administrators(self, workspace_id: int) -> list[User]:
+        """Lock the workspace's administrator rows after the workspace row.
+
+        The initial release has exactly one; the caller enforces that.
+        """
+
+        return list(
+            self.session.scalars(
+                select(User)
+                .where(User.workspace_id == workspace_id, User.role == UserRole.ADMIN)
+                .order_by(User.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
         )
 
     def get_claim(self, workspace_id: int) -> ProviderLeagueClaim | None:

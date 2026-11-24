@@ -23,6 +23,7 @@ from tests.support.workspace_deletion_graph import (
     DeletionGraph,
     cleanup_graphs,
     create_deletion_graph,
+    deletion_recipient_cipher,
     deletion_records,
     enqueue_deletion_job,
     owned_row_counts,
@@ -64,7 +65,11 @@ def test_large_workspace_deletes_in_one_practical_transaction(
         snapshot = snapshot_background_job(job)
         session.commit()
 
-    handler = WorkspaceDeletionJobHandler(session_factory=SessionFactory, now=lambda: now)
+    handler = WorkspaceDeletionJobHandler(
+        session_factory=SessionFactory,
+        recipient_cipher_factory=deletion_recipient_cipher,
+        now=lambda: now,
+    )
     started = time.perf_counter()
     handler(snapshot)
     duration = time.perf_counter() - started

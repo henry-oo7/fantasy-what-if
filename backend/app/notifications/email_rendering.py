@@ -36,7 +36,7 @@ _ALLOWED_FIELDS: dict[Event, frozenset[str]] = {
     Event.ADMINISTRATOR_EMAIL_VERIFICATION: frozenset({"token", "expires_hours"}),
     Event.ADMINISTRATOR_PASSWORD_RESET: frozenset({"token", "expires_minutes"}),
     Event.ADMINISTRATOR_PASSWORD_CHANGED: frozenset(),
-    Event.WORKSPACE_DELETION_REQUESTED: frozenset({"scheduled_for"}),
+    Event.WORKSPACE_DELETION_REQUESTED: frozenset({"requested_on", "scheduled_for"}),
     Event.WORKSPACE_DELETION_REMINDER: frozenset({"scheduled_for"}),
     Event.WORKSPACE_DELETION_COMPLETED: frozenset(),
     Event.WORKSPACE_DELETION_CANCELED: frozenset(),
@@ -111,14 +111,19 @@ def render_transactional_email(
                 ),
             )
         case Event.WORKSPACE_DELETION_REQUESTED:
+            requested = _date_text(values["requested_on"])
             scheduled = _date_text(values["scheduled_for"])
             return _compose(
                 subject=f"Your {PRODUCT_NAME} workspace is scheduled for deletion",
                 paragraphs=(
-                    f"Deletion of your league workspace was requested. It is scheduled "
-                    f"to be permanently deleted on {scheduled} (UTC).",
+                    f"Deletion of your league workspace was requested on {requested} "
+                    f"(UTC). It is scheduled to be permanently deleted on {scheduled} "
+                    "(UTC).",
                 ),
-                closing="Sign in before then if you want to cancel the deletion.",
+                closing=(
+                    "Sign in before then if you want to cancel the deletion. "
+                    "After you cancel, sign in again to continue using your workspace."
+                ),
             )
         case Event.WORKSPACE_DELETION_REMINDER:
             scheduled = _date_text(values["scheduled_for"])
