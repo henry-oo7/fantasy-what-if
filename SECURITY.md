@@ -150,6 +150,28 @@ FORWARDED_ALLOW_IPS=*
 
 Trusting every forwarding source allows untrusted clients to spoof forwarded client information.
 
+### Client address behind Cloudflare Tunnel
+
+`cloudflared` runs on the Docker host and connects to the loopback-published frontend port. Docker presents that connection to Nginx from a private bridge address.
+
+- Nginx accepts `CF-Connecting-IP` only when the immediate peer is a loopback or private address (`set_real_ip_from`). For any other peer the header is ignored.
+- Nginx then replaces `X-Forwarded-For` with that single validated address and clears `Forwarded`, `X-Real-IP`, `CF-Connecting-IP`, and `True-Client-IP` before proxying. Client-supplied values are never appended.
+- The backend never reads `CF-Connecting-IP`. Uvicorn honours `X-Forwarded-For` only from the Nginx address in `FORWARDED_ALLOW_IPS`, and the resolved address is normalized (IPv4/IPv6, IPv4-mapped) before it is used for login and registration throttling. Invalid values resolve to an unknown source.
+- Cloudflare edge ranges are not hard-coded because the edge never connects to Nginx directly.
+
+This boundary depends on `APP_BIND_ADDRESS=127.0.0.1`. Nginx cannot tell a LAN client from `cloudflared` when the port is published beyond loopback, so a non-loopback bind lets that client spoof `CF-Connecting-IP`. Do not combine Direct LAN Access with Cloudflare-based throttling expectations.
+
+## Production Startup Validation
+
+With `APP_ENV=production`, every backend process (API, worker, scheduler, migration) refuses to start unless:
+
+- `PROVIDER_CREDENTIAL_KEYS` and `TRANSACTIONAL_EMAIL_KEYS` are non-empty, well-formed keyrings, and
+- `PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION` and `TRANSACTIONAL_EMAIL_CURRENT_KEY_VERSION` select a configured key.
+
+Keys are never generated or defaulted at startup and error messages never contain key material. The Resend API key is not required while `TRANSACTIONAL_EMAIL_ENABLED=false`.
+
+Production Compose files set `APP_ENV: production` explicitly for every backend-image service. Swagger UI, ReDoc, and the OpenAPI document are disabled in production and return 404.
+
 ## Provider Credentials
 
 ESPN credentials are stored per workspace and encrypted before database storage. The application never reads ESPN credentials from environment variables.
@@ -276,6 +298,8 @@ The restore script requires:
 ```
 
 The script validates the archive before stopping application services.
+
+Before replacing the database it stops the frontend and every database-writing service (`backend`, `backend-worker`, `sync-scheduler`, `migrate`) and refuses to continue if any remains running.
 
 When a checksum is available, the script verifies it before replacing the database.
 

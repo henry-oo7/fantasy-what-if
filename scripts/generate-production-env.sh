@@ -32,15 +32,23 @@ provider_key="$(
     tr '+/' '-_'
 )"
 
+email_key="$(
+    openssl rand -base64 32 |
+    tr -d '\n' |
+    tr '+/' '-_'
+)"
+
 database_password="$(
     openssl rand -hex 32
 )"
 
 provider_keyring="{\"1\":\"${provider_key}\"}"
+email_keyring="{\"1\":\"${email_key}\"}"
 
 sed \
   -e "s|^APP_SECRET_KEY=generate-this-value$|APP_SECRET_KEY=${app_secret}|" \
   -e "s|^PROVIDER_CREDENTIAL_KEYS=generate-this-value$|PROVIDER_CREDENTIAL_KEYS=${provider_keyring}|" \
+  -e "s|^TRANSACTIONAL_EMAIL_KEYS=generate-this-value$|TRANSACTIONAL_EMAIL_KEYS=${email_keyring}|" \
   -e "s|^POSTGRES_PASSWORD=generate-this-value$|POSTGRES_PASSWORD=${database_password}|" \
   "$template" > "$output"
 

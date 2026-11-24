@@ -1,6 +1,8 @@
+import json
 import os
 from unittest.mock import patch
 
+from cryptography.fernet import Fernet
 from fastapi import Response
 from fastapi.testclient import TestClient
 
@@ -120,6 +122,8 @@ def test_production_adds_hsts() -> None:
         "SESSION_COOKIE_SECURE": "true",
         "SESSION_COOKIE_SAMESITE": "lax",
         "DATABASE_URL": ("postgresql+psycopg://user:password@database/db"),
+        "PROVIDER_CREDENTIAL_KEYS": json.dumps({"1": Fernet.generate_key().decode()}),
+        "TRANSACTIONAL_EMAIL_KEYS": json.dumps({"1": Fernet.generate_key().decode()}),
     }
 
     with patch.dict(

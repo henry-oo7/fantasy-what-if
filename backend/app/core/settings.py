@@ -442,6 +442,34 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env == "production"
 
+    def _require_production_keyrings(self) -> None:
+        """Fail closed when a production keyring is absent or unusable.
+
+        Messages identify the setting only; they never include key material.
+        """
+
+        if self.provider_credential_keyring().configured is False:
+            raise ValueError("PROVIDER_CREDENTIAL_KEYS must configure a keyring in production.")
+
+        if self.transactional_email_keyring().configured is False:
+            raise ValueError("TRANSACTIONAL_EMAIL_KEYS must configure a keyring in production.")
+
+        if self.provider_credential_current_key_version not in (
+            self.provider_credential_keyring().keys
+        ):
+            raise ValueError(
+                "PROVIDER_CREDENTIAL_CURRENT_KEY_VERSION must select "
+                "a configured key in production."
+            )
+
+        if self.transactional_email_current_key_version not in (
+            self.transactional_email_keyring().keys
+        ):
+            raise ValueError(
+                "TRANSACTIONAL_EMAIL_CURRENT_KEY_VERSION must select "
+                "a configured key in production."
+            )
+
     @model_validator(mode="after")
     def validate_environment_security(self) -> Settings:
         secret = self.app_secret_key.get_secret_value()
@@ -473,6 +501,8 @@ class Settings(BaseSettings):
 
         if self.app_debug:
             raise ValueError("APP_DEBUG must be false in production.")
+
+        self._require_production_keyrings()
 
         if len(secret) < 32:
             raise ValueError("APP_SECRET_KEY must contain at least 32 characters in production.")

@@ -23,6 +23,7 @@ from app.auth.cookies import (
 from app.auth.security import (
     InvalidPasswordError,
 )
+from app.core.client_ip import resolve_client_ip
 from app.core.settings import Settings, get_settings
 from app.db.auth_models import UserRole
 from app.db.platform_enums import (
@@ -405,10 +406,7 @@ def resend_verification(
 def _client_ip(
     request: Request,
 ) -> str | None:
-    if request.client is None:
-        return None
-
-    return request.client.host
+    return resolve_client_ip(request)
 
 
 def _application_error(

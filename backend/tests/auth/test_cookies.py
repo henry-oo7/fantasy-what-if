@@ -1,3 +1,6 @@
+import json
+
+from cryptography.fernet import Fernet
 from fastapi import Response
 from pydantic import SecretStr
 
@@ -7,6 +10,10 @@ from app.auth.cookies import (
     set_authentication_cookies,
 )
 from app.core.settings import Settings
+
+
+def _synthetic_keyring() -> SecretStr:
+    return SecretStr(json.dumps({"1": Fernet.generate_key().decode()}))
 
 
 def create_settings(
@@ -25,6 +32,8 @@ def create_settings(
         session_cookie_secure=production,
         session_cookie_samesite="lax",
         database_url=("postgresql+psycopg://user:password@database:5432/fantasy"),
+        provider_credential_keys=_synthetic_keyring() if production else None,
+        transactional_email_keys=_synthetic_keyring() if production else None,
     )
 
 

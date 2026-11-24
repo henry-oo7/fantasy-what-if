@@ -13,6 +13,7 @@ services:
     env_file:
       - ${PRODUCTION_ENV_FILE:-.env.prod}
     environment:
+      APP_ENV: production
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
     command:
       - alembic
@@ -35,6 +36,7 @@ services:
     env_file:
       - ${PRODUCTION_ENV_FILE:-.env.prod}
     environment:
+      APP_ENV: production
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       FORWARDED_ALLOW_IPS: ${FRONTEND_PROXY_IP:-172.31.100.10}
       SYNC_SCHEDULER_ENABLED: "false"
@@ -62,6 +64,7 @@ services:
     env_file:
       - ${PRODUCTION_ENV_FILE:-.env.prod}
     environment:
+      APP_ENV: production
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       BACKGROUND_WORKER_ENABLED: "true"
       BACKGROUND_WORKER_RECOVERY_INTERVAL_SECONDS: "${BACKGROUND_WORKER_RECOVERY_INTERVAL_SECONDS:-60}"
@@ -118,6 +121,7 @@ services:
     env_file:
       - ${PRODUCTION_ENV_FILE:-.env.prod}
     environment:
+      APP_ENV: production
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       SYNC_SCHEDULER_ENABLED: "true"
     command:
