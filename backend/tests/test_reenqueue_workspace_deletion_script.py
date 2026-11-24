@@ -23,6 +23,7 @@ from tests.support.workspace_deletion_graph import (
     DeletionGraph,
     cleanup_graphs,
     create_deletion_graph,
+    deletion_recipient_cipher,
     enqueue_deletion_job,
     load_workspace,
     owned_row_counts,
@@ -187,7 +188,11 @@ def test_refusals_change_nothing(
             assert job is not None and job.id == job_id
             snapshot = snapshot_background_job(job)
             session.commit()
-        WorkspaceDeletionJobHandler(session_factory=SessionFactory, now=lambda: now)(snapshot)
+        WorkspaceDeletionJobHandler(
+            session_factory=SessionFactory,
+            recipient_cipher_factory=deletion_recipient_cipher,
+            now=lambda: now,
+        )(snapshot)
 
     before = owned_row_counts(graph)
     exit_code = run_reenqueue(workspace_id=workspace_id, session_factory=SessionFactory, now=now)

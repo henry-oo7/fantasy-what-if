@@ -48,6 +48,7 @@ from tests.support.workspace_deletion_graph import (
     DeletionGraph,
     cleanup_graphs,
     create_deletion_graph,
+    deletion_recipient_cipher,
     deletion_records,
     enqueue_deletion_job,
     load_job,
@@ -115,6 +116,7 @@ def delete(snapshot: BackgroundJobSnapshot, now: datetime) -> WorkspaceDeletionO
             job_id=snapshot.id,
             attempt_count=snapshot.attempt_count,
             now=now,
+            recipient_cipher_factory=deletion_recipient_cipher,
         )
         session.commit()
 
@@ -191,6 +193,7 @@ def test_deletion_holding_the_lock_at_cutoff_wins(graph: DeletionGraph) -> None:
             job_id=snapshot.id,
             attempt_count=snapshot.attempt_count,
             now=graph.scheduled_for,
+            recipient_cipher_factory=deletion_recipient_cipher,
         )
         with ThreadPoolExecutor(max_workers=1) as executor:
             # Even a skewed pre-cutoff cancellation waits for the lock.
@@ -312,6 +315,7 @@ def test_provider_league_claimable_only_after_deletion_commits(graph: DeletionGr
             job_id=snapshot.id,
             attempt_count=snapshot.attempt_count,
             now=graph.scheduled_for,
+            recipient_cipher_factory=deletion_recipient_cipher,
         )
         with ThreadPoolExecutor(max_workers=1) as executor:
             pending = executor.submit(claim_same_league)
@@ -358,6 +362,7 @@ def test_provider_league_stays_reserved_when_deletion_rolls_back(graph: Deletion
             job_id=snapshot.id,
             attempt_count=snapshot.attempt_count,
             now=graph.scheduled_for,
+            recipient_cipher_factory=deletion_recipient_cipher,
         )
         with ThreadPoolExecutor(max_workers=1) as executor:
             pending = executor.submit(claim_same_league)
@@ -405,7 +410,11 @@ def test_expired_lease_with_attempts_remaining_requeues_then_deletes(
     assert workspace.registration_status is WorkspaceRegistrationStatus.DELETION_PENDING
 
     # The worker whose lease expired can no longer delete.
-    handler = WorkspaceDeletionJobHandler(session_factory=SessionFactory, now=lambda: expired_at)
+    handler = WorkspaceDeletionJobHandler(
+        session_factory=SessionFactory,
+        recipient_cipher_factory=deletion_recipient_cipher,
+        now=lambda: expired_at,
+    )
     with pytest.raises(Exception, match="no longer claimed"):
         handler(snapshot)
     assert deletion_records(graph.workspace_id) == []
@@ -413,7 +422,11 @@ def test_expired_lease_with_attempts_remaining_requeues_then_deletes(
     retry_at = expired_at + timedelta(seconds=30)
     reclaimed = claim(job_id, now=retry_at)
     assert reclaimed.attempt_count == 2
-    WorkspaceDeletionJobHandler(session_factory=SessionFactory, now=lambda: retry_at)(reclaimed)
+    WorkspaceDeletionJobHandler(
+        session_factory=SessionFactory,
+        recipient_cipher_factory=deletion_recipient_cipher,
+        now=lambda: retry_at,
+    )(reclaimed)
     assert_deleted(graph)
 
 

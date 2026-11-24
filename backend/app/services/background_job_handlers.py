@@ -9,6 +9,7 @@ from app.core.settings import Settings
 from app.db.models import Season
 from app.db.platform_enums import BackgroundJobType
 from app.db.platform_models import Installation
+from app.notifications.recipient_encryption import TransactionalEmailRecipientCipher
 from app.providers.registry import ProviderRegistry
 from app.services.active_provider_sync import (
     synchronize_active_season,
@@ -101,6 +102,9 @@ def build_background_job_handlers(
         ),
         BackgroundJobType.WORKSPACE_DELETION: WorkspaceDeletionJobHandler(
             session_factory=session_factory,
+            recipient_cipher_factory=lambda: TransactionalEmailRecipientCipher(
+                settings.transactional_email_keyring()
+            ),
         ),
         BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY: TransactionalEmailDeliveryHandler(
             session_factory=session_factory,

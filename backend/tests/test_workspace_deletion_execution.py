@@ -46,7 +46,7 @@ from app.repositories.provider_league_claim_repository import (
     ProviderLeagueClaimRepository,
 )
 from app.repositories.workspace_deletion_repository import WorkspaceDeletionRepository
-from app.services import workspace_deletion_execution
+from app.services import workspace_deletion_email, workspace_deletion_execution
 from app.services.background_job_worker import (
     BackgroundJobExecutionError,
     BackgroundJobSnapshot,
@@ -63,6 +63,7 @@ from tests.support.workspace_deletion_graph import (
     SPECTATOR_PASSWORD,
     DeletionGraph,
     create_deletion_graph,
+    deletion_recipient_cipher,
     deletion_records,
     enqueue_deletion_job,
     load_job,
@@ -109,7 +110,11 @@ def run_worker(now: datetime, handler: Callable | None = None, **kwargs):
         lease_duration=LEASE,
         handlers={
             BackgroundJobType.WORKSPACE_DELETION: handler
-            or WorkspaceDeletionJobHandler(session_factory=SessionFactory, now=lambda: now)
+            or WorkspaceDeletionJobHandler(
+                session_factory=SessionFactory,
+                recipient_cipher_factory=deletion_recipient_cipher,
+                now=lambda: now,
+            )
         },
         now=lambda: now,
         jitter_ratio=0,
@@ -180,7 +185,9 @@ def test_payload_allowlist_rejects_any_field(payload: dict) -> None:
         attempt_count=1,
         maximum_attempts=5,
     )
-    handler = WorkspaceDeletionJobHandler(session_factory=SessionFactory)
+    handler = WorkspaceDeletionJobHandler(
+        session_factory=SessionFactory, recipient_cipher_factory=deletion_recipient_cipher
+    )
 
     with pytest.raises(BackgroundJobExecutionError) as error:
         handler(job)
@@ -193,7 +200,9 @@ def test_unsupported_payload_version_is_terminal() -> None:
     job = BackgroundJobSnapshot(1, 1, BackgroundJobType.WORKSPACE_DELETION, 2, {}, 1, 5)
 
     with pytest.raises(BackgroundJobExecutionError) as error:
-        WorkspaceDeletionJobHandler(session_factory=SessionFactory)(job)
+        WorkspaceDeletionJobHandler(
+            session_factory=SessionFactory, recipient_cipher_factory=deletion_recipient_cipher
+        )(job)
 
     assert error.value.safe_error_code == "unsupported_payload_version"
 
@@ -213,7 +222,11 @@ def test_early_job_defers_to_schedule_without_spending_an_attempt(
     # (for example a skewed worker clock): nothing is deleted.
     result = run_worker(
         graph.scheduled_for,
-        handler=WorkspaceDeletionJobHandler(session_factory=SessionFactory, now=lambda: early),
+        handler=WorkspaceDeletionJobHandler(
+            session_factory=SessionFactory,
+            recipient_cipher_factory=deletion_recipient_cipher,
+            now=lambda: early,
+        ),
     )
 
     job = load_job(job_id)
@@ -239,6 +252,7 @@ def test_canceled_workspace_is_a_safe_noop(graphs: Callable[..., DeletionGraph])
             job_id=1,
             attempt_count=1,
             now=graph.scheduled_for + timedelta(days=1),
+            recipient_cipher_factory=deletion_recipient_cipher,
         )
         session.commit()
 
@@ -263,6 +277,7 @@ def test_missing_workspace_with_record_is_already_completed(
             job_id=job_id,
             attempt_count=1,
             now=graph.scheduled_for,
+            recipient_cipher_factory=deletion_recipient_cipher,
         )
 
     assert outcome is WorkspaceDeletionOutcomeKind.ALREADY_COMPLETED
@@ -277,6 +292,7 @@ def test_missing_workspace_without_record_is_terminal() -> None:
             job_id=1,
             attempt_count=1,
             now=datetime.now().astimezone(),
+            recipient_cipher_factory=deletion_recipient_cipher,
         )
 
     assert error.value.safe_error_code == "workspace_deletion_workspace_missing"
@@ -299,7 +315,9 @@ def test_stale_claim_attempt_does_not_delete(graphs: Callable[..., DeletionGraph
 
     with pytest.raises(BackgroundJobExecutionError) as error:
         WorkspaceDeletionJobHandler(
-            session_factory=SessionFactory, now=lambda: graph.scheduled_for
+            session_factory=SessionFactory,
+            recipient_cipher_factory=deletion_recipient_cipher,
+            now=lambda: graph.scheduled_for,
         )(stale)
 
     assert error.value.safe_error_code == "workspace_deletion_claim_lost"
@@ -567,7 +585,9 @@ def test_bookkeeping_failure_after_commit_is_recognized_as_success(
     graph = graphs()
     job_id = enqueue_deletion_job(graph)
     real = WorkspaceDeletionJobHandler(
-        session_factory=SessionFactory, now=lambda: graph.scheduled_for
+        session_factory=SessionFactory,
+        recipient_cipher_factory=deletion_recipient_cipher,
+        now=lambda: graph.scheduled_for,
     )
     calls: list[int] = []
 
@@ -775,6 +795,14 @@ def test_deletion_never_decrypts_or_calls_providers(
         if isinstance(node, ast.Import)
         for alias in node.names
     }
+    # Recipient encryption is the only notification boundary final deletion
+    # may touch; it never imports a transport, renderer, or provider.
+    allowed = {"app.notifications.recipient_encryption"}
     assert not any(
-        name.startswith(("app.providers", "app.notifications", "app.api")) for name in imported
+        name.startswith(("app.providers", "app.notifications", "app.api"))
+        for name in imported - allowed
     )
+    for module in (workspace_deletion_execution, workspace_deletion_email):
+        source = inspect.getsource(module)
+        for forbidden_name in ("email_provider", "resend_transport", "email_rendering", "httpx"):
+            assert forbidden_name not in source

@@ -72,6 +72,12 @@ from app.services.background_job_worker import (
     BackgroundJobExecutionError,
     BackgroundJobSnapshot,
 )
+from app.services.workspace_deletion_email import (
+    SCOPED_DELETION_EVENTS,
+    deletion_reminder_key,
+    deletion_requested_key,
+    reminder_time,
+)
 from app.services.workspace_lifecycle import (
     is_active_workspace,
     is_deletion_pending,
@@ -97,14 +103,6 @@ TOKEN_EVENTS = frozenset(
     {
         TransactionalEmailEventType.ADMINISTRATOR_EMAIL_VERIFICATION,
         TransactionalEmailEventType.ADMINISTRATOR_PASSWORD_RESET,
-    }
-)
-# Rendered but not deliverable until FR-20 integration supplies a recipient.
-UNSUPPORTED_DELIVERY_EVENTS = frozenset(
-    {
-        TransactionalEmailEventType.WORKSPACE_DELETION_REQUESTED,
-        TransactionalEmailEventType.WORKSPACE_DELETION_REMINDER,
-        TransactionalEmailEventType.WORKSPACE_DELETION_CANCELED,
     }
 )
 _SAFE_MESSAGES = {
@@ -151,6 +149,8 @@ class _PreparedAttempt:
     user_id: int | None
     recipient: str = field(repr=False)
     raw_token: str | None = field(repr=False)
+    # Non-secret dates captured under the phase-one lock for deletion notices.
+    deletion_fields: dict[str, object] = field(default_factory=dict, repr=False)
 
 
 def default_transport_factory(settings: Settings) -> TransactionalEmailTransport:
@@ -285,7 +285,7 @@ class TransactionalEmailDeliveryHandler:
             )
 
         try:
-            recipient = self._resolve_recipient(session, delivery)
+            recipient, deletion_fields = self._resolve_recipient(session, delivery, now)
         except _RecipientIneligible:
             deliveries.cancel_ineligible(delivery, now=now)
             session.commit()
@@ -304,6 +304,7 @@ class TransactionalEmailDeliveryHandler:
             user_id=delivery.user_id,
             recipient=recipient,
             raw_token=raw_token,
+            deletion_fields=deletion_fields,
         )
 
     def _transmit(
@@ -459,14 +460,18 @@ class TransactionalEmailDeliveryHandler:
         session.commit()
         raise _permanent(code)
 
-    def _resolve_recipient(self, session: Session, delivery: TransactionalEmailDelivery) -> str:
+    def _resolve_recipient(
+        self,
+        session: Session,
+        delivery: TransactionalEmailDelivery,
+        now: datetime,
+    ) -> tuple[str, dict[str, object]]:
+        """Return the current recipient and any deletion render dates."""
+
         event = delivery.event_type
 
-        if event in UNSUPPORTED_DELIVERY_EVENTS:
-            raise _RecipientFailure(CODE_CONTEXT_UNSUPPORTED)
-
         if event is TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED:
-            return self._decrypt_completion_recipient(delivery)
+            return self._decrypt_completion_recipient(delivery), {}
 
         if delivery.scope is not TransactionalEmailScope.WORKSPACE or delivery.user_id is None:
             raise _RecipientFailure(CODE_CONTEXT_UNSUPPORTED)
@@ -491,6 +496,12 @@ class TransactionalEmailDeliveryHandler:
         if workspace is None:
             raise _RecipientIneligible
 
+        if event in SCOPED_DELETION_EVENTS:
+            if user.email_verified_at is None:
+                raise _RecipientIneligible
+
+            return user.normalized_email, _deletion_event_fields(delivery, workspace, now)
+
         if event is TransactionalEmailEventType.ADMINISTRATOR_EMAIL_VERIFICATION and (
             user.email_verified_at is not None
             or workspace.registration_status is not WorkspaceRegistrationStatus.PROVISIONAL
@@ -510,7 +521,7 @@ class TransactionalEmailDeliveryHandler:
         ):
             raise _RecipientIneligible
 
-        return user.normalized_email
+        return user.normalized_email, {}
 
     def _decrypt_completion_recipient(self, delivery: TransactionalEmailDelivery) -> str:
         if (
@@ -577,7 +588,7 @@ class TransactionalEmailDeliveryHandler:
                     "expires_minutes": self.settings.password_reset_lifetime_minutes,
                 }
             case _:
-                return {}
+                return dict(prepared.deletion_fields)
 
     def _supersede_tokens(
         self,
@@ -621,6 +632,67 @@ class _AttemptRef:
 
 class _RenderFailure:
     """Sentinel outcome: the persisted context could not be rendered."""
+
+
+def _deletion_event_fields(
+    delivery: TransactionalEmailDelivery,
+    workspace: Installation,
+    now: datetime,
+) -> dict[str, object]:
+    """Recheck a scoped deletion notice against the current lifecycle.
+
+    The delivery's idempotency key embeds its deletion generation, so a
+    notice is current only when the key recomputed from the workspace's
+    persisted schedule matches. A canceled or replaced request, or a
+    deletion already due, makes the notice ineligible (canceled, not sent).
+    An early reminder defers to its reminder time without an attempt.
+    """
+
+    event = delivery.event_type
+
+    if event is TransactionalEmailEventType.WORKSPACE_DELETION_CANCELED:
+        # Valid only while the workspace stayed restored; a later request
+        # suppresses this notice in its own transaction.
+        if not is_active_workspace(workspace):
+            raise _RecipientIneligible
+
+        return {}
+
+    requested_at = workspace.deletion_requested_at
+    scheduled_for = workspace.deletion_scheduled_for
+
+    if (
+        not is_deletion_pending(workspace)
+        or requested_at is None
+        or scheduled_for is None
+        or now >= scheduled_for
+    ):
+        raise _RecipientIneligible
+
+    if event is TransactionalEmailEventType.WORKSPACE_DELETION_REQUESTED:
+        if delivery.idempotency_key != deletion_requested_key(workspace.id, requested_at):
+            raise _RecipientIneligible
+
+        return {
+            "requested_on": requested_at.astimezone(UTC).date(),
+            "scheduled_for": scheduled_for.astimezone(UTC).date(),
+        }
+
+    reminder_at = reminder_time(requested_at=requested_at, scheduled_for=scheduled_for)
+
+    if reminder_at is None or delivery.idempotency_key != deletion_reminder_key(
+        workspace.id, scheduled_for
+    ):
+        raise _RecipientIneligible
+
+    if now < reminder_at:
+        raise BackgroundJobDeferredError(
+            available_at=reminder_at,
+            safe_error_code=CODE_DELIVERY_NOT_DUE,
+            safe_error_message=_safe_message(CODE_DELIVERY_NOT_DUE),
+        )
+
+    return {"scheduled_for": scheduled_for.astimezone(UTC).date()}
 
 
 def job_owns_delivery(job_workspace_id: int | None, delivery: TransactionalEmailDelivery) -> bool:

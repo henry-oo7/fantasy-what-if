@@ -31,12 +31,14 @@ from app.db.platform_enums import (
     FantasyProvider,
     InstallationStatus,
     OnboardingStage,
+    TransactionalEmailEventType,
     WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import (
     BackgroundJob,
     Installation,
     ProviderConnection,
+    TransactionalEmailDelivery,
     WorkspaceDeletionRecord,
 )
 from app.db.session import SessionFactory
@@ -937,9 +939,11 @@ def test_cancellation_restores_active_workspace(
         if job.job_type is BackgroundJobType.WORKSPACE_DELETION
     ]
     assert [job.status for job in deletion_jobs] == [BackgroundJobStatus.CANCELED]
-    # No synchronization is enqueued by cancellation.
+    # No synchronization is enqueued by cancellation; only the deletion job
+    # and durable email-delivery jobs (FR-20 notices) exist.
     assert all(
-        job.job_type is BackgroundJobType.WORKSPACE_DELETION
+        job.job_type
+        in (BackgroundJobType.WORKSPACE_DELETION, BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY)
         for job in workspace_jobs(seeded.workspace_id)
     )
 
@@ -1165,3 +1169,104 @@ def test_password_reset_service_never_cancels_deletion(
             )
             is None
         )
+
+
+# Deletion email intents are invisible to the API --------------------------
+
+EMAIL_VOCABULARY = ("deliver", "job", "email", "reminder", "queue", "notif")
+
+
+def workspace_deliveries(workspace_id: int) -> list[TransactionalEmailDelivery]:
+    with SessionFactory() as session:
+        rows = list(
+            session.scalars(
+                select(TransactionalEmailDelivery)
+                .where(TransactionalEmailDelivery.workspace_id == workspace_id)
+                .order_by(TransactionalEmailDelivery.id)
+            ).all()
+        )
+
+        for row in rows:
+            session.expunge(row)
+
+        return rows
+
+
+def test_request_response_shape_is_unchanged_and_hides_email_intents(
+    client: TestClient, seeded: SeededWorkspace
+) -> None:
+    csrf_token = standard_login(client, seeded)
+
+    response = request_deletion(client, csrf_token, slug=seeded.slug)
+
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    body = response.json()
+    assert set(body) == {"detail", "code", "scheduled_for"}
+    rendered = str(body).casefold()
+    for word in EMAIL_VOCABULARY:
+        assert word not in rendered
+
+
+def test_successful_request_queues_one_confirmation_and_one_reminder(
+    client: TestClient, seeded: SeededWorkspace
+) -> None:
+    csrf_token = standard_login(client, seeded)
+
+    response = request_deletion(client, csrf_token, slug=seeded.slug)
+
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    rows = workspace_deliveries(seeded.workspace_id)
+    assert sorted(row.event_type.value for row in rows) == [
+        TransactionalEmailEventType.WORKSPACE_DELETION_REMINDER.value,
+        TransactionalEmailEventType.WORKSPACE_DELETION_REQUESTED.value,
+    ]
+
+
+def test_failed_request_queues_no_email_intents(
+    client: TestClient, seeded: SeededWorkspace
+) -> None:
+    csrf_token = standard_login(client, seeded)
+
+    response = request_deletion(client, csrf_token, slug=seeded.slug, password="wrong password")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert workspace_deliveries(seeded.workspace_id) == []
+
+
+def test_cancellation_response_shape_is_unchanged_and_hides_email_intents(
+    client: TestClient, seeded: SeededWorkspace
+) -> None:
+    put_in_deletion_pending(client, seeded)
+    csrf_token = recovery_login(client, seeded)
+
+    response = cancel(client, csrf_token)
+
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert set(body) == {"detail", "code"}
+    rendered = str(body).casefold()
+    for word in EMAIL_VOCABULARY:
+        assert word not in rendered
+
+
+def test_successful_cancellation_leaves_one_canceled_notice_intent(
+    client: TestClient, seeded: SeededWorkspace
+) -> None:
+    put_in_deletion_pending(client, seeded)
+    csrf_token = recovery_login(client, seeded)
+
+    assert cancel(client, csrf_token).status_code == status.HTTP_200_OK
+
+    events = {row.event_type: row.status for row in workspace_deliveries(seeded.workspace_id)}
+    assert set(events) == {
+        TransactionalEmailEventType.WORKSPACE_DELETION_REQUESTED,
+        TransactionalEmailEventType.WORKSPACE_DELETION_REMINDER,
+        TransactionalEmailEventType.WORKSPACE_DELETION_CANCELED,
+    }
+    canceled_notice = events[TransactionalEmailEventType.WORKSPACE_DELETION_CANCELED]
+    assert canceled_notice.value == "pending"
+    for event in (
+        TransactionalEmailEventType.WORKSPACE_DELETION_REQUESTED,
+        TransactionalEmailEventType.WORKSPACE_DELETION_REMINDER,
+    ):
+        assert events[event].value == "canceled"

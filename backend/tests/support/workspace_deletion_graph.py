@@ -53,9 +53,12 @@ from app.db.platform_models import (
     Installation,
     ProviderConnection,
     ProviderLeagueClaim,
+    TransactionalEmailDelivery,
     WorkspaceDeletionRecord,
 )
 from app.db.session import SessionFactory
+from app.notifications.delivery_job_contract import transactional_email_job_idempotency_key
+from app.notifications.recipient_encryption import TransactionalEmailRecipientCipher
 from app.providers.credential_vault import ProviderCredentialVault
 from app.providers.espn import credentials_from_values
 from app.repositories.auth_repository import AuthenticationRepository
@@ -63,12 +66,25 @@ from app.repositories.background_job_repository import BackgroundJobRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.workspace_deletion_repository import WorkspaceDeletionRepository
 from app.services.workspace_deletion import workspace_deletion_idempotency_key
+from app.services.workspace_deletion_email import COMPLETED, KEY_PREFIX
+from tests.support.transactional_email import make_cipher
 
 ADMIN_PASSWORD = "correct horse battery staple"
 SPECTATOR_PASSWORD = "shared spectator password 2026"
 CREDENTIAL_KEY_VERSION = 1
 # Claimed ahead of any leftover queued job in the shared test database.
 TEST_JOB_PRIORITY = 10_000
+# One synthetic recipient keyring shared by deletion tests, so a test can
+# decrypt the completion recipient it created.
+DELETION_RECIPIENT_CIPHER = make_cipher()
+
+
+def deletion_recipient_cipher() -> TransactionalEmailRecipientCipher:
+    return DELETION_RECIPIENT_CIPHER
+
+
+def completion_key_prefix(workspace_id: int) -> str:
+    return f"{KEY_PREFIX}:{COMPLETED.value}:former-workspace:{workspace_id}:"
 
 
 @dataclass(slots=True)
@@ -532,4 +548,72 @@ def cleanup_graphs(workspace_ids: list[int]) -> None:
                     WorkspaceDeletionRecord.former_workspace_id.in_(workspace_ids)
                 )
             )
+            delete_completion_notices(session, workspace_ids)
         session.commit()
+
+
+def completion_deliveries(workspace_id: int) -> list[TransactionalEmailDelivery]:
+    """Unscoped completion deliveries created for one former workspace."""
+
+    with SessionFactory() as session:
+        rows = list(
+            session.scalars(
+                select(TransactionalEmailDelivery)
+                .where(
+                    TransactionalEmailDelivery.idempotency_key.startswith(
+                        completion_key_prefix(workspace_id)
+                    )
+                )
+                .order_by(TransactionalEmailDelivery.id)
+            )
+        )
+        for row in rows:
+            session.expunge(row)
+
+        return rows
+
+
+def completion_jobs(delivery_id: int) -> list[BackgroundJob]:
+    with SessionFactory() as session:
+        rows = list(
+            session.scalars(
+                select(BackgroundJob).where(
+                    BackgroundJob.idempotency_key
+                    == transactional_email_job_idempotency_key(delivery_id)
+                )
+            )
+        )
+        for row in rows:
+            session.expunge(row)
+
+        return rows
+
+
+def delete_completion_notices(session: Session, workspace_ids: list[int]) -> None:
+    """Remove surviving unscoped completion rows (and jobs) for fixtures."""
+
+    for workspace_id in workspace_ids:
+        delivery_ids = list(
+            session.scalars(
+                select(TransactionalEmailDelivery.id).where(
+                    TransactionalEmailDelivery.idempotency_key.startswith(
+                        completion_key_prefix(workspace_id)
+                    )
+                )
+            )
+        )
+        if not delivery_ids:
+            continue
+        session.execute(
+            delete(BackgroundJob).where(
+                BackgroundJob.workspace_id.is_(None),
+                BackgroundJob.idempotency_key.in_(
+                    [transactional_email_job_idempotency_key(i) for i in delivery_ids]
+                ),
+            )
+        )
+        session.execute(
+            delete(TransactionalEmailDelivery).where(
+                TransactionalEmailDelivery.id.in_(delivery_ids)
+            )
+        )
