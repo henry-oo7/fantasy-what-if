@@ -62,6 +62,7 @@ The generator creates:
 
 - A random application secret
 - A versioned provider-credential keyring containing one generated Fernet key
+- A separate versioned transactional-email recipient keyring containing one generated Fernet key
 - A random PostgreSQL password
 - A private `.env` file with permissions set to `0600`
 
@@ -70,6 +71,8 @@ The initial keyring contains version `1`, and
 provider credential encryption. Do not edit the generated JSON
 structure or remove a key version that is still referenced by a
 stored provider connection.
+
+Both keyrings are required in production even while transactional email is disabled. Startup fails closed if either is missing, empty, malformed, or lacks the version selected by its `*_CURRENT_KEY_VERSION` setting. Production Compose sets `APP_ENV=production` explicitly; do not remove it.
 
 Do not commit, email, or publicly share `.env`.
 
@@ -148,6 +151,19 @@ Cloudflare provides HTTPS to the browser.
 
 Do not point Cloudflare Tunnel directly at the backend container. The frontend Nginx container is the supported ingress and the only trusted forwarding proxy.
 
+Keep `APP_BIND_ADDRESS=127.0.0.1`. Nginx trusts `CF-Connecting-IP` only from loopback or private peers, which is safe only while `cloudflared` is the sole path to the published port. See "Trusted Proxy Security" in `SECURITY.md`.
+
+### Closed-Registration Staging
+
+Staging is a closed, access-controlled environment, not the public-registration design:
+
+1. Protect the staging hostname with Cloudflare Access so only explicitly approved identities can reach it. This is configured in Cloudflare, not in this repository.
+2. Registration may be enabled temporarily (`REGISTRATION_MODE=open`) while inside that access boundary.
+3. Staging administrators register through the normal SaaS flow.
+4. Set `REGISTRATION_MODE=closed` again after onboarding and restart the stack.
+
+No native invitation or allowlist mode exists yet.
+
 ### Caddy
 
 Example Caddy configuration:
@@ -175,6 +191,8 @@ For direct LAN access without a host reverse proxy, change:
 ```text
 APP_BIND_ADDRESS=0.0.0.0
 ```
+
+Direct LAN access is not supported together with the Cloudflare client-address model: a LAN client could spoof `CF-Connecting-IP` and evade per-address throttling.
 
 Production authentication cookies require HTTPS. Plain HTTP production access prevents secure authentication cookies from working correctly.
 

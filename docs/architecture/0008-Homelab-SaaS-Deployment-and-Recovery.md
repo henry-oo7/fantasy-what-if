@@ -369,6 +369,15 @@ Cloudflare protections do not replace application authorization, CSRF protection
 
 The application must correctly validate trusted proxy behavior.
 
+### Staging safety decisions
+
+- Production processes receive `APP_ENV=production` explicitly in Compose; no default is relied on.
+- Production startup fails closed unless the provider-credential and transactional-email keyrings are valid and select a configured current version.
+- API documentation routes are disabled in production.
+- `restore.sh` stops the ingress and every database-writing service (`backend`, `backend-worker`, `sync-scheduler`, `migrate`), verifies none is running, and restarts only those services after a successful restore.
+- With `cloudflared` on the Docker host and Nginx published on loopback, Nginx accepts `CF-Connecting-IP` only from loopback or private peers, replaces `X-Forwarded-For` with the validated address, and the backend trusts only Nginx. Cloudflare edge ranges are not hard-coded. A non-loopback `APP_BIND_ADDRESS` invalidates this boundary.
+- Closed staging uses Cloudflare Access plus temporary `REGISTRATION_MODE=open`; native invitations and allowlists are not implemented.
+
 Only known proxy sources should be trusted for forwarded headers.
 
 Production must not use:

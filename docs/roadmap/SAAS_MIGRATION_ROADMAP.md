@@ -863,6 +863,18 @@ Document procedures for:
 - Failed migration
 - Cloudflare Tunnel outage
 
+### Closed-Registration Staging Checkpoint
+
+Deployment safety implemented before closed staging:
+
+- Explicit `APP_ENV=production` in production Compose.
+- Fail-closed production keyring validation.
+- API documentation disabled in production.
+- Restore stops every database-writing service.
+- Cloudflare Tunnel client-address trust boundary (loopback-bound Nginx).
+
+Staging remains Cloudflare Access protected with temporary registration; native invitations or allowlists are not implemented and this is not the public-registration design.
+
 ### Exit Criteria
 
 - Off-host backup succeeds.

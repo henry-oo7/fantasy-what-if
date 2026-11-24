@@ -1,8 +1,10 @@
 """Provider-neutral transactional-email settings (ADR 0009)."""
 
+import json
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 from pydantic import SecretStr, ValidationError
 
 from app.core.settings import Settings
@@ -55,6 +57,8 @@ def production(**overrides) -> Settings:
         "session_cookie_name": "__Host-fantasy_session",
         "session_cookie_secure": True,
         "forwarded_allow_ips": "127.0.0.1",
+        "provider_credential_keys": SecretStr(json.dumps({"1": Fernet.generate_key().decode()})),
+        "transactional_email_keys": SecretStr(json.dumps({"1": Fernet.generate_key().decode()})),
     }
     values.update(overrides)
     return enabled(**values)

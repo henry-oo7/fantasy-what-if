@@ -158,6 +158,8 @@ The script creates:
 - A SHA-256 checksum file
 - File permissions set to `0600`
 
+The script resolves the database name and user from the resolved Docker Compose configuration of the `database` service and the selected `ENV_FILE`, using the same validation as `scripts/restore.sh`. Exported shell values for `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` are ignored, and the script refuses to run when the target cannot be resolved. The dump is written to a temporary file and published only after it passes validation; its checksum is published first and the dump last. A failed or interrupted run leaves no final backup file.
+
 Example output:
 
 ```text
@@ -220,14 +222,17 @@ The restore script:
 2. Verifies the backup is not empty.
 3. Validates the PostgreSQL archive.
 4. Validates the SHA-256 checksum when present.
-5. Stops the frontend, backend, and scheduler.
-6. Keeps PostgreSQL available.
-7. Recreates the application database.
-8. Restores the selected backup.
-9. Runs `alembic upgrade head`.
-10. Restarts the backend, scheduler, and frontend.
+5. Stops the frontend, then every database-writing service: `backend`, `backend-worker`, `sync-scheduler`, and `migrate`.
+6. Verifies that no database-writing service is still running and refuses to continue if one is.
+7. Keeps PostgreSQL available.
+8. Recreates the application database.
+9. Restores the selected backup.
+10. Runs `alembic upgrade head`.
+11. Re-verifies that no writer is running, then restarts `backend`, `backend-worker`, `sync-scheduler`, and `frontend`.
 
-If restoration fails, the application services remain stopped.
+If any step after the writers stop fails, an exit trap reports that the application services remain stopped. The script never starts writers against a partially restored database.
+
+Any new service that writes to PostgreSQL must be added to `writer_services` in `scripts/restore.sh`; a test fails if a Compose service with `DATABASE_URL` is missing from that list.
 
 Inspect PostgreSQL logs before retrying:
 
