@@ -12,6 +12,9 @@ from app.repositories.background_job_repository import (
     BackgroundJobRepository,
 )
 from app.services.onboarding_sync_outcome import apply_initial_sync_outcome
+from app.services.transactional_email_job_outcome import (
+    apply_transactional_email_job_failure,
+)
 
 EXPIRED_LEASE_ERROR_CODE = "worker_lease_expired"
 EXPIRED_LEASE_RETRY_DELAY = timedelta(seconds=30)
@@ -70,6 +73,7 @@ def recover_expired_background_jobs(
             failed_count += 1
             # Same transaction as the terminal job state.
             apply_initial_sync_outcome(session, job=job, succeeded=False)
+            apply_transactional_email_job_failure(session, job=job)
         else:
             raise RuntimeError("Expired-lease recovery produced an unsupported job status.")
 

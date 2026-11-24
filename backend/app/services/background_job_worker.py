@@ -25,6 +25,9 @@ from app.services.background_job_heartbeat import (
     BackgroundJobLeaseHeartbeat,
 )
 from app.services.onboarding_sync_outcome import apply_initial_sync_outcome
+from app.services.transactional_email_job_outcome import (
+    apply_transactional_email_job_failure,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -256,6 +259,23 @@ def execute_one_background_job(
         # A committed workspace deletion cascades its own job row, so the
         # heartbeat and outcome bookkeeping can no longer find it. The
         # anonymized deletion record is the authoritative completion.
+        if _transactional_email_job_removed(
+            session_factory=session_factory,
+            snapshot=snapshot,
+        ):
+            LOGGER.info(
+                "Transactional email job row removed by workspace cascade: job_id=%s.",
+                snapshot.id,
+            )
+
+            return BackgroundJobExecutionResult(
+                job_id=snapshot.id,
+                claimed=True,
+                succeeded=True,
+                retry_scheduled=False,
+                failed=False,
+            )
+
         if not _workspace_deletion_completed(
             session_factory=session_factory,
             snapshot=snapshot,
@@ -499,6 +519,23 @@ def _workspace_deletion_completed(
         return WorkspaceDeletionRepository(session).completed_record_exists(snapshot.workspace_id)
 
 
+def _transactional_email_job_removed(
+    *,
+    session_factory: sessionmaker[Session],
+    snapshot: BackgroundJobSnapshot,
+) -> bool:
+    """Recognize a scoped email job whose row cascaded with its workspace."""
+
+    if (
+        snapshot.job_type is not BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY
+        or snapshot.workspace_id is None
+    ):
+        return False
+
+    with session_factory() as session:
+        return session.get(BackgroundJob, snapshot.id) is None
+
+
 def _claim_one_job(
     *,
     session_factory: sessionmaker[Session],
@@ -641,6 +678,7 @@ def _persist_terminal_failure(
             now=now,
         )
         apply_initial_sync_outcome(session, job=job, succeeded=False)
+        apply_transactional_email_job_failure(session, job=job)
         session.commit()
 
 

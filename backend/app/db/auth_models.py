@@ -146,12 +146,33 @@ class User(TimestampMixin, Base):
     )
 
 
+# Delivery-issued tokens record both the delivery and the attempt; IS [NOT]
+# NULL never evaluates to SQL NULL, so a partial pair cannot pass.
+_DELIVERY_ATTEMPT_PAIR = (
+    "(transactional_email_delivery_id IS NULL AND delivery_attempt IS NULL) "
+    "OR (transactional_email_delivery_id IS NOT NULL AND delivery_attempt IS NOT NULL)"
+)
+
+
 class EmailVerificationToken(Base):
     __tablename__ = "email_verification_tokens"
     __table_args__ = (
         UniqueConstraint(
             "token_hash",
             name="uq_email_verification_tokens_token_hash",
+        ),
+        CheckConstraint(
+            _DELIVERY_ATTEMPT_PAIR,
+            name="ck_email_verification_tokens_delivery_attempt_pair",
+        ),
+        CheckConstraint(
+            "delivery_attempt IS NULL OR delivery_attempt > 0",
+            name="ck_email_verification_tokens_delivery_attempt_positive",
+        ),
+        Index(
+            "ix_email_verification_tokens_user_delivery",
+            "user_id",
+            "transactional_email_delivery_id",
         ),
     )
 
@@ -168,6 +189,21 @@ class EmailVerificationToken(Base):
         ),
         nullable=False,
         index=True,
+    )
+
+    # Set only by the delivery worker; NULL for synchronous-route tokens.
+    transactional_email_delivery_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "transactional_email_deliveries.id",
+            name="fk_email_verification_tokens_transactional_email_delivery_id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+    )
+
+    delivery_attempt: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
     )
 
     token_hash: Mapped[str] = mapped_column(
@@ -201,6 +237,19 @@ class PasswordResetToken(Base):
             "token_hash",
             name="uq_password_reset_tokens_token_hash",
         ),
+        CheckConstraint(
+            _DELIVERY_ATTEMPT_PAIR,
+            name="ck_password_reset_tokens_delivery_attempt_pair",
+        ),
+        CheckConstraint(
+            "delivery_attempt IS NULL OR delivery_attempt > 0",
+            name="ck_password_reset_tokens_delivery_attempt_positive",
+        ),
+        Index(
+            "ix_password_reset_tokens_user_delivery",
+            "user_id",
+            "transactional_email_delivery_id",
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -216,6 +265,21 @@ class PasswordResetToken(Base):
         ),
         nullable=False,
         index=True,
+    )
+
+    # Set only by the delivery worker; NULL for synchronous-route tokens.
+    transactional_email_delivery_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "transactional_email_deliveries.id",
+            name="fk_password_reset_tokens_transactional_email_delivery_id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+    )
+
+    delivery_attempt: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
     )
 
     token_hash: Mapped[str] = mapped_column(

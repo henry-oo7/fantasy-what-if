@@ -7,6 +7,7 @@ beyond the one-way encryption call for the unscoped completion notice.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -25,6 +26,17 @@ from app.notifications.recipient_encryption import TransactionalEmailRecipientCi
 
 IDEMPOTENCY_CONSTRAINT = "uq_transactional_email_deliveries_idempotency_key"
 SAFE_STATE_RETENTION = timedelta(days=90)
+PROVIDER_MESSAGE_ID_RETENTION = timedelta(days=30)
+_SAFE_FAILURE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+ATTEMPTABLE_STATUSES = frozenset(
+    {
+        TransactionalEmailDeliveryStatus.PENDING,
+        TransactionalEmailDeliveryStatus.RETRY_SCHEDULED,
+        # A stale ``sending`` row is an attempt with an unknown outcome
+        # (worker crash or lease loss); it is retried as a new attempt.
+        TransactionalEmailDeliveryStatus.SENDING,
+    }
+)
 
 IDENTITY_EVENT_TYPES = frozenset(
     {
@@ -73,6 +85,13 @@ class DeliveryTerminalState:
     status: TransactionalEmailDeliveryStatus
     final_at: datetime
     safe_failure_code: str | None
+
+
+def _require_safe_failure_code(code: str) -> str:
+    if not isinstance(code, str) or not _SAFE_FAILURE_CODE.fullmatch(code):
+        raise ValueError("The safe failure code is invalid.")
+
+    return code
 
 
 def normalize_delivery_idempotency_key(key: str) -> str:
@@ -245,6 +264,144 @@ class TransactionalEmailDeliveryRepository:
         self.session.flush()
 
         return True
+
+    def begin_attempt(
+        self,
+        delivery: TransactionalEmailDelivery,
+        *,
+        now: datetime | None = None,
+    ) -> int:
+        """Persist a new provider attempt and mark the delivery ``sending``.
+
+        The caller holds the row lock and commits before transmission, so
+        the returned attempt number (the provider-attempt identity) is
+        durable before any provider call.
+        """
+
+        if delivery.status not in ATTEMPTABLE_STATUSES:
+            raise DeliveryStateError("Only a nonterminal delivery may begin an attempt.")
+
+        if delivery.attempt_count >= delivery.maximum_attempts:
+            raise DeliveryStateError("The delivery has no remaining attempts.")
+
+        delivery.attempt_count += 1
+        delivery.status = TransactionalEmailDeliveryStatus.SENDING
+        delivery.last_attempt_at = now or datetime.now(UTC)
+        delivery.safe_failure_code = None
+        self.session.flush()
+
+        return delivery.attempt_count
+
+    def mark_sent(
+        self,
+        delivery: TransactionalEmailDelivery,
+        *,
+        attempt: int,
+        provider_message_id: str,
+        now: datetime | None = None,
+    ) -> None:
+        """Record provider acceptance of the current attempt and scrub."""
+
+        self._require_current_attempt(delivery, attempt)
+        message_id = provider_message_id.strip()
+
+        if not message_id or len(message_id) > 255:
+            raise ValueError("The provider message ID is invalid.")
+
+        timestamp = now or datetime.now(UTC)
+
+        delivery.status = TransactionalEmailDeliveryStatus.SENT
+        delivery.sent_at = timestamp
+        delivery.provider_message_id = message_id
+        delivery.provider_message_id_expires_at = timestamp + PROVIDER_MESSAGE_ID_RETENTION
+        delivery.retention_expires_at = timestamp + SAFE_STATE_RETENTION
+        delivery.safe_failure_code = None
+        delivery.encrypted_recipient = None
+        delivery.recipient_key_version = None
+        self.session.flush()
+
+    def schedule_retry(
+        self,
+        delivery: TransactionalEmailDelivery,
+        *,
+        attempt: int,
+        safe_failure_code: str,
+        available_at: datetime,
+    ) -> None:
+        """Return the current attempt's delivery to ``retry_scheduled``.
+
+        Encrypted completion recipients are preserved for the next attempt.
+        """
+
+        self._require_current_attempt(delivery, attempt)
+
+        if delivery.attempt_count >= delivery.maximum_attempts:
+            raise DeliveryStateError("The delivery has no remaining attempts.")
+
+        delivery.status = TransactionalEmailDeliveryStatus.RETRY_SCHEDULED
+        delivery.safe_failure_code = _require_safe_failure_code(safe_failure_code)
+        delivery.available_at = available_at
+        self.session.flush()
+
+    def mark_permanently_failed(
+        self,
+        delivery: TransactionalEmailDelivery,
+        *,
+        safe_failure_code: str,
+        attempt: int | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        """Finalize a nonterminal delivery as failed and scrub recipient material.
+
+        ``attempt`` fences provider outcomes; pre-transmission failures pass None.
+        """
+
+        if attempt is not None:
+            self._require_current_attempt(delivery, attempt)
+        elif delivery.status not in NONTERMINAL_STATUSES:
+            raise DeliveryStateError("Only a nonterminal delivery may fail.")
+
+        timestamp = now or datetime.now(UTC)
+
+        delivery.status = TransactionalEmailDeliveryStatus.PERMANENTLY_FAILED
+        delivery.failed_at = timestamp
+        delivery.retention_expires_at = timestamp + SAFE_STATE_RETENTION
+        delivery.safe_failure_code = _require_safe_failure_code(safe_failure_code)
+        delivery.encrypted_recipient = None
+        delivery.recipient_key_version = None
+        self.session.flush()
+
+    def cancel_ineligible(
+        self,
+        delivery: TransactionalEmailDelivery,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        """Cancel a delivery whose recipient is no longer eligible, and scrub."""
+
+        if delivery.status not in NONTERMINAL_STATUSES:
+            raise DeliveryStateError("Only a nonterminal delivery may be canceled.")
+
+        timestamp = now or datetime.now(UTC)
+
+        delivery.status = TransactionalEmailDeliveryStatus.CANCELED
+        delivery.canceled_at = timestamp
+        delivery.retention_expires_at = timestamp + SAFE_STATE_RETENTION
+        delivery.safe_failure_code = None
+        delivery.encrypted_recipient = None
+        delivery.recipient_key_version = None
+        self.session.flush()
+
+    @staticmethod
+    def is_current_attempt(delivery: TransactionalEmailDelivery, attempt: int) -> bool:
+        return (
+            delivery.status is TransactionalEmailDeliveryStatus.SENDING
+            and delivery.attempt_count == attempt
+        )
+
+    def _require_current_attempt(self, delivery: TransactionalEmailDelivery, attempt: int) -> None:
+        if not self.is_current_attempt(delivery, attempt):
+            raise DeliveryStateError("The attempt is no longer current for this delivery.")
 
     def scrub_recipient(self, delivery: TransactionalEmailDelivery) -> None:
         """Remove encrypted recipient material from a finished delivery."""

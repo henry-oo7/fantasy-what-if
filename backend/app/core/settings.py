@@ -193,6 +193,25 @@ class Settings(BaseSettings):
         ge=1,
     )
 
+    # Provider-neutral transactional-email delivery (ADR 0009). The recipient
+    # keyring above is a separate secret domain and is never reused here.
+    transactional_email_enabled: bool = False
+    transactional_email_provider: Literal["resend"] = "resend"
+    transactional_email_from_address: str | None = None
+    transactional_email_from_name: str = "Fantasy What-If"
+    transactional_email_public_base_url: str | None = None
+    transactional_email_api_key: SecretStr | None = None
+    transactional_email_connect_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        le=30,
+    )
+    transactional_email_read_timeout_seconds: float = Field(
+        default=7.0,
+        gt=0,
+        le=60,
+    )
+
     database_url: str
     database_echo: bool = False
 
@@ -313,6 +332,66 @@ class Settings(BaseSettings):
             serialized_keys=self.transactional_email_keys,
             current_version=self.transactional_email_current_key_version,
         )
+
+    @model_validator(mode="after")
+    def validate_transactional_email_delivery(
+        self,
+    ) -> Settings:
+        """Validate provider-neutral delivery settings without echoing values."""
+
+        from app.notifications.email_delivery_settings import (
+            normalize_public_base_url,
+            normalize_sender_address,
+            normalize_sender_name,
+        )
+
+        allow_http = self.app_env in {"development", "test"}
+
+        self.transactional_email_from_name = normalize_sender_name(
+            self.transactional_email_from_name
+        )
+
+        if self.transactional_email_from_address is not None:
+            normalized_sender = self.transactional_email_from_address.strip()
+            self.transactional_email_from_address = (
+                normalize_sender_address(normalized_sender) if normalized_sender else None
+            )
+
+        if self.transactional_email_public_base_url is not None:
+            normalized_url = self.transactional_email_public_base_url.strip()
+            self.transactional_email_public_base_url = (
+                normalize_public_base_url(normalized_url, allow_http=allow_http)
+                if normalized_url
+                else None
+            )
+
+        api_key = (
+            self.transactional_email_api_key.get_secret_value().strip()
+            if self.transactional_email_api_key is not None
+            else ""
+        )
+        self.transactional_email_api_key = SecretStr(api_key) if api_key else None
+
+        if not self.transactional_email_enabled:
+            return self
+
+        if self.transactional_email_api_key is None:
+            raise ValueError(
+                "TRANSACTIONAL_EMAIL_API_KEY is required when transactional email is enabled."
+            )
+
+        if self.transactional_email_from_address is None:
+            raise ValueError(
+                "TRANSACTIONAL_EMAIL_FROM_ADDRESS is required when transactional email is enabled."
+            )
+
+        if self.transactional_email_public_base_url is None:
+            raise ValueError(
+                "TRANSACTIONAL_EMAIL_PUBLIC_BASE_URL is required when transactional "
+                "email is enabled."
+            )
+
+        return self
 
     @field_validator(
         "frontend_origin",
