@@ -186,6 +186,22 @@ class AccountTokenRepository:
             now=now,
         )
 
+    def find_password_reset_token_user_id(self, raw_token: str) -> int | None:
+        """Return the owning user of a reset token without locking or using it.
+
+        Lets reset completion take its locks in the documented order before
+        redeeming. Validity is decided only by ``redeem_password_reset_token``.
+        """
+
+        try:
+            token_hash = hash_token(raw_token)
+        except ValueError:
+            return None
+
+        return self.session.scalar(
+            select(PasswordResetToken.user_id).where(PasswordResetToken.token_hash == token_hash)
+        )
+
     def invalidate_email_verification_tokens(
         self,
         *,

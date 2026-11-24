@@ -379,6 +379,21 @@ class TransactionalEmailDeliveryRepository:
     ) -> None:
         """Cancel a delivery whose recipient is no longer eligible, and scrub."""
 
+        self.cancel_nonterminal(delivery, now=now)
+
+    def cancel_nonterminal(
+        self,
+        delivery: TransactionalEmailDelivery,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        """Cancel any nonterminal delivery, including one that is ``sending``.
+
+        The caller holds the row lock. A worker whose attempt is still in
+        flight observes the cancellation as a non-current attempt and never
+        records its outcome.
+        """
+
         if delivery.status not in NONTERMINAL_STATUSES:
             raise DeliveryStateError("Only a nonterminal delivery may be canceled.")
 

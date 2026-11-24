@@ -49,8 +49,10 @@ from app.providers.credential_vault import ProviderCredentialVault
 from app.providers.domain import ProviderCredentials
 from app.repositories.auth_repository import AuthenticationRepository
 from app.repositories.session_repository import SessionRepository
-from app.services.email_verification import issue_email_verification_token
-from app.services.password_recovery import issue_password_reset_token
+from tests.support.identity_email import (
+    issue_email_verification_token,
+    issue_password_reset_token,
+)
 
 TRUSTED_ORIGIN = "http://localhost:5173"
 TARGET = "/api/onboarding/provider/target"

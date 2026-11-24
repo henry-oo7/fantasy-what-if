@@ -1,12 +1,14 @@
-"""Issue and redeem administrator email-verification tokens."""
+"""Redeem administrator email-verification tokens.
 
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+Verification tokens are created only by the transactional-email worker
+(ADR 0009).
+"""
+
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.security import generate_account_token
 from app.db.auth_models import User, UserRole
 from app.db.platform_enums import (
     OnboardingStage,
@@ -24,49 +26,6 @@ class EmailVerificationError(ValueError):
 
 class EmailVerificationStateError(RuntimeError):
     """The associated registration state is invalid."""
-
-
-@dataclass(frozen=True, slots=True)
-class IssuedEmailVerification:
-    """Plaintext delivery value plus its persisted expiration."""
-
-    raw_token: str
-    expires_at: datetime
-
-
-def issue_email_verification_token(
-    session: Session,
-    *,
-    user: User,
-    lifetime_hours: int,
-    now: datetime | None = None,
-) -> IssuedEmailVerification:
-    """Replace prior verification tokens and return one delivery token."""
-
-    if user.role is not UserRole.ADMIN:
-        raise EmailVerificationStateError("Email verification requires an administrator.")
-
-    if user.workspace_id is None:
-        raise EmailVerificationStateError("The administrator has no workspace.")
-
-    if user.email is None or user.normalized_email is None:
-        raise EmailVerificationStateError("The administrator has no email address.")
-
-    current_time = now or datetime.now(UTC)
-    expires_at = current_time + timedelta(hours=lifetime_hours)
-    raw_token = generate_account_token()
-
-    AccountTokenRepository(session).create_email_verification_token(
-        user_id=user.id,
-        raw_token=raw_token,
-        expires_at=expires_at,
-        now=current_time,
-    )
-
-    return IssuedEmailVerification(
-        raw_token=raw_token,
-        expires_at=expires_at,
-    )
 
 
 def verify_administrator_email(

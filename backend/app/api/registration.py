@@ -1,6 +1,5 @@
 """Public administrator registration endpoints."""
 
-import contextlib
 import ipaddress
 from typing import Annotated
 
@@ -13,9 +12,6 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 
-from app.api.registration_dependencies import (
-    get_transactional_email_sender,
-)
 from app.api.security import (
     require_pre_auth_csrf,
     validate_request_origin,
@@ -35,10 +31,6 @@ from app.db.platform_enums import (
 )
 from app.db.platform_models import Installation
 from app.db.session import SessionFactory
-from app.notifications.transactional_email import (
-    TransactionalEmailDeliveryError,
-    TransactionalEmailSender,
-)
 from app.repositories.auth_repository import (
     AuthenticationRepository,
     normalize_email,
@@ -70,9 +62,9 @@ from app.services.administrator_registration import (
 from app.services.email_verification import (
     EmailVerificationError,
     EmailVerificationStateError,
-    issue_email_verification_token,
     verify_administrator_email,
 )
+from app.services.identity_email import queue_verification_resend
 
 router = APIRouter(
     prefix="/api/registration",
@@ -92,7 +84,7 @@ router = APIRouter(
             "description": "Registration submissions are throttled.",
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "Registration or email is unavailable.",
+            "description": "Registration is unavailable.",
         },
     },
 )
@@ -103,10 +95,6 @@ def register_administrator(
         Settings,
         Depends(get_settings),
     ],
-    email_sender: Annotated[
-        TransactionalEmailSender,
-        Depends(get_transactional_email_sender),
-    ],
     _: Annotated[
         None,
         Depends(validate_request_origin),
@@ -116,7 +104,11 @@ def register_administrator(
         Depends(require_pre_auth_csrf),
     ],
 ) -> AdministratorRegistrationResponse | JSONResponse:
-    """Create provisional identity, commit, then deliver verification."""
+    """Create the provisional identity and queue verification atomically.
+
+    Success means registration was accepted and verification delivery was
+    queued. No token is created and no provider is called here.
+    """
 
     with SessionFactory() as session:
         limit = RegistrationRateLimitRepository(
@@ -153,15 +145,11 @@ def register_administrator(
                 administrator_display_name=(payload.display_name),
                 administrator_email=payload.email,
                 administrator_password=payload.password,
-                verification_lifetime_hours=(settings.email_verification_lifetime_hours),
             )
 
-            recipient_email = result.administrator.email
-            recipient_display_name = result.administrator.display_name
-            verification_token = result.verification.raw_token
             workspace_slug = result.workspace.slug
 
-            if recipient_email is None or workspace_slug is None:
+            if result.administrator.email is None or workspace_slug is None:
                 raise RuntimeError("Registration persisted invalid identity state.")
 
             response = _accepted_registration_response(workspace_slug)
@@ -198,24 +186,6 @@ def register_administrator(
             detail=str(exc),
             code="invalid_registration",
             retryable=False,
-        )
-
-    try:
-        email_sender.send_email_verification(
-            recipient_email=recipient_email,
-            recipient_display_name=(recipient_display_name),
-            verification_token=verification_token,
-        )
-    except TransactionalEmailDeliveryError:
-        return _application_error(
-            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
-            detail=(
-                "Registration was saved, but the verification "
-                "email could not be delivered. Request another "
-                "verification email to continue."
-            ),
-            code="email_delivery_unavailable",
-            retryable=True,
         )
 
     return response
@@ -351,10 +321,6 @@ def resend_verification(
         Settings,
         Depends(get_settings),
     ],
-    email_sender: Annotated[
-        TransactionalEmailSender,
-        Depends(get_transactional_email_sender),
-    ],
     _: Annotated[
         None,
         Depends(validate_request_origin),
@@ -364,19 +330,22 @@ def resend_verification(
         Depends(require_pre_auth_csrf),
     ],
 ) -> VerificationResendResponse | JSONResponse:
-    """Replace an eligible token without disclosing account existence."""
+    """Queue verification for an eligible account without disclosing it.
+
+    No token is created and no provider is called. Earlier verification
+    tokens stay valid until the worker's newer delivery is accepted.
+    """
 
     generic_response = VerificationResendResponse(
         detail=(
             "If an eligible administrator account exists for "
             "that email address, verification instructions "
-            "have been sent."
+            "will be sent. Check your email for the next step."
         ),
         code="verification_resend_accepted",
     )
 
     normalized_email = normalize_email(payload.email)
-    delivery: tuple[str, str, str] | None = None
 
     with SessionFactory() as session:
         limit = RegistrationRateLimitRepository(
@@ -411,6 +380,7 @@ def resend_verification(
         if (
             administrator is not None
             and administrator.role is UserRole.ADMIN
+            and administrator.is_active
             and administrator.email_verified_at is None
             and administrator.email is not None
             and administrator.workspace_id is not None
@@ -425,26 +395,9 @@ def resend_verification(
                 and workspace.registration_status is WorkspaceRegistrationStatus.PROVISIONAL
                 and workspace.onboarding_stage is OnboardingStage.EMAIL_VERIFICATION_PENDING
             ):
-                issued = issue_email_verification_token(
-                    session,
-                    user=administrator,
-                    lifetime_hours=(settings.email_verification_lifetime_hours),
-                )
-                delivery = (
-                    administrator.email,
-                    administrator.display_name,
-                    issued.raw_token,
-                )
+                queue_verification_resend(session, administrator=administrator)
 
         session.commit()
-
-    if delivery is not None:
-        with contextlib.suppress(TransactionalEmailDeliveryError):
-            email_sender.send_email_verification(
-                recipient_email=delivery[0],
-                recipient_display_name=delivery[1],
-                verification_token=delivery[2],
-            )
 
     return generic_response
 

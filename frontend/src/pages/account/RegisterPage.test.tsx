@@ -21,7 +21,7 @@ const ACCEPTED = {
 
 const RESEND_ACCEPTED = {
   detail:
-    "If an eligible administrator account exists for that email address, verification instructions have been sent.",
+    "If an eligible administrator account exists for that email address, verification instructions will be sent. Check your email for the next step.",
   code: "verification_resend_accepted",
 };
 
@@ -99,6 +99,11 @@ describe("administrator registration", () => {
 
     expect(await screen.findByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
 
+    const pending = document.body.textContent ?? "";
+    expect(pending).toContain("will be sent");
+    expect(pending).toContain("Check your email for the next step");
+    expect(pending).not.toMatch(/arrive shortly|has been sent|delivered/i);
+
     const [request] = api.calls("POST /api/registration");
     expect(request.body).toEqual({
       workspace_name: "Example League",
@@ -140,6 +145,29 @@ describe("administrator registration", () => {
 
     expect(duplicate).toBe(fresh);
     expect(fresh).not.toMatch(/already (registered|exists)/i);
+  });
+
+  it("does not treat a 503 email_delivery_unavailable response as pending verification", async () => {
+    const api = createApiMock();
+    api.reply("POST /api/registration", 503, {
+      detail: "The request could not be completed.",
+      code: "email_delivery_unavailable",
+      retryable: true,
+    });
+    const user = userEvent.setup();
+
+    await openRegistration();
+    await fillRegistration(user);
+    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toMatch(/provider|resend|delivery|queued/i);
+    expect(
+      screen.queryByRole("heading", { name: "Check your inbox" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toHaveValue("administrator@example.test");
+    expect(document.body.textContent).not.toMatch(/will be sent/i);
+    expect(api.calls("POST /api/registration")).toHaveLength(1);
   });
 
   it("shows a slug conflict on the workspace address field", async () => {
