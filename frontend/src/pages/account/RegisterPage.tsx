@@ -50,7 +50,6 @@ const FIELD_IDS: Record<FieldName, string> = {
 
 interface PendingVerification {
   email: string;
-  deliveryWarning: string | null;
 }
 
 /**
@@ -158,15 +157,9 @@ export function RegisterPage() {
       });
 
       clearPasswords();
-      setPending({ email, deliveryWarning: null });
+      setPending({ email });
     } catch (error) {
       if (error instanceof ApiError) {
-        if (error.code === "email_delivery_unavailable") {
-          clearPasswords();
-          setPending({ email, deliveryWarning: error.detail });
-          return;
-        }
-
         if (error.code === "registration_conflict") {
           setFieldErrors({ workspaceSlug: error.detail });
           focusField("workspaceSlug");
@@ -211,18 +204,14 @@ export function RegisterPage() {
           <>
             <p>
               If <span className="auth-email">{pending.email}</span> can be
-              used for a new league workspace, a verification link will
-              arrive shortly. Open it to continue setting up your workspace.
+              used for a new league workspace, an email with a verification
+              link will be sent. Check your email for the next step.
             </p>
             <p>The link expires after 24 hours.</p>
           </>
         }
       >
         <div className="auth-stack">
-          {pending.deliveryWarning ? (
-            <FormAlert tone="notice">{pending.deliveryWarning}</FormAlert>
-          ) : null}
-
           <ResendVerification email={pending.email} />
         </div>
 

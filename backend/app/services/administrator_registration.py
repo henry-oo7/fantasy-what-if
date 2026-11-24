@@ -23,10 +23,7 @@ from app.repositories.auth_repository import (
     normalize_display_name,
     normalize_email,
 )
-from app.services.email_verification import (
-    IssuedEmailVerification,
-    issue_email_verification_token,
-)
+from app.services.identity_email import queue_registration_verification
 
 WORKSPACE_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 WORKSPACE_SLUG_MINIMUM_LENGTH = 3
@@ -102,11 +99,10 @@ class DuplicateAdministratorEmailError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ProvisionalRegistrationResult:
-    """Safe application result plus the email-delivery token."""
+    """Safe application result. Verification delivery is only queued."""
 
     workspace: Installation
     administrator: User
-    verification: IssuedEmailVerification
 
 
 def register_provisional_administrator(
@@ -118,10 +114,14 @@ def register_provisional_administrator(
     administrator_display_name: str,
     administrator_email: str,
     administrator_password: str,
-    verification_lifetime_hours: int,
     now: datetime | None = None,
 ) -> ProvisionalRegistrationResult:
-    """Create the provisional identity transaction without committing."""
+    """Create the provisional identity transaction without committing.
+
+    The workspace, administrator, verification delivery intent, and its
+    BackgroundJob are written in one savepoint; any failure rolls all of
+    them back. No token is created and no provider is called.
+    """
 
     if registration_mode is not RegistrationMode.OPEN:
         raise RegistrationUnavailableError("Registration is unavailable.")
@@ -161,11 +161,10 @@ def register_provisional_administrator(
                 workspace_id=workspace.id,
             )
 
-            verification = issue_email_verification_token(
+            queue_registration_verification(
                 session,
-                user=administrator,
-                lifetime_hours=verification_lifetime_hours,
-                now=current_time,
+                workspace_id=workspace.id,
+                user_id=administrator.id,
             )
 
             session.flush()
@@ -191,7 +190,6 @@ def register_provisional_administrator(
     return ProvisionalRegistrationResult(
         workspace=workspace,
         administrator=administrator,
-        verification=verification,
     )
 
 

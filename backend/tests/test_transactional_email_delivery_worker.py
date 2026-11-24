@@ -24,9 +24,12 @@ from app.db.auth_models import EmailVerificationToken, PasswordResetToken, User
 from app.db.platform_enums import (
     BackgroundJobStatus,
     BackgroundJobType,
+    InstallationStatus,
+    OnboardingStage,
     TransactionalEmailDeliveryStatus,
     TransactionalEmailEventType,
     TransactionalEmailScope,
+    WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import BackgroundJob, Installation, TransactionalEmailDelivery
 from app.notifications.email_provider import (
@@ -785,6 +788,220 @@ def test_already_verified_administrator_cancels_verification(
     assert delivery.retention_expires_at == delivery.canceled_at + timedelta(days=90)
     assert tokens(factory, EmailVerificationToken, user_id) == []
     assert transport.sent == []
+
+
+def set_workspace_lifecycle(
+    factory: sessionmaker[Session],
+    workspace_id: int,
+    *,
+    registration_status: WorkspaceRegistrationStatus | None = None,
+    onboarding_stage: OnboardingStage | None = None,
+    installation_status: InstallationStatus | None = None,
+) -> None:
+    with factory() as session:
+        workspace = session.get(Installation, workspace_id)
+        assert workspace is not None
+
+        if registration_status is not None:
+            workspace.registration_status = registration_status
+
+            if registration_status is WorkspaceRegistrationStatus.DELETION_PENDING:
+                requested_at = datetime.now(UTC)
+                workspace.deletion_requested_at = requested_at
+                workspace.deletion_scheduled_for = requested_at + timedelta(days=7)
+
+        if onboarding_stage is not None:
+            workspace.onboarding_stage = onboarding_stage
+
+        if installation_status is not None:
+            workspace.status = installation_status
+
+        session.commit()
+
+
+@pytest.mark.parametrize(
+    ("registration_status", "onboarding_stage"),
+    [
+        pytest.param(
+            WorkspaceRegistrationStatus.ACTIVE,
+            OnboardingStage.EMAIL_VERIFICATION_PENDING,
+            id="workspace-active",
+        ),
+        pytest.param(
+            WorkspaceRegistrationStatus.PROVISIONAL,
+            OnboardingStage.PROVIDER_SETUP_PENDING,
+            id="stage-past-verification",
+        ),
+        pytest.param(
+            WorkspaceRegistrationStatus.PROVISIONAL,
+            OnboardingStage.REGISTRATION_PENDING,
+            id="stage-before-verification",
+        ),
+        pytest.param(
+            WorkspaceRegistrationStatus.SUSPENDED,
+            OnboardingStage.EMAIL_VERIFICATION_PENDING,
+            id="workspace-suspended",
+        ),
+    ],
+)
+def test_verification_is_canceled_when_workspace_is_not_pending_verification(
+    factory: sessionmaker[Session],
+    registration_status: WorkspaceRegistrationStatus,
+    onboarding_stage: OnboardingStage,
+) -> None:
+    workspace_id, user_id, delivery_id, job_id, _address = seed_identity(factory, VERIFY)
+    set_workspace_lifecycle(
+        factory,
+        workspace_id,
+        registration_status=registration_status,
+        onboarding_stage=onboarding_stage,
+    )
+    transport = FakeTransport()
+
+    result = run_worker(factory, handler_for(transport, factory=factory), job_id)
+
+    delivery = load_delivery(factory, delivery_id)
+    assert result.succeeded is True
+    assert delivery.status is STATUS.CANCELED
+    assert delivery.attempt_count == 0
+    assert tokens(factory, EmailVerificationToken, user_id) == []
+    assert transport.sent == []
+
+
+@pytest.mark.parametrize(
+    ("registration_status", "installation_status"),
+    [
+        pytest.param(
+            WorkspaceRegistrationStatus.SUSPENDED,
+            InstallationStatus.ACTIVE,
+            id="registration-suspended",
+        ),
+        pytest.param(
+            WorkspaceRegistrationStatus.DELETED,
+            InstallationStatus.ACTIVE,
+            id="registration-deleted",
+        ),
+        pytest.param(
+            WorkspaceRegistrationStatus.ACTIVE,
+            InstallationStatus.SETUP_IN_PROGRESS,
+            id="installation-not-active",
+        ),
+    ],
+)
+def test_reset_is_canceled_when_workspace_fails_every_lifecycle_predicate(
+    factory: sessionmaker[Session],
+    registration_status: WorkspaceRegistrationStatus,
+    installation_status: InstallationStatus,
+) -> None:
+    workspace_id, user_id, delivery_id, job_id, _address = seed_identity(factory, RESET)
+    set_workspace_lifecycle(
+        factory,
+        workspace_id,
+        registration_status=registration_status,
+        installation_status=installation_status,
+    )
+    transport = FakeTransport()
+
+    result = run_worker(factory, handler_for(transport, factory=factory), job_id)
+
+    delivery = load_delivery(factory, delivery_id)
+    assert result.succeeded is True
+    assert delivery.status is STATUS.CANCELED
+    assert delivery.attempt_count == 0
+    assert tokens(factory, PasswordResetToken, user_id) == []
+    assert transport.sent == []
+
+
+def test_reset_is_canceled_for_unverified_administrator(
+    factory: sessionmaker[Session],
+) -> None:
+    _ws, user_id, delivery_id, job_id, _address = seed_identity(factory, RESET, verified=False)
+    transport = FakeTransport()
+
+    handler_for(transport, factory=factory)(snapshot(factory, job_id))
+
+    assert load_delivery(factory, delivery_id).status is STATUS.CANCELED
+    assert tokens(factory, PasswordResetToken, user_id) == []
+    assert transport.sent == []
+
+
+@pytest.mark.parametrize(
+    ("registration_status", "onboarding_stage", "installation_status"),
+    [
+        pytest.param(
+            WorkspaceRegistrationStatus.DELETION_PENDING,
+            OnboardingStage.COMPLETE,
+            InstallationStatus.ACTIVE,
+            id="deletion-pending",
+        ),
+        pytest.param(
+            WorkspaceRegistrationStatus.PROVISIONAL,
+            OnboardingStage.PROVIDER_SETUP_PENDING,
+            InstallationStatus.SETUP_IN_PROGRESS,
+            id="resumable-onboarding",
+        ),
+    ],
+)
+def test_reset_is_sent_for_deletion_pending_and_resumable_onboarding(
+    factory: sessionmaker[Session],
+    registration_status: WorkspaceRegistrationStatus,
+    onboarding_stage: OnboardingStage,
+    installation_status: InstallationStatus,
+) -> None:
+    workspace_id, user_id, delivery_id, job_id, address = seed_identity(factory, RESET)
+    set_workspace_lifecycle(
+        factory,
+        workspace_id,
+        registration_status=registration_status,
+        onboarding_stage=onboarding_stage,
+        installation_status=installation_status,
+    )
+    transport = FakeTransport([accepted("msg-reset")])
+
+    handler_for(transport, factory=factory)(snapshot(factory, job_id))
+
+    [message] = transport.sent
+    [token] = tokens(factory, PasswordResetToken, user_id)
+    assert message.recipient == address
+    assert token.token_hash == hash_token(token_from(message))
+    assert load_delivery(factory, delivery_id).status is STATUS.SENT
+
+
+def test_password_changed_is_sent_to_active_administrator_without_tokens(
+    factory: sessionmaker[Session],
+) -> None:
+    _ws, user_id, delivery_id, job_id, address = seed_identity(factory, CHANGED)
+    transport = FakeTransport([accepted("msg-changed")])
+
+    result = run_worker(factory, handler_for(transport, factory=factory), job_id)
+
+    [message] = transport.sent
+    assert result.succeeded is True
+    assert message.recipient == address
+    assert "token=" not in message.text_body
+    assert tokens(factory, EmailVerificationToken, user_id) == []
+    assert tokens(factory, PasswordResetToken, user_id) == []
+    assert load_delivery(factory, delivery_id).status is STATUS.SENT
+
+
+@pytest.mark.parametrize("event", [VERIFY, RESET, CHANGED])
+def test_identity_delivery_removed_with_user_is_safe_noop(
+    factory: sessionmaker[Session], event: TransactionalEmailEventType
+) -> None:
+    _ws, user_id, delivery_id, job_id, _address = seed_identity(factory, event)
+    job_snapshot = snapshot(factory, job_id)
+
+    with factory() as session:
+        session.delete(session.get(User, user_id))
+        session.commit()
+
+    transport = FakeTransport()
+    handler_for(transport, factory=factory)(job_snapshot)
+
+    assert transport.sent == []
+
+    with factory() as session:
+        assert session.get(TransactionalEmailDelivery, delivery_id) is None
 
 
 def test_terminal_delivery_is_idempotent_noop(factory: sessionmaker[Session]) -> None:

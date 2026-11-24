@@ -35,11 +35,13 @@ from app.auth.security import generate_account_token
 from app.core.settings import Settings
 from app.db.auth_models import User, UserRole
 from app.db.platform_enums import (
+    OnboardingStage,
     TransactionalEmailDeliveryStatus,
     TransactionalEmailEventType,
     TransactionalEmailScope,
+    WorkspaceRegistrationStatus,
 )
-from app.db.platform_models import TransactionalEmailDelivery
+from app.db.platform_models import Installation, TransactionalEmailDelivery
 from app.notifications.delivery_job_contract import validate_transactional_email_job_payload
 from app.notifications.email_provider import (
     EmailAcceptance,
@@ -69,6 +71,11 @@ from app.services.background_job_worker import (
     BackgroundJobDeferredError,
     BackgroundJobExecutionError,
     BackgroundJobSnapshot,
+)
+from app.services.workspace_lifecycle import (
+    is_active_workspace,
+    is_deletion_pending,
+    is_resumable_onboarding,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -479,15 +486,27 @@ class TransactionalEmailDeliveryHandler:
         ):
             raise _RecipientIneligible
 
-        if (
-            event is TransactionalEmailEventType.ADMINISTRATOR_EMAIL_VERIFICATION
-            and user.email_verified_at is not None
+        workspace = session.get(Installation, delivery.workspace_id)
+
+        if workspace is None:
+            raise _RecipientIneligible
+
+        if event is TransactionalEmailEventType.ADMINISTRATOR_EMAIL_VERIFICATION and (
+            user.email_verified_at is not None
+            or workspace.registration_status is not WorkspaceRegistrationStatus.PROVISIONAL
+            or workspace.onboarding_stage is not OnboardingStage.EMAIL_VERIFICATION_PENDING
         ):
             raise _RecipientIneligible
 
-        if (
-            event is TransactionalEmailEventType.ADMINISTRATOR_PASSWORD_RESET
-            and user.email_verified_at is None
+        # Mirrors the reset-request route: recovery stays available during
+        # resumable onboarding and the FR-20 deletion grace period.
+        if event is TransactionalEmailEventType.ADMINISTRATOR_PASSWORD_RESET and (
+            user.email_verified_at is None
+            or not (
+                is_active_workspace(workspace)
+                or is_resumable_onboarding(workspace)
+                or is_deletion_pending(workspace)
+            )
         ):
             raise _RecipientIneligible
 

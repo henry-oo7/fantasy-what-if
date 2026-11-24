@@ -29,7 +29,7 @@ from app.db.session import SessionFactory, engine
 from app.main import app
 from app.repositories.auth_repository import AuthenticationRepository
 from app.repositories.session_repository import SessionRepository
-from app.services.password_recovery import issue_password_reset_token
+from tests.support.identity_email import issue_password_reset_token
 
 TRUSTED_ORIGIN = "http://localhost:5173"
 ADMIN_PASSWORD = "correct horse battery staple"

@@ -28,10 +28,8 @@ from app.repositories.session_repository import (
     SessionRepository,
     SessionResolutionFailure,
 )
-from app.services.password_recovery import (
-    issue_password_reset_token,
-    reset_administrator_password,
-)
+from app.services.password_recovery import reset_administrator_password
+from tests.support.identity_email import issue_password_reset_token
 
 PASSWORD = "correct horse battery staple"
 

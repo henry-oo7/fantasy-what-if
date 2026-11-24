@@ -15,7 +15,6 @@ from app.api.auth_dependencies import (
     get_current_user,
     resolve_session_authentication_context,
 )
-from app.api.registration_dependencies import get_transactional_email_sender
 from app.db.auth_models import (
     AuthSession,
     AuthSessionPurpose,
@@ -43,9 +42,12 @@ from app.db.platform_models import (
 from app.db.session import SessionFactory
 from app.main import app
 from app.repositories.auth_repository import AuthenticationRepository
-from app.services.password_recovery import (
+from app.services.password_recovery import reset_administrator_password
+from tests.support.identity_email import (
+    PASSWORD_RESET,
+    deliver_and_extract_token,
+    identity_deliveries,
     issue_password_reset_token,
-    reset_administrator_password,
 )
 
 TRUSTED_ORIGIN = "http://localhost:5173"
@@ -78,17 +80,6 @@ class SeededWorkspace:
     administrator_id: int
     administrator_email: str
     spectator_id: int
-
-
-class CapturingEmailSender:
-    def __init__(self) -> None:
-        self.reset_tokens: list[str] = []
-
-    def send_email_verification(self, **_: str) -> None:
-        return None
-
-    def send_password_reset(self, *, password_reset_token: str, **_: str) -> None:
-        self.reset_tokens.append(password_reset_token)
 
 
 @pytest.fixture(autouse=True)
@@ -1104,26 +1095,29 @@ def test_password_reset_works_without_reactivation(
     put_in_deletion_pending(client, seeded)
     recovery_login(client, seeded)
     before = load_workspace(seeded.workspace_id)
-    sender = CapturingEmailSender()
-    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
 
-    try:
-        reset_request = client.post(
-            "/api/auth/password-reset/request",
-            headers=_pre_auth_headers(client),
-            json={"email": seeded.administrator_email},
-        )
-    finally:
-        app.dependency_overrides.pop(get_transactional_email_sender, None)
+    reset_request = client.post(
+        "/api/auth/password-reset/request",
+        headers=_pre_auth_headers(client),
+        json={"email": seeded.administrator_email},
+    )
 
     assert reset_request.status_code == status.HTTP_202_ACCEPTED
-    assert len(sender.reset_tokens) == 1
+
+    with SessionFactory() as session:
+        reset_deliveries = identity_deliveries(session, seeded.administrator_id, PASSWORD_RESET)
+
+        assert len(reset_deliveries) == 1
+
+        reset_delivery_id = reset_deliveries[0].id
+
+    reset_token = deliver_and_extract_token(reset_delivery_id)
 
     new_password = "brand new administrator password"
     completed = client.post(
         "/api/auth/password-reset/complete",
         headers=_pre_auth_headers(client),
-        json={"token": sender.reset_tokens[0], "new_password": new_password},
+        json={"token": reset_token, "new_password": new_password},
     )
 
     assert completed.status_code == status.HTTP_200_OK

@@ -16,7 +16,7 @@ const RESET_TOKEN = "example-reset-token-value";
 
 const REQUEST_ACCEPTED = {
   detail:
-    "If an eligible administrator account exists for that email address, password reset instructions have been sent.",
+    "If an eligible administrator account exists for that email address, password reset instructions will be sent. Check your email for the next step.",
   code: "password_reset_request_accepted",
 };
 
@@ -39,6 +39,41 @@ describe("password reset request", () => {
     expect(api.calls("POST /api/auth/password-reset/request")[0].headers.get("X-CSRF-Token")).toBe(
       "pre-auth-csrf",
     );
+  });
+
+  it("renders identical output for known and unknown emails with no polling", async () => {
+    async function acceptedMarkup(email: string) {
+      const api = createApiMock();
+      api.reply("POST /api/auth/password-reset/request", 202, REQUEST_ACCEPTED);
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const view = renderWithProviders(<AppRouter />, "/forgot-password");
+
+      await user.type(await screen.findByLabelText("Administrator email"), email);
+      await user.click(screen.getByRole("button", { name: "Send reset instructions" }));
+      await screen.findByRole("status");
+
+      const requestCount = api.requests.length;
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(api.requests).toHaveLength(requestCount);
+      expect(api.calls("POST /api/auth/password-reset/request")).toHaveLength(1);
+
+      const markup = view.container.innerHTML.replaceAll(email, "EMAIL");
+      view.unmount();
+
+      return markup;
+    }
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    try {
+      const known = await acceptedMarkup("known-administrator@example.test");
+      const unknown = await acceptedMarkup("unknown-person@example.test");
+
+      expect(unknown).toBe(known);
+      expect(known).not.toMatch(/has been sent|delivered|provider|job/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("handles throttling with Retry-After", async () => {

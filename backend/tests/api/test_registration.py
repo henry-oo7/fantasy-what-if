@@ -1,17 +1,15 @@
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.api.auth_dependencies import get_current_user
-from app.api.registration_dependencies import (
-    get_transactional_email_sender,
-)
 from app.core.settings import get_settings
 from app.db.auth_models import (
     AuthSession,
@@ -24,54 +22,32 @@ from app.db.platform_enums import (
     RegistrationMode,
     WorkspaceRegistrationStatus,
 )
-from app.db.platform_models import Installation
+from app.db.platform_models import BackgroundJob, Installation, TransactionalEmailDelivery
 from app.db.session import SessionFactory
 from app.main import app
-from app.notifications.transactional_email import (
-    TransactionalEmailDeliveryError,
-)
 from app.services.administrator_registration import (
     register_provisional_administrator,
+)
+from app.services.identity_email import (
+    registration_verification_key,
+    verification_resend_key,
+)
+from tests.support.identity_email import (
+    VERIFICATION,
+    deliver_and_extract_token,
+    email_jobs_for,
+    forbid_provider_and_network,
+    identity_deliveries,
+    issue_email_verification_token,
+    token_count,
 )
 
 TRUSTED_ORIGIN = "http://localhost:5173"
 
 
-class CapturingEmailSender:
-    def __init__(self) -> None:
-        self.messages: list[dict[str, str]] = []
-
-    def send_email_verification(
-        self,
-        *,
-        recipient_email: str,
-        recipient_display_name: str,
-        verification_token: str,
-    ) -> None:
-        self.messages.append(
-            {
-                "recipient_email": recipient_email,
-                "recipient_display_name": (recipient_display_name),
-                "verification_token": verification_token,
-            }
-        )
-
-
-class FailingEmailSender:
-    def send_email_verification(
-        self,
-        *,
-        recipient_email: str,
-        recipient_display_name: str,
-        verification_token: str,
-    ) -> None:
-        del (
-            recipient_email,
-            recipient_display_name,
-            verification_token,
-        )
-
-        raise TransactionalEmailDeliveryError("Synthetic delivery failure.")
+@pytest.fixture(autouse=True)
+def no_provider_or_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    return forbid_provider_and_network(monkeypatch)
 
 
 @pytest.fixture(autouse=True)
@@ -103,10 +79,6 @@ def client() -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
 
-    app.dependency_overrides.pop(
-        get_transactional_email_sender,
-        None,
-    )
     app.dependency_overrides.pop(
         get_settings,
         None,
@@ -232,12 +204,11 @@ def test_closed_registration_returns_stable_error(
 
 def test_open_registration_commits_before_email_delivery(
     client: TestClient,
+    no_provider_or_network: list[str],
 ) -> None:
     payload = registration_payload()
-    sender = CapturingEmailSender()
 
     app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
 
     csrf_token = issue_csrf(client)
 
@@ -265,13 +236,6 @@ def test_open_registration_commits_before_email_delivery(
         assert "verification_token" not in serialized
         assert "username" not in serialized
 
-        assert len(sender.messages) == 1
-        message = sender.messages[0]
-
-        assert message["recipient_email"] == payload["email"]
-        assert message["recipient_display_name"] == (payload["display_name"])
-        assert message["verification_token"]
-
         with SessionFactory() as session:
             user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
 
@@ -286,25 +250,39 @@ def test_open_registration_commits_before_email_delivery(
             assert workspace is not None
             assert workspace.slug == payload["workspace_slug"]
 
-            token = session.scalar(
-                select(EmailVerificationToken).where(EmailVerificationToken.user_id == user.id)
-            )
+            deliveries = identity_deliveries(session, user.id)
 
-            assert token is not None
-            assert message["verification_token"] != token.token_hash
+            assert len(deliveries) == 1
+            assert deliveries[0].event_type is VERIFICATION
+            assert deliveries[0].workspace_id == user.workspace_id
+
+            jobs = email_jobs_for(session, [deliveries[0].id])
+
+            assert len(jobs) == 1
+            assert jobs[0].payload == {
+                "version": 1,
+                "delivery_id": deliveries[0].id,
+            }
+            assert token_count(session, user.id) == 0
+
+        assert no_provider_or_network == []
     finally:
         delete_registration(
             email=payload["email"],
         )
 
 
-def test_email_failure_preserves_provisional_registration(
+def test_registration_succeeds_when_transactional_email_is_disabled(
     client: TestClient,
 ) -> None:
     payload = registration_payload()
 
-    app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: FailingEmailSender()
+    app.dependency_overrides[get_settings] = lambda: get_settings().model_copy(
+        update={
+            "registration_mode": RegistrationMode.OPEN,
+            "transactional_email_enabled": False,
+        }
+    )
 
     csrf_token = issue_csrf(client)
 
@@ -318,22 +296,20 @@ def test_email_failure_preserves_provisional_registration(
             json=payload,
         )
 
-        assert response.status_code == (status.HTTP_503_SERVICE_UNAVAILABLE)
+        assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {
-            "detail": (
-                "Registration was saved, but the verification "
-                "email could not be delivered. Request another "
-                "verification email to continue."
-            ),
-            "code": "email_delivery_unavailable",
-            "retryable": True,
+            "workspace_slug": payload["workspace_slug"],
+            "registration_status": "provisional",
+            "onboarding_stage": ("email_verification_pending"),
+            "verification_required": True,
         }
+        assert "email_delivery_unavailable" not in response.text
 
         with SessionFactory() as session:
             user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
 
             assert user is not None
-            assert user.workspace_id is not None
+            assert len(identity_deliveries(session, user.id)) == 1
     finally:
         delete_registration(
             email=payload["email"],
@@ -346,10 +322,8 @@ def test_duplicate_slug_returns_stable_conflict(
     first = registration_payload()
     second = registration_payload()
     second["workspace_slug"] = first["workspace_slug"]
-    sender = CapturingEmailSender()
 
     app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
 
     try:
         for payload in (first, second):
@@ -385,10 +359,8 @@ def test_registration_response_never_exposes_internal_username(
     client: TestClient,
 ) -> None:
     payload = registration_payload()
-    sender = CapturingEmailSender()
 
     app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
 
     csrf_token = issue_csrf(client)
 
@@ -414,13 +386,10 @@ def test_registration_response_never_exposes_internal_username(
 
 def register_for_verification(
     client: TestClient,
-    *,
-    sender: CapturingEmailSender,
 ) -> tuple[dict[str, str], str]:
     payload = registration_payload()
 
     app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
 
     csrf_token = issue_csrf(client)
     response = client.post(
@@ -433,11 +402,21 @@ def register_for_verification(
     )
 
     assert response.status_code == status.HTTP_201_CREATED
-    assert len(sender.messages) == 1
+
+    with SessionFactory() as session:
+        user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
+
+        assert user is not None
+
+        deliveries = identity_deliveries(session, user.id, VERIFICATION)
+
+        assert len(deliveries) == 1
+
+        delivery_id = deliveries[0].id
 
     return (
         payload,
-        sender.messages[0]["verification_token"],
+        deliver_and_extract_token(delivery_id),
     )
 
 
@@ -485,11 +464,7 @@ def test_email_verification_rejects_untrusted_origin(
 def test_email_verification_creates_onboarding_session(
     client: TestClient,
 ) -> None:
-    sender = CapturingEmailSender()
-    payload, verification_token = register_for_verification(
-        client,
-        sender=sender,
-    )
+    payload, verification_token = register_for_verification(client)
 
     csrf_token = issue_csrf(client)
 
@@ -552,11 +527,7 @@ def test_email_verification_creates_onboarding_session(
 def test_email_verification_token_is_single_use_at_api_boundary(
     client: TestClient,
 ) -> None:
-    sender = CapturingEmailSender()
-    payload, verification_token = register_for_verification(
-        client,
-        sender=sender,
-    )
+    payload, verification_token = register_for_verification(client)
 
     first_csrf = issue_csrf(client)
 
@@ -627,11 +598,7 @@ def test_invalid_email_verification_returns_stable_error(
 def test_verified_onboarding_session_cannot_access_analytics(
     client: TestClient,
 ) -> None:
-    sender = CapturingEmailSender()
-    payload, verification_token = register_for_verification(
-        client,
-        sender=sender,
-    )
+    payload, verification_token = register_for_verification(client)
 
     csrf_token = issue_csrf(client)
 
@@ -732,66 +699,102 @@ def test_verification_resend_rejects_untrusted_origin(
     }
 
 
-def test_verification_resend_replaces_prior_token(
+RESEND_ACCEPTED_BODY = {
+    "detail": (
+        "If an eligible administrator account exists for that email "
+        "address, verification instructions will be sent. Check your "
+        "email for the next step."
+    ),
+    "code": "verification_resend_accepted",
+}
+
+
+def test_registration_then_resend_reuses_pending_delivery(
     client: TestClient,
 ) -> None:
-    sender = CapturingEmailSender()
-    payload, original_token = register_for_verification(
-        client,
-        sender=sender,
-    )
+    payload = registration_payload()
+
+    app.dependency_overrides[get_settings] = open_registration_settings
 
     try:
+        assert post_registration(client, payload).status_code == status.HTTP_201_CREATED
+
+        response = resend_verification(client, email=payload["email"])
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json() == RESEND_ACCEPTED_BODY
+
+        with SessionFactory() as session:
+            user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
+            assert user is not None
+            deliveries = identity_deliveries(session, user.id, VERIFICATION)
+
+            assert len(deliveries) == 1
+            assert deliveries[0].idempotency_key == registration_verification_key(user.id)
+            assert len(email_jobs_for(session, [deliveries[0].id])) == 1
+            assert token_count(session, user.id) == 0
+    finally:
+        delete_registration(email=payload["email"])
+
+
+def test_verification_resend_does_not_invalidate_prior_token(
+    client: TestClient,
+    no_provider_or_network: list[str],
+) -> None:
+    payload, original_token = register_for_verification(client)
+
+    try:
+        with SessionFactory() as session:
+            user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
+            assert user is not None
+            user_id = user.id
+            first = identity_deliveries(session, user_id, VERIFICATION)[0]
+            first_id = first.id
+            tokens_before = token_count(session, user_id)
+
+        assert tokens_before == 1
+
         response = resend_verification(
             client,
             email=payload["email"],
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.json() == {
-            "detail": (
-                "If an eligible administrator account exists "
-                "for that email address, verification "
-                "instructions have been sent."
-            ),
-            "code": "verification_resend_accepted",
-        }
+        assert response.json() == RESEND_ACCEPTED_BODY
+        assert original_token not in response.text
 
-        assert len(sender.messages) == 2
-        replacement_token = sender.messages[-1]["verification_token"]
+        with SessionFactory() as session:
+            deliveries = identity_deliveries(session, user_id, VERIFICATION)
 
-        assert replacement_token != original_token
-        assert replacement_token not in response.text
+            assert [delivery.id for delivery in deliveries][0] == first_id
+            assert len(deliveries) == 2
+            assert deliveries[1].idempotency_key == verification_resend_key(user_id, first_id)
+            assert len(email_jobs_for(session, [deliveries[1].id])) == 1
+            # The route never creates a token.
+            assert token_count(session, user_id) == tokens_before
+            second_id = deliveries[1].id
+
+        # A second request while the resend delivery is pending reuses it.
+        repeated = resend_verification(
+            client,
+            email=payload["email"],
+        )
+
+        assert repeated.status_code == status.HTTP_202_ACCEPTED
+        assert repeated.json() == RESEND_ACCEPTED_BODY
+
+        with SessionFactory() as session:
+            deliveries = identity_deliveries(session, user_id, VERIFICATION)
+
+            assert [delivery.id for delivery in deliveries] == [first_id, second_id]
+            assert len(email_jobs_for(session, [first_id, second_id])) == 2
+            assert token_count(session, user_id) == tokens_before
 
         client.cookies.clear()
-        original_csrf = issue_csrf(client)
+        original_response = post_verification(client, original_token)
 
-        original_response = client.post(
-            "/api/registration/verify-email",
-            headers={
-                "Origin": TRUSTED_ORIGIN,
-                "X-CSRF-Token": original_csrf,
-            },
-            json={
-                "token": original_token,
-            },
-        )
-
-        assert original_response.status_code == (status.HTTP_400_BAD_REQUEST)
-
-        replacement_csrf = issue_csrf(client)
-        replacement_response = client.post(
-            "/api/registration/verify-email",
-            headers={
-                "Origin": TRUSTED_ORIGIN,
-                "X-CSRF-Token": replacement_csrf,
-            },
-            json={
-                "token": replacement_token,
-            },
-        )
-
-        assert replacement_response.status_code == (status.HTTP_200_OK)
+        assert original_response.status_code == status.HTTP_200_OK
+        assert no_provider_or_network == []
     finally:
         delete_registration(
             email=payload["email"],
@@ -801,9 +804,7 @@ def test_verification_resend_replaces_prior_token(
 def test_unknown_email_receives_same_resend_response(
     client: TestClient,
 ) -> None:
-    sender = CapturingEmailSender()
-
-    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
+    before = global_email_row_counts()
 
     response = resend_verification(
         client,
@@ -811,25 +812,23 @@ def test_unknown_email_receives_same_resend_response(
     )
 
     assert response.status_code == status.HTTP_202_ACCEPTED
-    assert response.json() == {
-        "detail": (
-            "If an eligible administrator account exists "
-            "for that email address, verification "
-            "instructions have been sent."
-        ),
-        "code": "verification_resend_accepted",
-    }
-    assert sender.messages == []
+    assert response.json() == RESEND_ACCEPTED_BODY
+    assert global_email_row_counts() == before
+
+
+def global_email_row_counts() -> tuple[int, int, int]:
+    with SessionFactory() as session:
+        return (
+            int(session.scalar(select(func.count()).select_from(TransactionalEmailDelivery)) or 0),
+            int(session.scalar(select(func.count()).select_from(BackgroundJob)) or 0),
+            int(session.scalar(select(func.count()).select_from(EmailVerificationToken)) or 0),
+        )
 
 
 def test_verified_email_receives_same_resend_response(
     client: TestClient,
 ) -> None:
-    sender = CapturingEmailSender()
-    payload, verification_token = register_for_verification(
-        client,
-        sender=sender,
-    )
+    payload, verification_token = register_for_verification(client)
 
     csrf_token = issue_csrf(client)
 
@@ -846,7 +845,7 @@ def test_verified_email_receives_same_resend_response(
         )
 
         assert verification.status_code == status.HTTP_200_OK
-        delivered_count = len(sender.messages)
+        before = resend_state(payload["email"])
 
         client.cookies.clear()
         response = resend_verification(
@@ -855,12 +854,102 @@ def test_verified_email_receives_same_resend_response(
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.json()["code"] == ("verification_resend_accepted")
-        assert len(sender.messages) == delivered_count
+        assert response.json() == RESEND_ACCEPTED_BODY
+        assert resend_state(payload["email"]) == before
     finally:
         delete_registration(
             email=payload["email"],
         )
+
+
+def resend_state(email: str) -> tuple[int, int, int]:
+    """Return (deliveries, jobs, tokens) committed for one administrator."""
+
+    with SessionFactory() as session:
+        user = session.scalar(select(User).where(User.normalized_email == email))
+
+        assert user is not None
+
+        deliveries = identity_deliveries(session, user.id)
+
+        return (
+            len(deliveries),
+            len(email_jobs_for(session, [delivery.id for delivery in deliveries])),
+            token_count(session, user.id),
+        )
+
+
+def mark_administrator(email: str, *, verified: bool, active: bool) -> None:
+    with SessionFactory() as session:
+        user = session.scalar(select(User).where(User.normalized_email == email))
+
+        assert user is not None
+
+        if verified:
+            user.email_verified_at = datetime.now(UTC)
+
+        user.is_active = active
+        session.commit()
+
+
+@pytest.mark.parametrize(
+    ("verified", "active", "workspace_status", "onboarding_stage"),
+    [
+        pytest.param(
+            True,
+            True,
+            WorkspaceRegistrationStatus.PROVISIONAL,
+            OnboardingStage.EMAIL_VERIFICATION_PENDING,
+            id="verified-admin",
+        ),
+        pytest.param(
+            False,
+            False,
+            WorkspaceRegistrationStatus.PROVISIONAL,
+            OnboardingStage.EMAIL_VERIFICATION_PENDING,
+            id="inactive-admin",
+        ),
+        pytest.param(
+            False,
+            True,
+            WorkspaceRegistrationStatus.ACTIVE,
+            OnboardingStage.EMAIL_VERIFICATION_PENDING,
+            id="workspace-not-provisional",
+        ),
+        pytest.param(
+            False,
+            True,
+            WorkspaceRegistrationStatus.PROVISIONAL,
+            OnboardingStage.PROVIDER_SETUP_PENDING,
+            id="stage-not-email-verification-pending",
+        ),
+    ],
+)
+def test_ineligible_resend_creates_nothing_and_returns_identical_response(
+    client: TestClient,
+    verified: bool,
+    active: bool,
+    workspace_status: WorkspaceRegistrationStatus,
+    onboarding_stage: OnboardingStage,
+) -> None:
+    payload, _ = committed_provisional_registration(
+        workspace_status=workspace_status,
+        onboarding_stage=onboarding_stage,
+    )
+
+    try:
+        mark_administrator(payload["email"], verified=verified, active=active)
+        before = resend_state(payload["email"])
+
+        response = resend_verification(client, email=payload["email"])
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json() == RESEND_ACCEPTED_BODY
+        assert resend_state(payload["email"]) == before
+        # The registration delivery and its job are the only rows.
+        assert before[:2] == (1, 1)
+    finally:
+        delete_registration(email=payload["email"])
 
 
 def test_verification_resend_is_limited_after_three_requests(
@@ -894,16 +983,14 @@ def test_verification_resend_is_limited_after_three_requests(
     assert 1 <= retry_after <= 60 * 60
 
 
-def test_resend_delivery_failure_remains_enumeration_safe(
+def test_resend_is_generic_when_transactional_email_is_disabled(
     client: TestClient,
 ) -> None:
-    sender = CapturingEmailSender()
-    payload, _ = register_for_verification(
-        client,
-        sender=sender,
-    )
+    payload, _ = register_for_verification(client)
 
-    app.dependency_overrides[get_transactional_email_sender] = lambda: FailingEmailSender()
+    app.dependency_overrides[get_settings] = lambda: get_settings().model_copy(
+        update={"transactional_email_enabled": False}
+    )
 
     try:
         response = resend_verification(
@@ -912,8 +999,8 @@ def test_resend_delivery_failure_remains_enumeration_safe(
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.json()["code"] == ("verification_resend_accepted")
-        assert "delivery" not in response.text.casefold()
+        assert response.json() == RESEND_ACCEPTED_BODY
+        assert "email_delivery_unavailable" not in response.text
     finally:
         delete_registration(
             email=payload["email"],
@@ -939,7 +1026,9 @@ def registration_row_counts(
     *,
     email: str,
     slugs: tuple[str, ...],
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int, int]:
+    """Return (workspaces, users, tokens, deliveries, jobs) for a registration."""
+
     with SessionFactory() as session:
         users = session.scalars(select(User).where(User.normalized_email == email)).all()
         user_ids = [user.id for user in users]
@@ -948,19 +1037,15 @@ def registration_row_counts(
             .unique()
             .all()
         )
-        token_count = (
-            len(
-                session.scalars(
-                    select(EmailVerificationToken).where(
-                        EmailVerificationToken.user_id.in_(user_ids)
-                    )
-                ).all()
-            )
-            if user_ids
-            else 0
-        )
+        token_total = sum(token_count(session, user_id) for user_id in user_ids)
+        delivery_ids = [
+            delivery.id
+            for user_id in user_ids
+            for delivery in identity_deliveries(session, user_id)
+        ]
+        job_total = len(email_jobs_for(session, delivery_ids))
 
-    return workspace_count, len(user_ids), token_count
+    return workspace_count, len(user_ids), token_total, len(delivery_ids), job_total
 
 
 def test_duplicate_email_registration_is_indistinguishable(
@@ -969,10 +1054,8 @@ def test_duplicate_email_registration_is_indistinguishable(
     first = registration_payload()
     second = registration_payload()
     second["email"] = first["email"]
-    sender = CapturingEmailSender()
 
     app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: sender
 
     try:
         created = post_registration(client, first)
@@ -981,7 +1064,7 @@ def test_duplicate_email_registration_is_indistinguishable(
             email=first["email"],
             slugs=(first["workspace_slug"], second["workspace_slug"]),
         )
-        assert before == (1, 1, 1)
+        assert before == (1, 1, 0, 1, 1)
 
         duplicate = post_registration(client, second)
 
@@ -999,8 +1082,8 @@ def test_duplicate_email_registration_is_indistinguishable(
             )
             == before
         )
-        # No informational email is sent yet for duplicate attempts.
-        assert len(sender.messages) == 1
+        # No informational email is queued yet for duplicate attempts.
+        assert before[2:] == (0, 1, 1)
     finally:
         delete_registration(email=first["email"])
 
@@ -1014,7 +1097,6 @@ def test_duplicate_slug_still_returns_conflict_with_duplicate_email(
     second["workspace_slug"] = first["workspace_slug"]
 
     app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: CapturingEmailSender()
 
     try:
         assert post_registration(client, first).status_code == status.HTTP_201_CREATED
@@ -1039,7 +1121,6 @@ def test_concurrent_duplicate_email_registrations_create_one_identity(
         payload["email"] = email
 
     app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: CapturingEmailSender()
 
     browsers = [TestClient(app) for _ in payloads]
     barrier = threading.Barrier(len(payloads))
@@ -1071,7 +1152,7 @@ def test_concurrent_duplicate_email_registrations_create_one_identity(
         assert registration_row_counts(
             email=email,
             slugs=tuple(payload["workspace_slug"] for payload in payloads),
-        ) == (1, 1, 1)
+        ) == (1, 1, 0, 1, 1)
     finally:
         for browser in browsers:
             browser.close()
@@ -1085,7 +1166,6 @@ def test_registration_submissions_are_throttled_per_source(
     payloads = [registration_payload() for _ in range(6)]
 
     app.dependency_overrides[get_settings] = open_registration_settings
-    app.dependency_overrides[get_transactional_email_sender] = lambda: CapturingEmailSender()
 
     try:
         for payload in payloads[:5]:
@@ -1104,7 +1184,7 @@ def test_registration_submissions_are_throttled_per_source(
         assert registration_row_counts(
             email=over_limit["email"],
             slugs=(over_limit["workspace_slug"],),
-        ) == (0, 0, 0)
+        ) == (0, 0, 0, 0, 0)
     finally:
         for payload in payloads:
             delete_registration(email=payload["email"])
@@ -1140,13 +1220,18 @@ def committed_provisional_registration(
             administrator_display_name=payload["display_name"],
             administrator_email=payload["email"],
             administrator_password=payload["password"],
-            verification_lifetime_hours=24,
         )
         result.workspace.registration_status = workspace_status
         result.workspace.onboarding_stage = onboarding_stage
+        session.flush()
+        issued = issue_email_verification_token(
+            session,
+            user=result.administrator,
+            lifetime_hours=24,
+        )
         session.commit()
 
-    return payload, result.verification.raw_token
+    return payload, issued.raw_token
 
 
 def verification_state(email: str) -> tuple[object, ...]:

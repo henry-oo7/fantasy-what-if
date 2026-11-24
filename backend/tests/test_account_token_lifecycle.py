@@ -31,14 +31,15 @@ from app.repositories.auth_repository import AuthenticationRepository
 from app.repositories.session_repository import SessionRepository
 from app.services.email_verification import (
     EmailVerificationError,
-    issue_email_verification_token,
     verify_administrator_email,
 )
 from app.services.password_recovery import (
     PasswordRecoveryError,
-    PasswordRecoveryStateError,
-    issue_password_reset_token,
     reset_administrator_password,
+)
+from tests.support.identity_email import (
+    issue_email_verification_token,
+    issue_password_reset_token,
 )
 
 
@@ -245,22 +246,6 @@ def test_expired_verification_token_is_rejected(
             database_session,
             raw_token=issued.raw_token,
             now=now + timedelta(hours=1),
-        )
-
-
-def test_password_reset_requires_verified_administrator(
-    database_session: Session,
-) -> None:
-    _, user = create_provisional_administrator(database_session)
-
-    with pytest.raises(
-        PasswordRecoveryStateError,
-        match="not verified",
-    ):
-        issue_password_reset_token(
-            database_session,
-            user=user,
-            lifetime_minutes=30,
         )
 
 

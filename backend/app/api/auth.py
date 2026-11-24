@@ -1,4 +1,3 @@
-import contextlib
 from typing import Annotated
 
 from fastapi import (
@@ -15,9 +14,6 @@ from app.api.auth_dependencies import (
     AuthenticationContext,
     require_any_purpose_session_csrf,
     resolve_session_authentication_context,
-)
-from app.api.registration_dependencies import (
-    get_transactional_email_sender,
 )
 from app.api.security import (
     require_pre_auth_csrf,
@@ -46,10 +42,6 @@ from app.core.settings import Settings, get_settings
 from app.db.auth_models import SessionRevocationReason, UserRole
 from app.db.platform_models import Installation
 from app.db.session import SessionFactory
-from app.notifications.transactional_email import (
-    TransactionalEmailDeliveryError,
-    TransactionalEmailSender,
-)
 from app.repositories.auth_repository import (
     AuthenticationRepository,
     normalize_email,
@@ -73,10 +65,10 @@ from app.schemas.auth import (
     SpectatorLoginRequest,
     WorkspaceLifecycleResponse,
 )
+from app.services.identity_email import queue_password_reset
 from app.services.password_recovery import (
     PasswordRecoveryError,
     PasswordRecoveryStateError,
-    issue_password_reset_token,
     reset_administrator_password,
 )
 from app.services.workspace_lifecycle import (
@@ -326,10 +318,6 @@ def request_administrator_password_reset(
         Settings,
         Depends(get_settings),
     ],
-    email_sender: Annotated[
-        TransactionalEmailSender,
-        Depends(get_transactional_email_sender),
-    ],
     _: Annotated[
         None,
         Depends(validate_request_origin),
@@ -339,19 +327,22 @@ def request_administrator_password_reset(
         Depends(require_pre_auth_csrf),
     ],
 ) -> PasswordResetRequestResponse | JSONResponse:
-    """Issue a reset token without disclosing account eligibility."""
+    """Queue reset delivery without disclosing account eligibility.
+
+    No token is created and no provider is called. Earlier reset tokens
+    stay valid until the worker's newer delivery is accepted.
+    """
 
     generic_response = PasswordResetRequestResponse(
         detail=(
             "If an eligible administrator account exists for "
             "that email address, password reset instructions "
-            "have been sent."
+            "will be sent. Check your email for the next step."
         ),
         code="password_reset_request_accepted",
     )
 
     normalized_email = normalize_email(payload.email)
-    delivery: tuple[str, str, str] | None = None
 
     with SessionFactory() as session:
         limit = RegistrationRateLimitRepository(
@@ -403,26 +394,9 @@ def request_administrator_password_reset(
                 or is_resumable_onboarding(workspace)
                 or is_deletion_pending(workspace)
             ):
-                issued = issue_password_reset_token(
-                    session,
-                    user=administrator,
-                    lifetime_minutes=(settings.password_reset_lifetime_minutes),
-                )
-                delivery = (
-                    administrator.email,
-                    administrator.display_name,
-                    issued.raw_token,
-                )
+                queue_password_reset(session, administrator=administrator)
 
         session.commit()
-
-    if delivery is not None:
-        with contextlib.suppress(TransactionalEmailDeliveryError):
-            email_sender.send_password_reset(
-                recipient_email=delivery[0],
-                recipient_display_name=delivery[1],
-                password_reset_token=delivery[2],
-            )
 
     return generic_response
 
@@ -446,7 +420,7 @@ def complete_administrator_password_reset(
         Depends(require_pre_auth_csrf),
     ],
 ) -> PasswordResetCompletionResponse | JSONResponse:
-    """Replace the password and revoke every administrator session."""
+    """Replace the password, revoke sessions, and queue the security notice."""
 
     del settings
 

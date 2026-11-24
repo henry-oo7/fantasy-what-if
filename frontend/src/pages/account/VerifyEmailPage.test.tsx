@@ -95,7 +95,7 @@ describe("email verification", () => {
     });
     api.reply("POST /api/registration/resend-verification", 202, {
       detail:
-        "If an eligible administrator account exists for that email address, verification instructions have been sent.",
+        "If an eligible administrator account exists for that email address, verification instructions will be sent. Check your email for the next step.",
       code: "verification_resend_accepted",
     });
     const user = userEvent.setup();
@@ -107,7 +107,40 @@ describe("email verification", () => {
 
     const status = await screen.findByRole("status");
     expect(status).toHaveTextContent("If an eligible administrator account exists");
-    expect(status.textContent).not.toMatch(/we sent|has been sent to your account/i);
+    expect(status.textContent).not.toMatch(/we sent|has been sent|delivered/i);
+    expect(status).toHaveTextContent("Check your email for the next step.");
+  });
+
+  it("makes exactly one resend request per submit, with no polling or delivery details", async () => {
+    const api = createApiMock();
+    api.reply("POST /api/registration/resend-verification", 202, {
+      detail:
+        "If an eligible administrator account exists for that email address, verification instructions will be sent. Check your email for the next step.",
+      code: "verification_resend_accepted",
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    try {
+      renderWithProviders(<AppRouter />, "/verify-email");
+
+      await user.type(await screen.findByLabelText("Registration email"), "administrator@example.test");
+      await user.click(screen.getByRole("button", { name: "Resend verification email" }));
+
+      const status = await screen.findByText(/If an eligible administrator account exists/);
+      const callsAfterSubmit = api.requests.length;
+      expect(api.calls("POST /api/registration/resend-verification")).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+
+      expect(api.requests).toHaveLength(callsAfterSubmit);
+      expect(api.calls("POST /api/registration/resend-verification")).toHaveLength(1);
+      expect(status.textContent).not.toMatch(
+        /provider|resend api|delivery|job|queued|attempt|[0-9a-f]{8}-[0-9a-f]{4}-/i,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("handles Retry-After on resend without exposing throttle details", async () => {

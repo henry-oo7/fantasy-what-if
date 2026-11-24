@@ -40,9 +40,11 @@ from app.services.administrator_registration import (
     RegistrationConflictError,
     register_provisional_administrator,
 )
-from app.services.password_recovery import (
+from app.services.password_recovery import reset_administrator_password
+from tests.support.identity_email import (
+    email_jobs_for,
+    identity_deliveries,
     issue_password_reset_token,
-    reset_administrator_password,
 )
 
 ADMIN_PASSWORD = "correct horse battery staple"
@@ -206,7 +208,6 @@ def registration_arguments(
         "administrator_display_name": "Concurrent Administrator",
         "administrator_email": email or f"concurrent-{suffix}@example.com",
         "administrator_password": ADMIN_PASSWORD,
-        "verification_lifetime_hours": 24,
     }
 
 
@@ -243,10 +244,16 @@ def test_concurrent_same_email_registration_permits_one_identity() -> None:
                     EmailVerificationToken.user_id.in_([user.id for user in users])
                 )
             ).all()
+            deliveries = identity_deliveries(session, users[0].id)
+            jobs = email_jobs_for(session, [delivery.id for delivery in deliveries])
 
         assert len(users) == 1
         assert [workspace.id for workspace in workspaces] == successes
-        assert len(tokens) == 1
+        # Registration queues one delivery and creates no token.
+        assert len(tokens) == 0
+        assert len(deliveries) == 1
+        assert deliveries[0].workspace_id == successes[0]
+        assert len(jobs) == 1
     finally:
         delete_registrations_by_slug(slugs)
 

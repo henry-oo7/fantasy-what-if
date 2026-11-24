@@ -5,7 +5,6 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth.security import hash_token
 from app.db.auth_models import (
     EmailVerificationToken,
     User,
@@ -17,7 +16,7 @@ from app.db.platform_enums import (
     RegistrationMode,
     WorkspaceRegistrationStatus,
 )
-from app.db.platform_models import Installation
+from app.db.platform_models import BackgroundJob, Installation, TransactionalEmailDelivery
 from app.db.session import engine
 from app.services.administrator_registration import (
     DuplicateAdministratorEmailError,
@@ -30,6 +29,8 @@ from app.services.administrator_registration import (
     normalize_workspace_slug,
     register_provisional_administrator,
 )
+from app.services.identity_email import registration_verification_key
+from tests.support.identity_email import VERIFICATION, email_jobs_for, identity_deliveries
 
 
 @pytest.fixture
@@ -68,11 +69,15 @@ def unique_registration() -> dict[str, str]:
 
 def registration_counts(
     session: Session,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int, int]:
+    """Return (workspaces, users, tokens, deliveries, email jobs)."""
+
     return (
         int(session.scalar(select(func.count(Installation.id))) or 0),
         int(session.scalar(select(func.count(User.id))) or 0),
         int(session.scalar(select(func.count(EmailVerificationToken.id))) or 0),
+        int(session.scalar(select(func.count(TransactionalEmailDelivery.id))) or 0),
+        int(session.scalar(select(func.count(BackgroundJob.id))) or 0),
     )
 
 
@@ -92,7 +97,6 @@ def test_open_registration_creates_atomic_provisional_identity(
     result = register_provisional_administrator(
         database_session,
         registration_mode=RegistrationMode.OPEN,
-        verification_lifetime_hours=24,
         now=timestamp,
         **values,
     )
@@ -115,15 +119,24 @@ def test_open_registration_creates_atomic_provisional_identity(
     assert result.administrator.username.startswith("admin-")
     assert values["administrator_email"] not in (result.administrator.username)
 
-    token = database_session.scalar(
-        select(EmailVerificationToken).where(
-            EmailVerificationToken.user_id == result.administrator.id
-        )
-    )
+    assert not hasattr(result, "verification")
 
-    assert token is not None
-    assert token.token_hash == hash_token(result.verification.raw_token)
-    assert token.token_hash != (result.verification.raw_token)
+    deliveries = identity_deliveries(database_session, result.administrator.id)
+
+    assert len(deliveries) == 1
+    assert deliveries[0].event_type is VERIFICATION
+    assert deliveries[0].idempotency_key == registration_verification_key(result.administrator.id)
+    assert deliveries[0].workspace_id == result.workspace.id
+    assert deliveries[0].user_id == result.administrator.id
+    assert len(email_jobs_for(database_session, [deliveries[0].id])) == 1
+    assert (
+        database_session.scalar(
+            select(func.count(EmailVerificationToken.id)).where(
+                EmailVerificationToken.user_id == result.administrator.id
+            )
+        )
+        == 0
+    )
     assert database_session.in_transaction()
 
 
@@ -147,7 +160,6 @@ def test_unavailable_registration_creates_no_state(
         register_provisional_administrator(
             database_session,
             registration_mode=registration_mode,
-            verification_lifetime_hours=24,
             **unique_registration(),
         )
 
@@ -162,7 +174,6 @@ def test_duplicate_email_leaves_no_partial_registration(
     register_provisional_administrator(
         database_session,
         registration_mode=RegistrationMode.OPEN,
-        verification_lifetime_hours=24,
         **first,
     )
 
@@ -174,7 +185,6 @@ def test_duplicate_email_leaves_no_partial_registration(
         register_provisional_administrator(
             database_session,
             registration_mode=RegistrationMode.OPEN,
-            verification_lifetime_hours=24,
             **second,
         )
 
@@ -189,7 +199,6 @@ def test_duplicate_slug_leaves_no_partial_registration(
     register_provisional_administrator(
         database_session,
         registration_mode=RegistrationMode.OPEN,
-        verification_lifetime_hours=24,
         **first,
     )
 
@@ -204,7 +213,6 @@ def test_duplicate_slug_leaves_no_partial_registration(
         register_provisional_administrator(
             database_session,
             registration_mode=RegistrationMode.OPEN,
-            verification_lifetime_hours=24,
             **second,
         )
 
