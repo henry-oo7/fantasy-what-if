@@ -17,6 +17,7 @@ from app.db.session import engine
 
 REVISION = "d7f2b9a4c6e1"
 PREVIOUS_REVISION = "c4e8a1f7d3b9"
+HEAD_REVISION = "a3c9e5f1b7d2"  # account-token delivery link; later than REVISION
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ID = 990_201
 PREVIOUS_JOB_TYPES = [
@@ -114,6 +115,11 @@ def at_head() -> Iterator[None]:
 
     upgrade = alembic("upgrade", "head")
     assert upgrade.returncode == 0, upgrade.stderr
+
+    # This module rehearses revision d7f2b9a4c6e1 itself, so step back from
+    # any later head. Later revisions have their own migration tests.
+    stepped_back = alembic("downgrade", REVISION)
+    assert stepped_back.returncode == 0, stepped_back.stderr
     assert current_revisions() == [REVISION]
 
     cleanup()
@@ -259,9 +265,13 @@ def test_safe_downgrade_preserves_jobs_and_round_trips(at_head: None) -> None:
     assert leftovers == []
     assert preserved == 1
 
-    upgrade = alembic("upgrade", "head")
+    upgrade = alembic("upgrade", REVISION)
     assert upgrade.returncode == 0, upgrade.stderr
     assert current_revisions() == [REVISION]
+
+    to_head = alembic("upgrade", "head")
+    assert to_head.returncode == 0, to_head.stderr
+    assert current_revisions() == [HEAD_REVISION]
 
     check = alembic("check")
     assert check.returncode == 0, check.stderr
@@ -270,4 +280,4 @@ def test_safe_downgrade_preserves_jobs_and_round_trips(at_head: None) -> None:
     heads = alembic("heads")
     head_lines = [line for line in heads.stdout.splitlines() if "(head)" in line]
     assert len(head_lines) == 1
-    assert head_lines[0].startswith(REVISION)
+    assert head_lines[0].startswith(HEAD_REVISION)

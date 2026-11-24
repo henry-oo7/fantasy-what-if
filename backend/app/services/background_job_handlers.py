@@ -23,6 +23,7 @@ from app.services.synchronization_job_contract import (
     SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
     synchronization_payload_contains_prohibited_names,
 )
+from app.services.transactional_email_delivery import TransactionalEmailDeliveryHandler
 from app.services.workspace_deletion_execution import WorkspaceDeletionJobHandler
 
 
@@ -100,6 +101,10 @@ def build_background_job_handlers(
         ),
         BackgroundJobType.WORKSPACE_DELETION: WorkspaceDeletionJobHandler(
             session_factory=session_factory,
+        ),
+        BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY: TransactionalEmailDeliveryHandler(
+            session_factory=session_factory,
+            settings=settings,
         ),
     }
 

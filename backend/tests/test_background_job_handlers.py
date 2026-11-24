@@ -16,6 +16,7 @@ from app.services.background_job_worker import (
     BackgroundJobSnapshot,
 )
 from app.services.onboarding_initial_sync import InitialWorkspaceSyncHandler
+from app.services.transactional_email_delivery import TransactionalEmailDeliveryHandler
 from app.services.workspace_deletion_execution import WorkspaceDeletionJobHandler
 
 
@@ -274,7 +275,7 @@ def test_handler_validates_before_synchronizing(
     )
 
 
-def test_handler_registry_contains_sync_and_workspace_deletion_jobs() -> None:
+def test_handler_registry_contains_sync_deletion_and_email_jobs() -> None:
     registry = MagicMock()
 
     handlers = build_background_job_handlers(
@@ -288,7 +289,12 @@ def test_handler_registry_contains_sync_and_workspace_deletion_jobs() -> None:
         BackgroundJobType.FULL_SEASON_SYNC,
         BackgroundJobType.INITIAL_WORKSPACE_SYNC,
         BackgroundJobType.WORKSPACE_DELETION,
+        BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY,
     }
+    assert isinstance(
+        handlers[BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY],
+        TransactionalEmailDeliveryHandler,
+    )
     assert isinstance(
         handlers[BackgroundJobType.WORKSPACE_DELETION],
         WorkspaceDeletionJobHandler,

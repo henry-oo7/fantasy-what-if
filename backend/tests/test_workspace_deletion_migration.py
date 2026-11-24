@@ -25,7 +25,7 @@ from app.db.session import engine
 
 REVISION = "c4e8a1f7d3b9"
 PREVIOUS_REVISION = "b7d41e9c2a10"
-HEAD_REVISION = "d7f2b9a4c6e1"  # transactional email schema; later than REVISION
+HEAD_REVISION = "a3c9e5f1b7d2"  # account-token delivery link; later than REVISION
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ID = 990_101
 USER_ID = 990_101
