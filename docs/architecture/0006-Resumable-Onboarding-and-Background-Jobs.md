@@ -1,8 +1,10 @@
 # 0006: Resumable Onboarding and Background Synchronization Jobs
 
+> **Partially superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Workspace ownership of jobs, claim-oriented onboarding, shared spectator setup, workspace activation, administrator-triggered workspace synchronization, and the workspace deletion job are superseded by the proof-first league import and league-season synchronization. The PostgreSQL job model, leases, retries, and idempotency mechanics are not superseded. Sections marked superseded are historical.
+
 ## Status
 
-Proposed
+Proposed; partially superseded by ADR 0010
 
 ## Date
 
@@ -265,6 +267,9 @@ A canceled job is terminal.
 The job system must reject invalid status transitions.
 
 ## Workspace Ownership
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
 
 Every tenant-owned job must have a non-null `workspace_id`.
 
@@ -580,6 +585,9 @@ The terminal job status and canonical transaction outcome are authoritative.
 
 ## Initial Onboarding State Machine
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
+
 The onboarding state machine is:
 
 ```text
@@ -645,6 +653,9 @@ If provider validation proves too slow for reliable HTTP execution, it may becom
 
 ### Implemented League Claim Step
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
+
 `GET /api/onboarding/provider/target` returns only the safe validated target: provider, League ID, initial season and access mode. It never returns credentials, ciphertext, key versions or usernames. `POST /api/onboarding/provider/claim` takes no ownership fields and is allowed only at `league_claim_pending`. It runs one transaction:
 
 1. Lock the workspace row and the active provider connection, and require a complete validated target.
@@ -681,6 +692,9 @@ Job success moves onboarding to `spectator_setup_pending` in the same transactio
 
 ### Implemented Spectator Setup Step
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
+
 Spectator setup follows successful initial synchronization. `GET /api/onboarding/spectator` returns only the workspace slug, the `configured` and `enabled` flags, and the onboarding stage.
 
 `POST /api/onboarding/spectator` accepts only the shared password, at `spectator_setup_pending`, for a verified provisional administrator. In one transaction it locks the workspace, creates the single spectator identity (generated internal username, no email, hashed password), and moves onboarding to `complete`. Registration stays provisional, and the installation is not activated.
@@ -688,6 +702,9 @@ Spectator setup follows successful initial synchronization. `GET /api/onboarding
 A repeat after success returns the configured state without replacing the password; later changes use workspace administration. Workspace activation is the next and final step.
 
 ### Implemented Workspace Activation Gate
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
 
 Activation is a separate final gate. `onboarding_stage = complete` is necessary but never sufficient.
 
@@ -716,6 +733,9 @@ Activation performs no provider I/O, decryption, synchronization or job work, an
 
 ## Atomic League Claim
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
+
 The provider league claim remains a short database transaction.
 
 The claim transaction must not include the full provider synchronization.
@@ -736,6 +756,9 @@ The target sequence is:
 The uniqueness constraint on provider identity is the concurrency authority.
 
 ## Duplicate Claim Outcome
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
 
 If league-claim insertion conflicts:
 
@@ -798,6 +821,9 @@ Claim release is governed by cleanup and deletion policy, not automatic synchron
 
 ## Workspace Activation
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
+
 The workspace becomes active only after:
 
 - Administrator email is verified.
@@ -815,6 +841,9 @@ The activation transaction must verify all invariants before updating workspace 
 
 ## Spectator Setup
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
+
 The initial product flow should require spectator-password configuration before activation.
 
 This preserves the product promise that every active workspace has:
@@ -829,6 +858,9 @@ If spectator setup is later made optional, ADR 0004 and the SaaS requirements mu
 Spectator setup is a short database transaction and does not require a background job.
 
 ## Onboarding Status API
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
 
 The frontend must read persisted onboarding status.
 
@@ -925,6 +957,9 @@ The scheduler must:
 A scheduled job must be indistinguishable from an administrator-triggered job at the canonical synchronization-handler boundary except for trigger metadata and authorization origin.
 
 ## Administrator-Triggered Synchronization
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
 
 An administrator request should:
 
@@ -1099,6 +1134,9 @@ Deleting old jobs must not delete canonical data or required audit events.
 Tenant-owned job and synchronization history is not retained past workspace deletion. Final workspace deletion removes it with the tenant, overriding the retention periods above. The anonymized `workspace_deletion_record`, retained for 365 days, is the durable completion authority.
 
 ## Workspace Deletion Job
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
 
 The `workspace_deletion` job follows FR-20 and ADR 0004.
 
@@ -1279,6 +1317,9 @@ The migration should proceed incrementally.
 
 ### Workspace Isolation Tests
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
+
 - A worker rejects a mismatched workspace and season.
 - Workspace A cannot read Workspace B's job.
 - Workspace A cannot cancel Workspace B's job.
@@ -1295,6 +1336,9 @@ The migration should proceed incrementally.
 - Credential failures do not loop automatically.
 
 ### Onboarding Tests
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the ADR 0010 import workflow and league-season synchronization. Retained as historical record.
+
 
 - Email verification precedes provider claiming.
 - Claim success creates exactly one initial-sync job.

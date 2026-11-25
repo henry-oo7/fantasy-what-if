@@ -1,8 +1,10 @@
 # 0004: League Workspace Multi-Tenancy and Data Ownership
 
+> **Superseded in full by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** The League Workspace, administrator and spectator roles, exclusive provider-league claims, workspace-scoped authorization, and workspace deletion described below are historical. Do not use this document for new work.
+
 ## Status
 
-Proposed
+Superseded by ADR 0010
 
 ## Date
 

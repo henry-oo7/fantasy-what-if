@@ -57,20 +57,24 @@ Use additional context only when needed to resolve a material uncertainty.
 
 ## Current Product Baseline
 
-The hosted multi-workspace SaaS is a new deployment. It does not
-migrate or preserve version-1 installation data.
+ADR 0010 (`docs/architecture/0010-Personal-Accounts-and-Shared-Canonical-Leagues.md`) governs the account and league model. Read it, and `AGENTS.md`, before account, league, access, import, or synchronization work.
 
-SaaS onboarding is the only supported setup path. The legacy setup
-wizard, bootstrap routes, username login, environment-based ESPN
-credential fallback, and single-installation runtime paths are retired.
+The hosted SaaS is a new deployment. It does not migrate or preserve version-1 installation data.
 
-Administrator authentication uses verified email. Spectator
-authentication uses the workspace slug and the administrator-managed
-shared spectator password. Generated usernames remain internal storage
-values only and are not login credentials.
+The target model is independent personal accounts (display name, email, password) backed by shared canonical league data:
 
-Always verify the current branch and worktree before editing. Do not
-alter unrelated changes without explicit authorization.
+- Email is the sole login identity. There is no normal administrator role, spectator role, League Workspace, workspace slug, workspace owner, shared spectator account, or shared password.
+- A provider league is a shared canonical resource. The first importer does not own it.
+- Authorization is persisted per user and league season. Every user proves access to every private season independently, and import verifies with the provider before persisting anything.
+- Provider credentials belong to the user who supplied them.
+- Synchronization is keyed by league season. No provider network call runs inside an open database transaction.
+- Removing a user's connection or deleting an account never deletes shared data while another user retains active access. Orphaned leagues are retained 30 days.
+- ESPN is the only implemented provider. Sleeper and Yahoo are not implemented and must not be described as functional.
+- Public registration remains closed until the account cutover, authorization, import, synchronization, and frontend selection flows are complete and validated. Current staging is not acceptance evidence for the retired workspace model.
+
+The code still contains the legacy workspace model until the roadmap cutover branches land. Treat it as the baseline being replaced, not as a contract to extend.
+
+Always verify the current branch and worktree before editing. Do not alter unrelated changes without explicit authorization.
 
 ## First-Session Restriction
 

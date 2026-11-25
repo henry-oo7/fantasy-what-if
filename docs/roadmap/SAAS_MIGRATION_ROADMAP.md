@@ -2,868 +2,147 @@
 
 ## Document Status
 
-- **Status:** Draft
-- **Baseline release:** v1.0.1
-- **Baseline commit:** `1dbb5c4`
-- **Target:** Hosted multi-tenant SaaS
+- **Status:** Draft, replaced for ADR 0010
+- **Governing decision:** `docs/architecture/0010-Personal-Accounts-and-Shared-Canonical-Leagues.md`
+- **Target:** Hosted SaaS of independent personal accounts and shared canonical leagues
 - **Initial hosting:** Henry's homelab
 - **Initial capacity target:** 50 to 100 registered users
 - **Initial sport:** Fantasy football
-- **Initial provider:** ESPN Fantasy Football
-- **Planned providers:** Sleeper and Yahoo Fantasy Sports
+- **Implemented provider:** ESPN Fantasy Football
+- **Intended public-launch providers:** Sleeper and Yahoo, **not implemented**
+- **Registration:** Public registration remains closed
 
 ## Purpose
 
-This roadmap defines the recommended implementation sequence for converting Fantasy What-If from a single self-hosted installation into a hosted multi-tenant SaaS.
+This roadmap defines the sequence that replaces the implemented League Workspace model with independent personal accounts backed by shared canonical league data (ADR 0010). It supersedes the earlier workspace-centered phase plan, which survives only in Git history and in the implemented-history section below.
 
-The roadmap is intentionally staged.
-
-The project must not attempt to introduce public registration, multi-tenancy, background jobs, provider expansion, mobile redesign, and production migration in one release.
-
-Each phase must preserve a working application and include:
-
-- Automated tests
-- Migration validation
-- Documentation updates
-- Development smoke testing
-- Production recovery planning
-- A coherent commit and merge boundary
+Each branch preserves a working application and includes automated tests, migration validation where applicable, documentation updates, and a coherent merge boundary.
 
 ## Governing Documents
 
-Implementation must remain consistent with:
-
-- `docs/product/SAAS_VISION.md`
-- `docs/product/SAAS_REQUIREMENTS.md`
-- `docs/architecture/0001-Portable-Multi-Provider-Fantasy-Platform.md`
-- `docs/architecture/0002-Canonical-Seasons-and-Historical-Analytics.md`
-- `docs/architecture/0003-Canonical-Provider-Synchronization.md`
-- `docs/architecture/0004-League-Workspace-Multi-Tenancy.md`
-- `docs/architecture/0005-SaaS-Identity-Registration-and-Sessions.md`
-- `docs/architecture/0006-Resumable-Onboarding-and-Background-Jobs.md`
-- `docs/architecture/0007-SaaS-Provider-Data-and-Credential-Strategy.md`
-- `docs/architecture/0008-Homelab-SaaS-Deployment-and-Recovery.md`
-
-When implementation reveals a conflict or missing decision, update the governing documentation before silently changing the architecture.
+1. `AGENTS.md`
+2. `docs/architecture/0010-Personal-Accounts-and-Shared-Canonical-Leagues.md`
+3. `docs/product/SAAS_REQUIREMENTS.md`
+4. `docs/architecture/SAAS_TARGET_ARCHITECTURE.md`
+5. ADRs 0001, 0003, 0008, 0009, and the non-superseded parts of ADRs 0002, 0005, 0006, 0007
+6. ADR 0004 is superseded and historical
 
 ## Migration Principles
 
-### New Hosted Deployment
+- **New hosted deployment.** No v1 data is migrated or preserved.
+- **Add before removing.** The canonical access schema lands before behavior changes. The workspace schema is retired only after the account-only cutover and the frontend switcher are validated.
+- **Keep main deployable.** Every branch leaves main working.
+- **Prove authorization before opening registration.** Cross-user negative tests precede any registration reopening.
+- **Prove recovery before public launch.** Backup, restore, and rollback are exercised.
+- **No provider network call inside an open transaction.** Branch 1 fixes the existing violation first.
+- **No unsupported provider claims.** Sleeper and Yahoo are described as unimplemented until their branches merge and validate.
 
-The hosted multi-workspace SaaS is initialized as a new deployment.
-
-Existing version-1 single-installation databases are not migrated, backfilled, or preserved as League Workspaces in the hosted deployment.
-
-Backfill steps that remain in earlier phases are historical: they described development databases that still contained a legacy installation. They are not a production requirement. The hosted deployment decision in `SAAS_REQUIREMENTS.md` is authoritative, and the v1 production migration plan is superseded.
-
-### Add Before Removing
-
-The migration should generally follow:
-
-1. Add new structures.
-2. Backfill existing data.
-3. Validate the backfill.
-4. Add constraints.
-5. Switch application behavior.
-6. Remove obsolete compatibility behavior later.
-
-Do not combine destructive cleanup with the first release that depends on new ownership structures.
-
-### Keep Main Deployable
-
-Every merged phase should leave `main`:
-
-- Testable
-- Migratable
-- Deployable
-- Documented
-- Recoverable
-
-### Use Vertical Slices
-
-Implementation work should be grouped into complete vertical slices with one feature branch and one coherent merge at the end of each slice.
-
-A slice should include all required:
-
-- Models
-- Migrations
-- Repositories
-- Services
-- API contracts
-- Frontend behavior
-- Tests
-- Documentation
-
-### Prove Isolation Before Registration
-
-Public registration must remain disabled until automated tests prove that two workspaces cannot access each other's data.
-
-### Prove Recovery Before Public Launch
-
-Public registration must remain disabled until:
-
-- Automated backups run successfully.
-- An off-host backup exists.
-- A restore test succeeds.
-- Provider credentials can be decrypted after restoration.
-- Registration can be disabled operationally.
-- Queue and synchronization failures generate alerts.
-
-## High-Level Sequence
+## Branch Sequence
 
 ```text
-Phase 0: Documentation and design baseline
-Phase 1: Pre-migration audit and test foundation
-Phase 2: Workspace ownership schema
-Phase 3: Tenant-aware authentication and authorization
-Phase 4: Workspace-scoped reads and analytics
-Phase 5: Provider league claims
-Phase 6: PostgreSQL-backed background jobs
-Phase 7: Resumable SaaS registration and onboarding
-Phase 8: ESPN SaaS hardening
-Phase 9: Homelab SaaS operations
-Phase 10: Private multi-tenant beta
-Phase 11: Sleeper provider
-Phase 12: Mobile-web refinement
-Phase 13: Yahoo provider
-Phase 14: Public registration
-Phase 15: Native-app foundation and cloud-readiness review
+0.  docs/personal-account-league-model
+1.  fix/sync-fetch-outside-transaction
+2.  feature/canonical-league-access-schema
+3.  feature/league-import-service
+4.  feature/league-season-sync-orchestration
+5.  feature/league-season-authorization
+6.  feature/account-only-identity-cutover
+7.  feature/frontend-league-switcher
+8.  feature/account-deletion-and-league-retention
+9.  chore/retire-workspace-schema
+10. feature/canonical-player-identity
+11. feature/league-scoring-profiles
+12. feature/sleeper-provider
+13. feature/yahoo-provider
 ```
 
-## Phase 0: Documentation and Design Baseline
-
-### Objective
-
-Finalize the product and architecture baseline before implementation.
-
-### Deliverables
-
-- SaaS vision
-- SaaS requirements
-- Multi-tenancy ADR
-- Identity and registration ADR
-- Background jobs ADR
-- Provider strategy ADR
-- Homelab deployment ADR
-- Migration roadmap
-- Target system design
-- Initial data model
-- API transition plan
-- Production migration plan
+The independent NFL-statistics pipeline remains a separately estimated project and is not a numbered branch.
 
-### Required Decisions
+### Branch 0: `docs/personal-account-league-model`
 
-Before leaving Phase 0, confirm:
+Documentation only. Creates ADR 0010, marks ADR 0004 superseded, annotates ADRs 0002, 0005, 0006, and 0007, and rewrites `AGENTS.md`, `CLAUDE.md`, the requirements, the target architecture, and this roadmap.
 
-- League Workspace is the tenant boundary.
-- One administrator exists per workspace.
-- One shared spectator exists per workspace.
-- Administrator login uses verified email.
-- Spectator login uses workspace slug and shared password.
-- One administrator session remains active at a time.
-- Spectator sessions may be concurrent.
-- Provider league claims are globally exclusive by provider and normalized league ID.
-- PostgreSQL-backed jobs are the initial queue.
-- The hosted SaaS initializes as a new deployment without migrating v1 installation data.
-- Public registration remains disabled during migration.
+Exit: documents are consistent, ADR 0010 is linked from every superseded ADR, and registration remains closed in all launch language.
 
-### Exit Criteria
+### Branch 1: `fix/sync-fetch-outside-transaction`
 
-- Documentation passes `git diff --check`.
-- No unresolved contradiction exists among the SaaS documents.
-- Major unresolved decisions are explicitly listed.
-- The documentation branch is reviewed and merged.
+Move provider fetches out of open database transactions in the existing synchronization path: short load transaction, fetch with no transaction, short persistence transaction under the season advisory lock.
 
-## Phase 1: Pre-Migration Audit and Test Foundation
+Exit: tests prove no provider call occurs inside an open transaction and existing behavior is preserved.
 
-### Objective
+### Branch 2: `feature/canonical-league-access-schema`
 
-Make the current single-installation assumptions measurable before modifying the schema.
+Additive migration: user-owned provider connection reference, `user_league_season_access` (unique on user and season), canonical uniqueness on provider and normalized league ID, `orphaned_at`, season sync lifecycle fields, and `user_preferences`. Migration rehearsal per the validation standard.
 
-### Deliverables
+Exit: single Alembic head, upgrade and downgrade clean, constraints proven.
 
-- Read-only pre-migration audit command
-- Multi-workspace test fixture foundation
-- Existing production cardinality checks
-- Catalog of global single-installation queries
-- Catalog of global lock keys
-- Catalog of unscoped repository methods
-- Baseline database snapshot test
-- Migration rehearsal database
+### Branch 3: `feature/league-import-service`
 
-### Pre-Migration Audit
+Proof-first import: T0 throttle, provider proof with no transaction, uniform failure, atomic T1. Idempotent repeats, concurrent-import safety, safe coordination with orphan purge.
 
-Retired. The read-only v1 migration audit command was removed with the single-installation paths because no v1 database is migrated.
+Exit: concurrency tests yield one league, one season, one access row per user, and at most one active job. Failed proof persists nothing.
 
-### Global Assumption Inventory
+### Branch 4: `feature/league-season-sync-orchestration`
 
-Search for and classify code that assumes:
+Replace workspace synchronization with league-season synchronization: `league-season-sync:{season_id}` key, credential selection through active access and active user-owned connections, anonymous public synchronization, sync states, data-version comparison, and no secrets or owner identity in payloads or status.
 
-```text
-Exactly one installation
-Exactly one active installation
-Exactly one league
-The first installation row
-The first provider connection
-Global spectator lookup
-Global sync-status lookup
-Global setup status
-Global advisory lock key
-```
+Exit: one active job per season, status responses disclose nothing about credential ownership.
 
-### Test Foundation
+### Branch 5: `feature/league-season-authorization`
 
-Add fixtures for:
+Per-user, per-season authorization on every league-data endpoint, uniform inaccessible-resource responses, seven-day reverification with the non-revoking outcome rules, and cross-user negative tests.
 
-```text
-Workspace A
-├── Administrator A
-├── Spectator A
-├── Provider Connection A
-├── League A
-└── Season A
+Exit: cross-user suite passes for every league-data endpoint.
 
-Workspace B
-├── Administrator B
-├── Spectator B
-├── Provider Connection B
-├── League B
-└── Season B
-```
+### Branch 6: `feature/account-only-identity-cutover`
 
-No production behavior changes in this phase.
+Personal-account registration (display name, email, password, confirm), email-only login, concurrent sessions, all-session revocation on reset. Retire administrator and spectator login, workspace slug login, claim onboarding, spectator setup, and activation.
 
-### Exit Criteria
+Exit: no role-based or workspace-based login path remains reachable. **Public registration stays closed.**
 
-- Complete backend tests pass.
-- Complete frontend tests pass.
-- Pre-migration audit passes against a production-like snapshot.
-- Two-workspace test fixtures are available.
-- All known global assumptions are cataloged.
+### Branch 7: `feature/frontend-league-switcher`
 
-## Phase 2: Workspace Ownership Schema
+Connected-leagues list, league and season switcher, import another league, default-season preference, empty-account and import states, synchronization states, owner-only reconnection messaging, season-isolated query cache. Retire the admin page and single-current-league assumptions.
 
-### Objective
+Exit: frontend tests and 320-pixel layout pass.
 
-Add explicit tenant ownership while preserving existing behavior.
+### Branch 8: `feature/account-deletion-and-league-retention`
 
-### Primary Migration
+Remove league connection, account deletion with shared-data safety, orphan marking, 30-day retention, revival on re-import, and the purge job with a zero-active-access recheck under lock. Integrate durable deletion email (ADR 0009).
 
-Add nullable workspace ownership to `users`.
+Exit: deletion and purge race tests pass.
 
-Conceptual field:
+### Branch 9: `chore/retire-workspace-schema`
 
-```text
-users.workspace_id
-```
+Remove `workspace_id`, `role`, `username`, workspace and claim tables, and administrator and spectator constraints, after the earlier branches are validated.
 
-Map the field to the existing `installations` table during the first migration.
+Exit: migration rehearsal passes and no workspace code remains.
 
-Backfill the existing administrator and spectator to the current installation.
+### Branch 10: `feature/canonical-player-identity`
 
-### Workspace Slug
+`nfl_players`, `provider_player_mappings`, unresolved mappings, and season-aware affiliation. Not a blocker for the account cutover.
 
-Add:
+### Branch 11: `feature/league-scoring-profiles`
 
-```text
-installations.slug
-installations.normalized_slug
-```
+League-season scoring configuration, normalized representation, normalizer version, and deterministic scoring-profile fingerprint with profile reuse. Launch continues to use ESPN provider-supplied points.
 
-Development databases that still contain a legacy installation receive a development slug during migration. The hosted SaaS deployment starts empty and requires no production slug backfill.
+### Branch 12: `feature/sleeper-provider`
 
-### Account Constraints
+Research first. Establish identity, authentication, privacy, and season behavior from evidence, then implement against the canonical provider contract. Not supported until merged and validated.
 
-After backfill validation, add:
+### Branch 13: `feature/yahoo-provider`
 
-- One administrator per workspace partial unique index
-- One spectator per workspace partial unique index
-- Non-null user workspace ownership
-- Workspace-slug uniqueness
-- Supporting indexes
+OAuth state and callback validation, token storage and refresh, revocation, league-key identity, scopes, and reauthorization. Requires a later consequential network and deployment review of OAuth callback exposure. Not supported until merged and validated.
 
-### Identity Fields
+## Separately Estimated Project: NFL Statistics
 
-Add or formalize:
+Independent NFL-statistics ingestion (source selection, licensing, corrections, player matching, defensive scoring, unusual bonuses, rounding, and long-term calculated points keyed by player, season, week, scoring-profile fingerprint, and calculator version) is not launch-critical for the account pivot and has its own estimate.
 
-```text
-users.email_verified_at
-```
+## Homelab Operations (Carried Forward)
 
-If required by the final implementation, add:
+The deployment and recovery work of ADR 0008 continues unchanged by this model change: automated off-host backups, isolated restore tests, external alerts, queue visibility, immediate registration disable, maintenance mode, incident runbooks, and documented rollback.
 
-```text
-users.normalized_email
-```
-
-Do not remove the existing username field in this phase.
-
-### Tests
-
-- Existing users backfill correctly.
-- Two workspaces may each have an administrator.
-- Two workspaces may each have a spectator.
-- One workspace cannot have two administrators.
-- One workspace cannot have two spectators.
-- Existing password hashes remain valid.
-- Existing IDs remain unchanged.
-
-### Exit Criteria
-
-- Existing development data migrates into one valid workspace. The hosted SaaS deployment requires no production data migration.
-- Workspace ownership is non-null for every user.
-- Cardinality constraints pass.
-- The application still operates using compatibility paths.
-- Rollback or forward-recovery steps are documented.
-
-## Phase 3: Tenant-Aware Authentication and Authorization
-
-### Objective
-
-Resolve workspace context for every protected request.
-
-### Authentication Context
-
-Introduce a workspace-aware authentication context containing:
-
-```text
-user_id
-workspace_id
-role
-session_id
-```
-
-### Administrator Login
-
-Transition administrator authentication to:
-
-```text
-email
-password
-```
-
-Username login has been removed. `POST /api/auth/login`, its schemas, service path, tests, and frontend types were retired together; the route now returns ordinary 404 routing behavior. No v1 administrator is migrated, so no sunset window was required.
-
-### Spectator Login
-
-Introduce spectator authentication using:
-
-```text
-workspace_slug
-spectator_password
-```
-
-### Session Policies
-
-Implement:
-
-- Administrator session replacement
-- Concurrent spectator sessions
-- Revocation on spectator password reset
-- Revocation on spectator disablement
-- Revocation on workspace suspension
-- Safe `session_replaced` handling
-
-### Authorization Dependencies
-
-Introduce explicit dependencies for:
-
-- Authenticated workspace member
-- Workspace administrator
-- Workspace spectator
-- Active workspace
-- Provisional onboarding administrator
-
-### Tests
-
-- Administrator B login does not revoke Administrator A.
-- A second Administrator A login revokes the first session.
-- Failed Administrator A login does not revoke the active session.
-- Multiple Spectator A sessions remain active.
-- Spectator A cannot access administrator routes.
-- User A cannot construct a context for Workspace B.
-- Suspended workspaces cannot create new sessions.
-- Session replacement returns a safe error.
-
-### Exit Criteria
-
-- Every protected route resolves workspace context.
-- Administrator-session replacement works.
-- Spectator concurrency works.
-- Existing security controls remain enabled.
-- Cross-workspace authentication tests pass.
-
-## Phase 4: Workspace-Scoped Reads and Analytics
-
-### Objective
-
-Remove authorization dependence on globally selected installation state.
-
-### Repository Changes
-
-Every workspace-owned repository must either:
-
-- Accept `workspace_id`, or
-- Accept a resource already proved to belong to the workspace
-
-Unsafe direct lookups must be replaced.
-
-Example unsafe pattern:
-
-```python
-session.get(
-    Season,
-    season_id,
-)
-```
-
-Preferred pattern:
-
-```python
-select(Season)
-.join(League)
-.where(
-    Season.id == season_id,
-    League.installation_id == workspace_id,
-)
-```
-
-### Scope
-
-Convert:
-
-- Dashboard
-- League inventory
-- Season selection
-- All-Play standings
-- League Average
-- Schedule Swap
-- Optimal Lineups
-- Playoff Predictor
-- Synchronization status
-- Standings tiebreaker configuration
-
-### Active Context
-
-Active league and season selection must resolve from the authenticated workspace.
-
-No request may resolve the globally active installation.
-
-### Cross-Tenant Tests
-
-For every analytics endpoint:
-
-1. Create data for Workspace A.
-2. Create data for Workspace B.
-3. Authenticate as Workspace A.
-4. Request Workspace B's internal resource ID.
-5. Verify a safe not-found or forbidden response.
-6. Verify no information about Workspace B is returned.
-
-### Exit Criteria
-
-- All analytics support two workspaces.
-- Internal ID substitution cannot bypass ownership.
-- No ordinary request queries for the one installation globally.
-- Full backend and frontend suites pass.
-
-## Phase 5: Provider League Claims
-
-### Objective
-
-Make provider league ownership globally exclusive and race-safe.
-
-### Schema
-
-Add `provider_league_claims`.
-
-Conceptual fields:
-
-```text
-id
-workspace_id
-provider
-normalized_provider_league_id
-original_provider_league_id
-identity_version
-status
-claimed_at
-released_at
-created_at
-updated_at
-```
-
-### Constraints
-
-Enforce active uniqueness by:
-
-```text
-provider
-normalized_provider_league_id
-```
-
-### Provider Normalization
-
-Implement and test normalization for:
-
-- ESPN league IDs
-- Sleeper league IDs
-- Yahoo league keys
-
-Sleeper and Yahoo may remain unavailable in the UI until integrations are complete.
-
-### Development Backfill
-
-The hosted SaaS deployment starts empty and requires no production claim backfill.
-
-Development databases that still contain a legacy league may derive its ESPN claim.
-
-The migration must fail safely if the claim cannot be derived or conflicts.
-
-### Claim Service
-
-Create a transaction-safe claim service that:
-
-- Normalizes identity
-- Inserts the claim
-- Converts a uniqueness violation into `provider_league_already_claimed`
-- Returns no existing-owner information
-- Creates no partial dependent state on conflict
-
-### Concurrency Test
-
-Run two transactions attempting to claim the same provider league.
-
-Verify:
-
-```text
-One succeeds
-One receives conflict
-Exactly one claim exists
-No partial losing workspace state remains
-```
-
-### Exit Criteria
-
-- Legacy leagues in development databases have claims. The hosted deployment requires no claim backfill.
-- Duplicate claims are rejected atomically.
-- Different providers may use the same textual ID.
-- Safe conflict response is tested.
-- No owner details leak.
-
-## Phase 6: PostgreSQL-Backed Background Jobs
-
-### Objective
-
-Move long provider operations out of HTTP requests.
-
-### Schema
-
-Add `background_jobs` with:
-
-- Workspace ownership
-- Job type
-- Status
-- Priority
-- Idempotency key
-- Versioned payload
-- Progress
-- Attempts
-- Availability time
-- Lease
-- Worker identity
-- Safe error fields
-- Terminal timestamps
-
-### Worker
-
-Add a worker entry point.
-
-Conceptual command:
-
-```text
-python -m app.scripts.run_worker
-```
-
-Implement:
-
-- `FOR UPDATE SKIP LOCKED`
-- Leases
-- Heartbeats
-- Graceful shutdown
-- Retry classification
-- Exponential backoff
-- Jitter
-- Idempotency
-- Safe progress
-- Workspace verification
-
-### Job Types
-
-Implement in this order:
-
-1. Incremental season synchronization
-2. Full season synchronization
-3. Historical season import
-4. Initial workspace synchronization
-
-### API Changes
-
-Administrator synchronization and historical import should return:
-
-```text
-HTTP 202 Accepted
-```
-
-with a job identifier.
-
-### Frontend Changes
-
-Replace long-request recovery as the normal synchronization path with:
-
-- Job creation
-- Persisted status polling
-- Progress display
-- Safe retry guidance
-- Existing-job reuse
-
-### Exit Criteria
-
-- API requests do not remain open for full synchronization duration.
-- Accepted jobs survive API restart.
-- Worker restart recovers safe jobs.
-- Job payloads contain no secrets.
-- One workspace's job cannot access another workspace.
-- Existing synchronization functionality remains correct.
-
-## Phase 7: Resumable SaaS Registration and Onboarding
-
-### Objective
-
-Replace the one-time installation bootstrap with public tenant-aware registration.
-
-### Registration State
-
-Implement provisional workspace lifecycle states.
-
-### Email
-
-Add:
-
-- Administrator email verification
-- Verification-token hashing
-- Verification expiration
-- Verification resend throttling
-- Password-reset token hashing
-- Password-reset expiration
-- Generic recovery responses
-- Durable asynchronous delivery and a response-time floor (ADR 0009)
-
-### Registration Controls
-
-Implement backend-enforced modes:
-
-```text
-open
-closed
-maintenance
-```
-
-Keep production registration `closed` during initial development and migration.
-
-### Onboarding Flow
-
-Implement:
-
-1. Administrator registration
-2. Provisional workspace creation
-3. Email verification
-4. Onboarding administrator session
-5. Provider selection
-6. Provider validation
-7. Atomic league claim
-8. Initial-sync job creation
-9. Synchronization progress
-10. Spectator password setup
-11. Workspace activation
-
-### Duplicate Claim Cleanup
-
-When claim insertion conflicts:
-
-- Remove provisional workspace
-- Remove provisional administrator
-- Revoke onboarding session
-- Remove temporary provider credentials
-- Create no synchronization job
-- Return the safe conflict response
-
-### Cleanup
-
-Implement bounded cleanup for:
-
-- Unverified registrations
-- Abandoned provisional workspaces
-- Expired verification tokens
-- Expired password-reset tokens
-- Expired onboarding sessions
-
-### Exit Criteria
-
-- A new workspace can complete onboarding in development.
-- Onboarding survives browser refresh and reconnect.
-- Duplicate claims leave no tenant state.
-- Initial synchronization runs through the worker.
-- Workspace activation validates all invariants.
-- Registration remains disabled in production.
-
-### Explicit Deferrals From the Registration Foundation
-
-The registration-foundation slice deliberately defers the following work. Each item has a required completion point.
-
-- **Session-replacement signaling:** Implemented by the session-lifecycle slice. Every session revocation now persists an explicit reason in `auth_sessions.revocation_reason` (`replaced`, `logout`, `password_reset`, `spectator_password_reset`, or `spectator_disabled`). A replaced, unexpired administrator session receives HTTP 401 with the stable `session_replaced` code. Every other failure, including rows revoked before the reason column existed, keeps the generic unauthenticated response.
-- **Authoritative workspace lifecycle in `/api/auth/me`:** Implemented by the auth-context lifecycle slice. `GET /api/auth/me` returns a `workspace` object (`workspace_id`, `workspace_slug`, `installation_status`, `registration_status`, `onboarding_stage`, `workspace_access`) computed by the single mapping in `app/services/workspace_lifecycle.py`, which also backs `require_active_workspace`, administrator and spectator login, and password-reset eligibility. `workspace_access` is `active`, `provisional` (verified administrators only), `suspended`, or `inactive`; inactive responses carry no lifecycle detail, spectators never receive `onboarding_stage`, and the compatibility `username` is no longer returned. The frontend routes from this object and no longer probes `GET /api/leagues/seasons` to infer lifecycle state.
-- **Provider selection and ESPN league-access validation:** Implemented by the onboarding provider-validation slice. A verified provisional administrator selects ESPN (Sleeper and Yahoo appear as "Coming later"), enters the League ID and season year, and the server detects public or private access. Credentials are requested only when ESPN requires them. Success stores the validated target on the single active provider connection and advances onboarding to `league_claim_pending`. Validation does not claim the league, import data, or start synchronization. A per-process limit on concurrent outbound ESPN requests is deferred to production hardening.
-- **League claim confirmation:** Implemented by the onboarding league-claim slice. The administrator confirms the safe validated target. One transaction inserts the authoritative claim (provider plus League ID, independent of season) and advances to `initial_sync_pending`. A duplicate claim returns `409 provider_league_already_claimed`, deletes the losing provisional registration in the same transaction, clears its cookies and discloses no existing workspace details.
-- **Initial synchronization:** Implemented by the onboarding initial-sync slice. The start request only queues one idempotent `initial_workspace_sync` job. The worker fetches ESPN data, creates the League and Season from real provider values, attaches the claim, and runs the existing full-season importer. Success advances to `spectator_setup_pending`; terminal failure advances to `initial_sync_failed` with an administrator retry. Spectator setup is the next slice, and activation follows it.
-- **Shared spectator access:** Implemented by the onboarding spectator-access slice. At `spectator_setup_pending`, the administrator creates the single shared spectator password; onboarding then moves to `complete` without activating the workspace. Administration shows the workspace slug and the configured and enabled flags, changes the password, disables access, and re-enables access only with a new password. Each of these revokes spectator sessions with the existing explicit reasons. Spectators sign in with the workspace slug and the shared password only. Workspace activation is the next slice.
-- **Workspace activation gate:** Implemented by the onboarding workspace-activation slice. At `complete`, the administrator reviews a safe summary and activates the workspace. The server independently rechecks every persisted invariant in one locked transaction, sets the active League and Season, and marks the workspace active, without provider I/O or synchronization. It is idempotent under repeats and concurrency. SaaS onboarding is now complete end to end.
-- **Single-installation path retirement:** Implemented by the retirement slice. The `/api/setup` API, setup services and schemas, `POST /api/auth/login`, username authentication, the `create_admin` and v1 migration-audit scripts, the frontend `/setup` route, setup pages, legacy spectator panel and installation route guard were removed. `/setup` is now an unknown frontend route. Historical season import is scoped to the authenticated workspace. Removed endpoints return ordinary 404 responses with no aliases. Workspace deletion, which still fails on the restrictive `seasons.provider_connection_id` foreign key, is deferred to FR-20 with a deferrable `NO ACTION` recommendation.
-- **Workspace deletion request and recovery (FR-20, partial):** Implemented by the deletion request-and-recovery slice on the existing `c4e8a1f7d3b9` schema, with no migration. `POST /api/admin/workspace/deletion` (standard session, CSRF, origin, current password, exact normalized slug, 5 attempts per administrator and workspace per hour) locks the workspace and, in one transaction, sets `deletion_pending` with `scheduled_for` 30 days out, revokes every administrator and spectator session with `workspace_deletion_requested`, cancels pending and retry-scheduled jobs, and queues one `workspace_deletion` job (`workspace_deletion:{workspace_id}`, empty payload). Repeated requests keep the original schedule. A correct administrator login before `scheduled_for` issues a non-renewable 15-minute `deletion_recovery` session, which the shared authentication dependency denies everywhere except `/api/auth/me`, logout, deletion status, and `POST /api/admin/workspace/deletion/cancellation`. Cancellation requires the password again, restores `active`, cancels the deletion job, revokes the recovery session, and requires a fresh login. Password reset stays available and never reactivates. Synchronization rechecks the workspace under lock before committing, and the scheduler skips non-active registrations. The `workspace_deletion` job is executed by the final-deletion worker slice below.
-- **Final workspace deletion execution (FR-20):** Implemented by the final-deletion worker slice, with no migration. The `workspace_deletion` handler accepts only the empty version-1 payload and derives all state from persisted rows. Under the workspace row lock (the lock cancellation takes) it requires `deletion_pending` and `now >= scheduled_for`; at the exact cutoff deletion wins. An early claim returns the job to `pending` at `scheduled_for` without spending an attempt, and a canceled workspace is a safe no-op. One transaction deletes the connection-linked sync runs (including nullable-season runs) and the workspace leagues (seasons and imported data cascade), verifies that no season still references a workspace provider connection (the `RESTRICT` key is kept), inserts one anonymized `workspace_deletion_records` row (`completed`, retained for 365 days), and deletes the workspace row, which cascades connections, credentials, users, sessions, tokens, the provider claim, and jobs. This releases the claim, slug, and administrator email together at commit. The worker treats a deletion job whose row disappeared as complete only when the matching deletion record exists. Database lock, deadlock, and connection failures roll back and retry. Terminal or exhausted failures leave the workspace `deletion_pending` with identifiers reserved and no record. `python -m app.scripts.reenqueue_workspace_deletion --workspace-id N` lets an operator create or return the one active job for a due, still-pending workspace. It never deletes data or changes status. Provider-side OAuth revocation does not apply to ESPN and remains deferred. Request, seven-day reminder, and completion email are not sent; durable transactional email delivery remains required before public launch.
-- **Durable asynchronous email delivery and response-timing equality:** Verification and password-reset email delivery currently runs synchronously after commit and can return a public `503 email_delivery_unavailable`. ADR 0009 replaces that with durable delivery: Resend on the free plan through bounded `httpx`, `transactional_email_deliveries` plus `BackgroundJob` jobs carrying only `version` and `delivery_id`, a NULL-workspace exception for email jobs enforced by a check constraint, worker-generated hashed tokens, a priority-budgeted daily and monthly quota, encrypted deletion-completion recipient, FR-20 deletion intents (request confirmation, seven-day reminder, completion), a configurable response floor on enumeration-sensitive routes, and registration readiness gating. The migration, worker, adapter, route changes, and removal of the `503` are required before public registration opens. Webhooks, bounce handling, and suppression synchronization are deferred until after launch.
-- **Transactional-email schema foundation (ADR 0009, implemented):** Migration `d7f2b9a4c6e1` adds `transactional_email_deliveries` (scoped versus unscoped database constraints, no plaintext recipient), the `transactional_email_delivery` job type, nullable `background_jobs.workspace_id` guarded by a check constraint, an exact `{version, delivery_id}` job payload, idempotent atomic delivery-plus-job creation, and a separate `TRANSACTIONAL_EMAIL_KEYS` recipient keyring. No provider adapter, rendering, token generation, worker handler, route migration, FR-20 integration, quota counters, or retention cleanup exists yet; an email job without a handler fails terminally as `unsupported_job_type`.
-- **Resend delivery worker (ADR 0009, implemented):** Migration `a3c9e5f1b7d2` links verification and reset tokens to the issuing delivery and attempt (nullable pair, `ON DELETE CASCADE`). The `transactional_email_delivery` handler verifies job and delivery ownership, resolves the recipient from the current user (or decrypts the unscoped completion recipient), commits a new attempt and a hashed worker-issued token before transmission, sends outside any transaction through a bounded direct-`httpx` Resend transport with idempotency key `{delivery_id}:{attempt}`, and records sent, retry-scheduled, or permanently-failed state with final-state recipient scrubbing. Uncertain outcomes retry as a new attempt with a new token; acceptance supersedes legacy and older-delivery tokens only. Provider 429 and quota responses defer the job without spending a job attempt. Delivery stays disabled by default (`TRANSACTIONAL_EMAIL_ENABLED=false`). Deletion request, reminder, and cancellation deliveries fail as unsupported until FR-20 integration; route migration, quota counters, readiness, response floor, webhooks, and retention cleanup remain open.
-- **Durable identity email (ADR 0009, implemented):** No migration. Registration, verification resend, and password-reset request create a workspace-scoped delivery intent and its `transactional_email_delivery` job in the triggering transaction; they create no token and call no provider. Successful reset completion queues a tokenless `administrator_password_changed` notice atomically with the password change. The synchronous sender and the public `503 email_delivery_unavailable` are removed. The worker rechecks user and workspace eligibility. FR-20 deletion email, local quota, registration readiness, and the response-time floor remain open.
-- **FR-20 deletion email (ADR 0009, implemented):** No migration. The deletion-request transaction cancels ordinary queued jobs and stale verification and earlier deletion-lifecycle deliveries (with their jobs), keeps password-reset and password-changed intents, and creates the request confirmation plus one reminder available at `scheduled_for` minus seven days; cancellation suppresses open confirmation and reminder intents and queues a cancellation notice; final deletion creates the encrypted, unscoped completion delivery and its NULL-workspace job before deleting the tenant, in the same transaction. Any intent failure rolls back the request, cancellation, or deletion. The worker rechecks the deletion generation from the persisted schedule and cancels stale notices. Local quota, registration readiness, the response-time floor, and retention cleanup remain open.
-- **Audit-event infrastructure:** Structured identity audit events required by ADR 0005 are required before public SaaS launch.
-
-## Phase 8: ESPN SaaS Hardening
-
-### Objective
-
-Make ESPN safe and reliable for multiple hosted workspaces.
-
-### Required Work
-
-- Disable shared environment credential fallback for SaaS tenants.
-- Confirm workspace-owned encrypted credential use.
-- Add credential replacement.
-- Add credential-schema versioning.
-- Add credential-key rotation tooling.
-- Add sanitized ESPN fixtures.
-- Expand provider contract tests.
-- Test public leagues.
-- Test private leagues.
-- Test invalid and expired credentials.
-- Test historical imports.
-- Test future schedules.
-- Test playoff settings.
-- Test scoring settings.
-- Test lineup slots.
-- Test capability persistence.
-- Test safe errors.
-- Add conservative provider concurrency.
-- Add provider-outage behavior.
-- Add reauthentication guidance.
-
-### Live Verification
-
-Use controlled development leagues only.
-
-Do not place production credentials or raw provider payloads into the repository.
-
-### Exit Criteria
-
-- All ESPN tests run without network access.
-- Live smoke tests pass against controlled leagues.
-- Environment fallback is not required for SaaS workspaces.
-- Credential replacement works.
-- Key rotation rehearsal succeeds.
-- Provider outage does not break existing analytics.
-- Multiple ESPN workspaces synchronize independently.
-
-## Phase 9: Homelab SaaS Operations
-
-### Objective
-
-Prepare the homelab to host tenant data safely.
-
-### Production Roles
-
-Add or verify:
-
-```text
-frontend
-backend-api
-backend-worker
-sync-scheduler
-database
-migrate
-backup
-monitoring
-```
-
-### Backups
-
-Implement:
-
-- Automated PostgreSQL backup
-- Encrypted off-host copy
-- Retention policy
-- Backup-failure alert
-- Integrity verification
-- Quarterly restore test
-
-### Monitoring
-
-Monitor:
-
-- API health
-- Worker health
-- Scheduler health
-- PostgreSQL health
-- Queue depth
-- Oldest job age
-- Failed jobs
-- Synchronization freshness
-- Disk usage
-- CPU and memory
-- Backup freshness
-- Certificate expiration
-- Email delivery failure
-
-### Operator Controls
-
-Add protected operator commands for:
-
-- Registration mode
-- Synchronization mode
-- Failed-job inspection
-- Eligible-job retry
-- Pending-job cancellation
-- Workspace suspension
-- Workspace reactivation
-- Claim inspection
-- Migration audit
-- Backup verification
-
-### Incident Response
-
-Document procedures for:
-
-- Suspected cross-tenant access
-- Provider credential leak
-- Database corruption
-- Backup failure
-- Queue backlog
-- Provider outage
-- Email outage
-- Disk exhaustion
-- Failed migration
-- Cloudflare Tunnel outage
-
-### Closed-Registration Staging Checkpoint
+### Closed-Registration Staging Checkpoint (Historical)
 
 Deployment safety implemented before closed staging:
 
@@ -875,476 +154,31 @@ Deployment safety implemented before closed staging:
 
 Staging remains Cloudflare Access protected with temporary registration; native invitations or allowlists are not implemented and this is not the public-registration design.
 
-### Exit Criteria
-
-- Off-host backup succeeds.
-- Isolated restore succeeds.
-- Required encryption keys are recoverable.
-- Alerts reach an external channel.
-- Registration can be disabled immediately.
-- Queue backlog and failed jobs are visible.
-- Production deployment and rollback are documented.
-
-## Phase 10: Private Multi-Tenant Beta
-
-### Objective
-
-Validate the SaaS model with a small controlled user group before open registration.
-
-### Beta Size
-
-Recommended initial beta:
-
-```text
-5 to 10 League Workspaces
-```
-
-Prefer known users who can provide timely feedback.
-
-### Enrollment
-
-Use one of:
-
-- Operator-created registration codes
-- Temporary invite-only registration mode
-- Manually opened registration windows
-
-Invite-only mode was not required by the first requirements document, but it is appropriate as a temporary operational beta control.
-
-If implemented, invite codes must be:
-
-- Random
-- Single-use or explicitly limited
-- Expiring
-- Stored as hashes
-- Rate limited
-
-### Beta Validation
-
-Measure:
-
-- Registration completion rate
-- Email delivery
-- ESPN credential failures
-- Initial-sync duration
-- Queue wait time
-- API p95 latency
-- Database connections
-- Worker memory
-- Backup size
-- Mobile onboarding usability
-- Spectator login usability
-- Administrator session replacement
-- Cross-workspace isolation
-- Support burden
-
-### Exit Criteria
-
-- At least five workspaces complete onboarding.
-- No cross-tenant defects are found.
-- Backup and restore remain healthy.
-- Queue wait times remain acceptable.
-- ESPN failure modes are understandable.
-- Mobile registration is usable.
-- Operator workload is sustainable.
-- Critical beta findings are resolved.
-
-## Phase 11: Sleeper Provider
-
-### Objective
-
-Add Sleeper through the canonical provider architecture.
-
-### Research First
-
-Verify current Sleeper behavior for:
-
-- User lookup
-- League discovery
-- League IDs
-- Prior-league chains
-- Seasons
-- Rosters
-- Matchups
-- Weekly scores
-- Lineup positions
-- Scoring settings
-- Playoff settings
-- Historical data
-- Rate limits
-- Error responses
-
-### Claim Identity
-
-Resolve how continuing Sleeper leagues are claimed across season-specific league IDs.
-
-Do not implement claims until the league-chain identity rule is documented.
-
-### Implementation
-
-Add:
-
-- Sleeper client
-- Sleeper protocols
-- Sleeper adapter
-- Identifier normalization
-- Canonical mappings
-- Sanitized fixtures
-- Provider contract tests
-- Setup flow
-- Synchronization
-- Capability persistence
-- Provider-specific safe errors
-
-### Exit Criteria
-
-- Sleeper passes shared provider contract tests.
-- Sleeper league claim cannot duplicate across workspaces.
-- Large IDs remain strings without precision loss.
-- Historical and current seasons behave as documented.
-- Unsupported analytics remain disabled.
-- Controlled live smoke tests pass.
-
-## Phase 12: Mobile-Web Refinement
-
-### Objective
-
-Polish the mobile browser experience without redesigning the acceptable desktop interface.
-
-### Priority Workflows
-
-Optimize:
-
-- Registration
-- Email verification
-- Administrator login
-- Spectator login
-- Provider setup
-- Onboarding progress
-- Season selection
-- Dashboard
-- Standings
-- Schedule Swap
-- Optimal Lineups
-- Playoff Predictor
-- Administration
-- Synchronization status
-
-### Standards
-
-At minimum:
-
-- Support 320 CSS pixels.
-- Prevent page-level horizontal scrolling.
-- Use touch targets near 44 by 44 CSS pixels where practical.
-- Preserve visible focus indicators.
-- Support keyboard navigation.
-- Maintain sufficient color contrast.
-- Avoid hover-only actions.
-- Keep dense tables readable through responsive presentation.
-- Preserve the flat football design system.
-- Avoid unnecessary animation.
-- Keep desktop layouts stable unless required.
-
-### Testing
-
-Add viewport tests for representative widths:
-
-```text
-320 px
-375 px
-390 px
-768 px
-1024 px
-1440 px
-```
-
-Use browser automation when introduced.
-
-Suitable options include:
-
-- Playwright
-- Testing Library
-- Axe accessibility checks
-
-### Exit Criteria
-
-- Registration and onboarding work at 320 pixels.
-- All core analytics work without page-level overflow.
-- Touch interactions are reliable.
-- Accessibility checks pass at the agreed threshold.
-- Desktop smoke tests show no material regression.
-
-## Phase 13: Yahoo Provider
-
-### Objective
-
-Add Yahoo Fantasy Sports with secure OAuth lifecycle management.
-
-### Prerequisites
-
-- Stable public HTTPS domain
-- Reliable callback availability
-- Yahoo developer application
-- Verified OAuth scopes
-- Encrypted token envelope
-- Token-refresh locking
-- Reauthorization state
-- Callback-state persistence
-- Background-job integration
-
-### Implementation
-
-Add:
-
-- OAuth authorization initiation
-- Random single-use state
-- Callback validation
-- Code exchange
-- Encrypted access and refresh tokens
-- Token expiration
-- Token refresh
-- Refresh concurrency control
-- Revocation
-- League discovery
-- League-key normalization
-- Yahoo adapter
-- Sanitized fixtures
-- Provider contract tests
-- Safe reauthorization workflow
-
-### Exit Criteria
-
-- OAuth callbacks are tenant safe.
-- Tokens never enter logs or job payloads.
-- Concurrent refresh cannot overwrite newer credentials.
-- Revoked tokens pause synchronization safely.
-- Existing analytics remain readable during reauthorization.
-- Yahoo passes shared provider contract tests.
-- Controlled live smoke tests pass.
-
-## Phase 14: Public Registration
-
-### Objective
-
-Open SaaS registration only after the platform is operationally and technically ready.
-
-### Launch Gate
-
-Public registration must remain closed unless all of the following are true:
-
-#### Tenancy
-
-- Two or more workspaces coexist safely.
-- Cross-tenant endpoint tests pass.
-- Provider claims are atomic.
-- Duplicate claims reveal no owner information.
-- Workspace deletion behavior is documented (FR-20 and ADR 0004).
-
-#### Authentication
-
-- Administrator email verification works.
-- Administrator password recovery works.
-- One administrator session is enforced.
-- Concurrent spectator sessions work.
-- Login and registration throttling work.
-- Enumeration-safe responses are tested.
-
-#### Jobs
-
-- Synchronization is asynchronous.
-- Jobs survive service restarts.
-- Queue depth is monitored.
-- Failed jobs are visible.
-- Retry classification is tested.
-- Provider concurrency is configured.
-
-#### ESPN
-
-- SaaS credentials are workspace-owned.
-- Environment fallback is disabled for tenants.
-- Sanitized fixtures exist.
-- Public and private league smoke tests pass.
-- Historical and future schedules work.
-
-#### Operations
-
-- Off-host backup exists.
-- Restore test succeeds.
-- Alerts reach the operator externally.
-- Disk monitoring is active.
-- Registration can be disabled.
-- Maintenance mode works.
-- Incident-response runbook exists.
-- Production rollback is documented.
-
-#### Product
-
-- Privacy policy is published.
-- Terms of service are published.
-- Acceptable-use expectations are published.
-- Data-deletion process is documented.
-- Self-service workspace deletion is implemented per FR-20, including the 30-day grace period, `deletion_recovery` cancellation, ordered final cleanup, and anonymized 365-day deletion records.
-- Durable email delivery (ADR 0009) supports the deletion-request confirmation, seven-day reminder, and deletion-completion notice. Best-effort worker email does not satisfy this gate.
-- Email readiness passes (provider enabled, API key, sender identity, valid public base URL, queue and worker health, protected capacity) and quota exhaustion pauses registration at $0 spend.
-- Homelab availability limitations are disclosed.
-- Mobile registration works at 320 pixels.
+Staging validated the retired workspace model. It is not acceptance evidence for the personal-account model.
+
+## Launch Gates
+
+**Public registration remains closed** until all of these hold:
+
+- The account cutover (Branch 6), authorization (Branch 5), import (Branch 3), synchronization (Branch 4), and frontend selection flows (Branch 7) are complete and validated.
+- Account deletion and retention (Branch 8) are implemented and tested.
+- Cross-user negative tests pass for every league-data endpoint.
+- Durable email (ADR 0009), audit events, registration throttling, enumeration-safe responses, and email readiness gating are in place.
+- ESPN public and private smoke tests pass using user-owned credentials.
+- Off-host backup, restore test, external alerts, maintenance mode, and rollback documentation exist.
+- Privacy policy, terms, acceptable-use expectations, and the data-deletion process are published.
+- Homelab availability limitations are disclosed, and mobile registration and import work at 320 pixels.
+- Sleeper and Yahoo are not claimed as supported unless their branches are merged and validated.
+
+Current staging is not acceptance evidence for the retired workspace model, and registration reopens only after the gates above are met.
 
 ### Launch Strategy
 
-Use a gradual opening:
+Open gradually after the gates: 10 to 20 users, then 25 to 50, then up to 100. Pause expansion on queue delay, API latency, provider failure growth, unsafe backup windows, unsustainable support load, or security concerns.
 
-```text
-Stage 1:
-10 to 20 workspaces
+## Branch Rules
 
-Stage 2:
-25 to 50 workspaces
-
-Stage 3:
-Up to the initial 50 to 100 user target
-```
-
-Pause expansion when:
-
-- Queue delay grows materially
-- API latency exceeds targets
-- Provider failures increase
-- Backup windows become unsafe
-- Support workload becomes unsustainable
-- Security concerns emerge
-
-## Phase 15: Native-App Foundation and Cloud-Readiness Review
-
-### Objective
-
-Prepare for native mobile clients and evaluate whether the homelab remains appropriate.
-
-### Native Authentication ADR
-
-Before app development, decide:
-
-- Opaque bearer sessions or access tokens
-- Refresh-token rotation
-- Device binding
-- Administrator one-session behavior across web and app
-- Spectator shared-session behavior
-- Secure storage using Apple Keychain and Android Keystore
-- Token revocation
-- App deep links
-- Email verification links
-- Password-reset links
-
-### API Review
-
-Verify:
-
-- APIs do not depend on browser-only navigation.
-- Tenant authorization is transport independent.
-- Error codes are stable.
-- Pagination exists where needed.
-- Payload sizes are mobile appropriate.
-- Versioning strategy is documented.
-- Provider secrets never reach clients.
-
-### Cloud-Readiness Review
-
-Evaluate:
-
-- Active users
-- Concurrent traffic
-- Queue wait time
-- PostgreSQL size
-- Backup duration
-- Restore duration
-- Internet reliability
-- Power reliability
-- OAuth callback availability
-- Operator workload
-- Support obligations
-- Monetization plans
-- Required service commitments
-
-### Exit Criteria
-
-- Native authentication design is accepted.
-- API gaps are documented.
-- Cloud migration recommendation is recorded.
-- Homelab continuation or cloud transition is an explicit decision.
-
-## Migration and Release Strategy
-
-The SaaS conversion should span multiple releases.
-
-A representative release sequence is:
-
-```text
-v1.1.0:
-Workspace ownership foundation
-
-v1.2.0:
-Tenant-aware authentication and analytics isolation
-
-v1.3.0:
-Provider claims and background jobs
-
-v1.4.0:
-Resumable registration and onboarding
-
-v1.5.0:
-ESPN SaaS hardening and private beta
-
-v1.6.0:
-Sleeper provider
-
-v1.7.0:
-Mobile-web refinement
-
-v1.8.0:
-Yahoo provider
-
-v2.0.0:
-Public SaaS release
-```
-
-These version numbers are planning placeholders, not commitments.
-
-Release scope should be based on completed, validated vertical slices rather than forcing work into predetermined version numbers.
-
-## Branch Strategy
-
-Documentation work remains on:
-
-```text
-docs/saas-product-architecture
-```
-
-Implementation should use one feature branch per complete vertical slice.
-
-Representative branches:
-
-```text
-feature/workspace-ownership
-feature/tenant-authentication
-feature/workspace-scoped-analytics
-feature/provider-league-claims
-feature/background-jobs
-feature/saas-registration
-feature/espn-saas-hardening
-feature/sleeper-provider
-feature/mobile-web-refinement
-feature/yahoo-provider
-```
-
-Each branch should:
-
-1. Start from updated `main`.
-2. Include one coherent vertical slice.
-3. Include migrations and tests.
-4. Pass all backend and frontend validation.
-5. Include documentation updates.
-6. Be smoke tested.
-7. Be merged only after the slice is complete.
+Each branch starts from updated `main`, contains one coherent slice, includes migrations and tests, passes validation, updates documentation, is smoke tested, and is merged only when complete. Do not combine slices.
 
 ## Validation Standard
 
@@ -1381,80 +215,64 @@ git status --short --branch
 
 ### Migration Rehearsal
 
-For every ownership or identity migration:
+### Migration Rehearsal
+
+For every identity or ownership migration:
 
 1. Create or reuse a disposable PostgreSQL database. Never use the normal development or production database.
-2. Run the pre-migration audit.
-3. Apply migrations.
-4. Run post-migration validation.
+2. Apply migrations to head, downgrade to base, and upgrade again.
+3. Compare the migrated schema with SQLAlchemy metadata when applicable.
+4. Run post-migration validation, including uniqueness and access-relation constraints.
 5. Start the application.
-6. Verify administrator access.
-7. Verify spectator access.
-8. Verify provider credential decryption.
-9. Run synchronization.
-10. Verify analytics.
-11. Record duration and failures.
+6. Verify two independent users can reach the same canonical season only through their own access rows.
+7. Verify provider credential decryption.
+8. Run synchronization.
+9. Verify analytics.
+10. Record duration and failures.
 
 ## Definition of Done for a Vertical Slice
 
-A vertical slice is complete only when:
-
-- Product behavior matches the requirements.
-- Architecture remains consistent with accepted ADRs.
-- Database migration is included when required.
-- Migration upgrades, downgrades to base, and re-upgrades cleanly on a disposable database.
-- Backend tests pass.
-- Frontend tests pass.
-- Cross-tenant tests pass when applicable.
-- Lint and format checks pass.
-- Production build succeeds.
-- Safe error behavior is verified.
-- Secrets are absent from logs and payloads.
-- Documentation is updated.
-- Development smoke test passes.
-- Rollback or forward-recovery strategy is documented.
-
-## Immediate Next Step After Documentation
-
-After the documentation branch is merged, implementation should begin with:
-
-```text
-Phase 1: Pre-Migration Audit and Test Foundation
-```
-
-The first implementation slice should not add public registration or modify production tenant behavior.
-
-The first slice should deliver:
-
-- Read-only SaaS migration audit
-- Two-workspace integration fixtures
-- Global-assumption inventory
-- Migration rehearsal procedure
-- Tests that describe the desired cardinality and isolation boundaries
-
-This creates evidence for the first schema migration instead of changing ownership based on assumptions.
+- Product behavior matches ADR 0010 and the requirements.
+- A database migration is included when required and rehearsed on a disposable database.
+- Backend and frontend tests pass, including cross-user negative cases when applicable.
+- Lint, format, and production build pass.
+- Safe error behavior is verified and secrets are absent from logs and payloads.
+- Documentation is updated and a rollback or forward-recovery strategy is documented.
 
 ## Roadmap Completion Criteria
 
-The SaaS migration is complete when:
+1. Public users register independent personal accounts.
+2. One account connects multiple leagues across providers.
+3. Several users share canonical league data after independent proof.
+4. Authorization is per user and season with uniform inaccessible-resource responses.
+5. Import is proof-first and atomic.
+6. Synchronization is league-season keyed and never calls a provider inside a transaction.
+7. Connection removal and account deletion never harm other authorized users.
+8. Orphaned leagues are retained 30 days and purged safely.
+9. The workspace schema is retired.
+10. ESPN is stable; Sleeper and Yahoo are operational only when implemented and validated.
+11. Backups, monitoring, and incident response are proven on the homelab.
 
-1. Public users can register without self-hosting.
-2. Each registration creates an isolated League Workspace.
-3. Administrator email verification and recovery work.
-4. Each workspace has one administrator.
-5. Each workspace has one shared spectator.
-6. Administrator sessions are exclusive.
-7. Spectator sessions are concurrent.
-8. Provider leagues are claimed atomically.
-9. Duplicate claims reveal no owner information.
-10. Synchronization runs through background jobs.
-11. The hosted deployment initializes without migrating v1 installation data.
-12. ESPN is stable for multiple tenants.
-13. Sleeper is operational.
-14. Yahoo is operational with secure OAuth.
-15. Core mobile-web workflows are polished.
-16. Backups and restoration are proven.
-17. Monitoring and incident response are operational.
-18. The homelab safely supports the initial user population.
-19. Cloud migration triggers are measurable.
-20. The API is ready for a future native application.
+## Implemented History (Historical, Workspace Model)
+
+> **Historical.** The items below describe the implemented League Workspace baseline that ADR 0010 supersedes. They record what exists in the code and are not active requirements. Terms such as administrator, spectator, workspace slug, claim, and activation refer to the retired model.
+
+- **Session-replacement signaling:** Implemented by the session-lifecycle slice. Every session revocation now persists an explicit reason in `auth_sessions.revocation_reason` (`replaced`, `logout`, `password_reset`, `spectator_password_reset`, or `spectator_disabled`). A replaced, unexpired administrator session receives HTTP 401 with the stable `session_replaced` code. Every other failure, including rows revoked before the reason column existed, keeps the generic unauthenticated response.
+- **Authoritative workspace lifecycle in `/api/auth/me`:** Implemented by the auth-context lifecycle slice. `GET /api/auth/me` returns a `workspace` object (`workspace_id`, `workspace_slug`, `installation_status`, `registration_status`, `onboarding_stage`, `workspace_access`) computed by the single mapping in `app/services/workspace_lifecycle.py`, which also backs `require_active_workspace`, administrator and spectator login, and password-reset eligibility. `workspace_access` is `active`, `provisional` (verified administrators only), `suspended`, or `inactive`; inactive responses carry no lifecycle detail, spectators never receive `onboarding_stage`, and the compatibility `username` is no longer returned. The frontend routes from this object and no longer probes `GET /api/leagues/seasons` to infer lifecycle state.
+- **Provider selection and ESPN league-access validation:** Implemented by the onboarding provider-validation slice. A verified provisional administrator selects ESPN (Sleeper and Yahoo appear as "Coming later"), enters the League ID and season year, and the server detects public or private access. Credentials are requested only when ESPN requires them. Success stores the validated target on the single active provider connection and advances onboarding to `league_claim_pending`. Validation does not claim the league, import data, or start synchronization. A per-process limit on concurrent outbound ESPN requests is deferred to production hardening.
+- **League claim confirmation:** Implemented by the onboarding league-claim slice. The administrator confirms the safe validated target. One transaction inserts the authoritative claim (provider plus League ID, independent of season) and advances to `initial_sync_pending`. A duplicate claim returns `409 provider_league_already_claimed`, deletes the losing provisional registration in the same transaction, clears its cookies and discloses no existing workspace details.
+- **Initial synchronization:** Implemented by the onboarding initial-sync slice. The start request only queues one idempotent `initial_workspace_sync` job. The worker fetches ESPN data, creates the League and Season from real provider values, attaches the claim, and runs the existing full-season importer. Success advances to `spectator_setup_pending`; terminal failure advances to `initial_sync_failed` with an administrator retry. Spectator setup is the next slice, and activation follows it.
+- **Shared spectator access:** Implemented by the onboarding spectator-access slice. At `spectator_setup_pending`, the administrator creates the single shared spectator password; onboarding then moves to `complete` without activating the workspace. Administration shows the workspace slug and the configured and enabled flags, changes the password, disables access, and re-enables access only with a new password. Each of these revokes spectator sessions with the existing explicit reasons. Spectators sign in with the workspace slug and the shared password only. Workspace activation is the next slice.
+- **Workspace activation gate:** Implemented by the onboarding workspace-activation slice. At `complete`, the administrator reviews a safe summary and activates the workspace. The server independently rechecks every persisted invariant in one locked transaction, sets the active League and Season, and marks the workspace active, without provider I/O or synchronization. It is idempotent under repeats and concurrency. SaaS onboarding is now complete end to end.
+- **Single-installation path retirement:** Implemented by the retirement slice. The `/api/setup` API, setup services and schemas, `POST /api/auth/login`, username authentication, the `create_admin` and v1 migration-audit scripts, the frontend `/setup` route, setup pages, legacy spectator panel and installation route guard were removed. `/setup` is now an unknown frontend route. Historical season import is scoped to the authenticated workspace. Removed endpoints return ordinary 404 responses with no aliases. Workspace deletion, which still fails on the restrictive `seasons.provider_connection_id` foreign key, is deferred to FR-20 with a deferrable `NO ACTION` recommendation.
+- **Workspace deletion request and recovery (FR-20, partial):** Implemented by the deletion request-and-recovery slice on the existing `c4e8a1f7d3b9` schema, with no migration. `POST /api/admin/workspace/deletion` (standard session, CSRF, origin, current password, exact normalized slug, 5 attempts per administrator and workspace per hour) locks the workspace and, in one transaction, sets `deletion_pending` with `scheduled_for` 30 days out, revokes every administrator and spectator session with `workspace_deletion_requested`, cancels pending and retry-scheduled jobs, and queues one `workspace_deletion` job (`workspace_deletion:{workspace_id}`, empty payload). Repeated requests keep the original schedule. A correct administrator login before `scheduled_for` issues a non-renewable 15-minute `deletion_recovery` session, which the shared authentication dependency denies everywhere except `/api/auth/me`, logout, deletion status, and `POST /api/admin/workspace/deletion/cancellation`. Cancellation requires the password again, restores `active`, cancels the deletion job, revokes the recovery session, and requires a fresh login. Password reset stays available and never reactivates. Synchronization rechecks the workspace under lock before committing, and the scheduler skips non-active registrations. The `workspace_deletion` job is executed by the final-deletion worker slice below.
+- **Final workspace deletion execution (FR-20):** Implemented by the final-deletion worker slice, with no migration. The `workspace_deletion` handler accepts only the empty version-1 payload and derives all state from persisted rows. Under the workspace row lock (the lock cancellation takes) it requires `deletion_pending` and `now >= scheduled_for`; at the exact cutoff deletion wins. An early claim returns the job to `pending` at `scheduled_for` without spending an attempt, and a canceled workspace is a safe no-op. One transaction deletes the connection-linked sync runs (including nullable-season runs) and the workspace leagues (seasons and imported data cascade), verifies that no season still references a workspace provider connection (the `RESTRICT` key is kept), inserts one anonymized `workspace_deletion_records` row (`completed`, retained for 365 days), and deletes the workspace row, which cascades connections, credentials, users, sessions, tokens, the provider claim, and jobs. This releases the claim, slug, and administrator email together at commit. The worker treats a deletion job whose row disappeared as complete only when the matching deletion record exists. Database lock, deadlock, and connection failures roll back and retry. Terminal or exhausted failures leave the workspace `deletion_pending` with identifiers reserved and no record. `python -m app.scripts.reenqueue_workspace_deletion --workspace-id N` lets an operator create or return the one active job for a due, still-pending workspace. It never deletes data or changes status. Provider-side OAuth revocation does not apply to ESPN and remains deferred. Request, seven-day reminder, and completion email are not sent; durable transactional email delivery remains required before public launch.
+- **Durable asynchronous email delivery and response-timing equality:** Verification and password-reset email delivery currently runs synchronously after commit and can return a public `503 email_delivery_unavailable`. ADR 0009 replaces that with durable delivery: Resend on the free plan through bounded `httpx`, `transactional_email_deliveries` plus `BackgroundJob` jobs carrying only `version` and `delivery_id`, a NULL-workspace exception for email jobs enforced by a check constraint, worker-generated hashed tokens, a priority-budgeted daily and monthly quota, encrypted deletion-completion recipient, FR-20 deletion intents (request confirmation, seven-day reminder, completion), a configurable response floor on enumeration-sensitive routes, and registration readiness gating. The migration, worker, adapter, route changes, and removal of the `503` are required before public registration opens. Webhooks, bounce handling, and suppression synchronization are deferred until after launch.
+- **Transactional-email schema foundation (ADR 0009, implemented):** Migration `d7f2b9a4c6e1` adds `transactional_email_deliveries` (scoped versus unscoped database constraints, no plaintext recipient), the `transactional_email_delivery` job type, nullable `background_jobs.workspace_id` guarded by a check constraint, an exact `{version, delivery_id}` job payload, idempotent atomic delivery-plus-job creation, and a separate `TRANSACTIONAL_EMAIL_KEYS` recipient keyring. No provider adapter, rendering, token generation, worker handler, route migration, FR-20 integration, quota counters, or retention cleanup exists yet; an email job without a handler fails terminally as `unsupported_job_type`.
+- **Resend delivery worker (ADR 0009, implemented):** Migration `a3c9e5f1b7d2` links verification and reset tokens to the issuing delivery and attempt (nullable pair, `ON DELETE CASCADE`). The `transactional_email_delivery` handler verifies job and delivery ownership, resolves the recipient from the current user (or decrypts the unscoped completion recipient), commits a new attempt and a hashed worker-issued token before transmission, sends outside any transaction through a bounded direct-`httpx` Resend transport with idempotency key `{delivery_id}:{attempt}`, and records sent, retry-scheduled, or permanently-failed state with final-state recipient scrubbing. Uncertain outcomes retry as a new attempt with a new token; acceptance supersedes legacy and older-delivery tokens only. Provider 429 and quota responses defer the job without spending a job attempt. Delivery stays disabled by default (`TRANSACTIONAL_EMAIL_ENABLED=false`). Deletion request, reminder, and cancellation deliveries fail as unsupported until FR-20 integration; route migration, quota counters, readiness, response floor, webhooks, and retention cleanup remain open.
+- **Durable identity email (ADR 0009, implemented):** No migration. Registration, verification resend, and password-reset request create a workspace-scoped delivery intent and its `transactional_email_delivery` job in the triggering transaction; they create no token and call no provider. Successful reset completion queues a tokenless `administrator_password_changed` notice atomically with the password change. The synchronous sender and the public `503 email_delivery_unavailable` are removed. The worker rechecks user and workspace eligibility. FR-20 deletion email, local quota, registration readiness, and the response-time floor remain open.
+- **FR-20 deletion email (ADR 0009, implemented):** No migration. The deletion-request transaction cancels ordinary queued jobs and stale verification and earlier deletion-lifecycle deliveries (with their jobs), keeps password-reset and password-changed intents, and creates the request confirmation plus one reminder available at `scheduled_for` minus seven days; cancellation suppresses open confirmation and reminder intents and queues a cancellation notice; final deletion creates the encrypted, unscoped completion delivery and its NULL-workspace job before deleting the tenant, in the same transaction. Any intent failure rolls back the request, cancellation, or deletion. The worker rechecks the deletion generation from the persisted schedule and cancels stale notices. Local quota, registration readiness, the response-time floor, and retention cleanup remain open.
+
+## Historical Phase Note
+
+The earlier phase plan (Phases 0 through 15: workspace ownership schema, tenant-aware authentication, workspace-scoped analytics, provider league claims, background jobs, registration and onboarding, ESPN hardening, homelab operations, private beta, Sleeper, mobile-web, Yahoo, public registration, native foundation) is retired. Its background-job, durable-email, ESPN hardening, and homelab operations outcomes carry forward. Its workspace, claim, and role outcomes are superseded. The full text is available in Git history.

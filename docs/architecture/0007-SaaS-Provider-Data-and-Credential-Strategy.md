@@ -1,8 +1,10 @@
 # 0007: SaaS Provider Data, Identity, and Credential Strategy
 
+> **Partially superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** The exclusive provider-league claim identity, workspace-owned provider connections, workspace credential resolution, and tenant isolation are superseded by shared canonical leagues and user-owned provider connections. Provider package boundaries, the credential envelope and keyring, and provider-contract rules are not superseded. ESPN league identity normalization is restated in ADR 0010 (leading zeroes are stripped). Sections marked superseded are historical.
+
 ## Status
 
-Proposed
+Proposed; partially superseded by ADR 0010
 
 ## Date
 
@@ -142,6 +144,9 @@ Provider-specific branching is acceptable only at provider registration, credent
 
 ## Canonical Provider Identity
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** The exclusive claim is replaced by canonical uniqueness on provider and normalized league ID. Retained as historical record.
+
+
 Every provider integration must expose a normalized provider identity.
 
 The canonical provider identity consists of:
@@ -178,6 +183,9 @@ This prevents:
 Original provider identifiers may be preserved for safe diagnostics, but uniqueness must use normalized identifiers.
 
 ## ESPN League Identity
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** ADR 0010 restates normalization: validate digits and strip leading zeroes. Retained as historical record.
+
 
 The normalized ESPN league identity is the trimmed decimal league ID represented as a string.
 
@@ -274,6 +282,9 @@ yahoo
 
 ## Claim Identity Versioning
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** The league claim is retired; identity versioning must be re-decided in the schema branch. Retained as historical record.
+
+
 Provider identity normalization rules may evolve.
 
 Provider league claims should record an identity-normalization version.
@@ -304,6 +315,9 @@ Changing normalization behavior must include:
 Normalization changes must not silently create duplicate claims.
 
 ## Provider Connection Ownership
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Provider connections belong to a user, not a workspace. Retained as historical record.
+
 
 Each provider connection belongs to exactly one League Workspace.
 
@@ -447,6 +461,9 @@ Database backups may retain encrypted historical values until backup expiration.
 The privacy and deletion documentation must explain this limitation.
 
 ## Workspace-Owned Provider Credentials
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Credentials belong to the user who supplied them. Retained as historical record.
+
 
 Shared ESPN environment credential fallback has been removed from normal application execution.
 
@@ -1008,6 +1025,9 @@ Exact stale-data thresholds may vary by provider and season state.
 
 ## Provider Connection Replacement
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replacement applies to user-owned connections. Retained as historical record.
+
+
 An administrator may need to replace credentials without changing the claimed league.
 
 Credential replacement must:
@@ -1041,6 +1061,9 @@ Provider migration requires a separate product and data-migration design.
 
 ## Multiple Provider Connections
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Users may hold multiple connections across providers. Retained as historical record.
+
+
 The first SaaS release supports one active provider connection per workspace.
 
 The schema may permit additional inactive or historical provider connections if required for:
@@ -1054,6 +1077,9 @@ Generic application behavior must not assume that the lowest provider-connection
 The workspace or active season must reference the intended active connection explicitly.
 
 ## Provider Connection Deletion
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Deletion follows user and connection lifecycle under ADR 0010. Retained as historical record.
+
 
 A provider connection referenced by canonical seasons must not be deleted casually.
 
@@ -1296,6 +1322,9 @@ The hosted deployment is new. No v1.0.1 ESPN connection, claim, credential envel
 
 ### Tenant Isolation
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by per-user, per-season authorization. Retained as historical record.
+
+
 - Workspace A cannot decrypt Workspace B's provider connection.
 - Workspace A cannot validate replacement credentials against Workspace B's claim.
 - Workspace A cannot trigger Workspace B's provider job.
@@ -1341,6 +1370,9 @@ The hosted deployment is new. No v1.0.1 ESPN connection, claim, credential envel
 Rejected because raw payloads are unstable, provider-specific, potentially sensitive, and unsuitable for provider-neutral analytics.
 
 ### Share One ESPN Credential Across SaaS Tenants
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Still rejected; credentials are never shared across users. Retained as historical record.
+
 
 Rejected because shared application credentials violate workspace isolation and provider-account ownership.
 
