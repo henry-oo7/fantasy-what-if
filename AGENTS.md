@@ -4,7 +4,7 @@
 
 This file defines repository-wide instructions for AI coding agents and human-assisted automation. These rules apply regardless of model or agent provider.
 
-Fantasy What-If is being converted from a self-hosted, single-installation application into a hosted, shared-database, multi-workspace SaaS initially operated from Henry's homelab for approximately 50 to 100 registered users.
+Fantasy What-If is being converted from a self-hosted, single-installation application into a hosted, shared-database SaaS of independent personal accounts and shared canonical leagues, initially operated from Henry's homelab for approximately 50 to 100 registered users.
 
 The application remains a modular monolith. Do not introduce microservices, Kubernetes, Redis, RabbitMQ, Kafka, or another infrastructure dependency unless a governing architecture decision explicitly requires it.
 
@@ -14,7 +14,7 @@ When instructions conflict, use this order:
 
 1. The current task or GitHub issue approved by Henry
 2. This `AGENTS.md`
-3. Accepted architecture decision records in `docs/architecture/`
+3. Accepted architecture decision records in `docs/architecture/`, with ADR 0010 governing the account and league model
 4. `docs/product/SAAS_REQUIREMENTS.md`
 5. `docs/roadmap/SAAS_MIGRATION_ROADMAP.md`
 6. `docs/DEVELOPMENT.md`, `docs/OPERATIONS.md`, and other repository documentation
@@ -25,25 +25,28 @@ Do not silently choose between meaningful conflicts. Stop, identify the conflict
 
 ## Current Product Direction
 
-The target is a hosted multi-tenant SaaS with:
+ADR 0010 (`docs/architecture/0010-Personal-Accounts-and-Shared-Canonical-Leagues.md`) is the governing account and league model. It supersedes ADR 0004 in full and the conflicting parts of ADRs 0002, 0005, 0006, and 0007. The League Workspace model is historical.
 
-- League Workspace as the tenant and security boundary
-- One administrator identity per workspace
-- Zero or one shared spectator identity per workspace
-- One claimed provider league per workspace in the initial release
-- Administrator login by globally unique verified email
-- Spectator login by workspace slug and shared spectator password
-- At most one active administrator session per workspace
-- Multiple concurrent spectator sessions
-- ESPN as the first operational provider
-- Sleeper and Yahoo as planned providers
-- PostgreSQL-backed background jobs
+The target is a hosted SaaS with:
+
+- Independent personal accounts (display name, email, password) with verified-email login as the sole login identity
+- No normal administrator role, spectator role, League Workspace, workspace slug, workspace owner, shared spectator account, or shared password
+- Shared canonical provider leagues that no user owns
+- Per-user, per-season authorization persisted as `user_league_season_access`
+- Multiple leagues across multiple providers per account
+- Multiple concurrent sessions per account
+- League-season synchronization through PostgreSQL-backed background jobs
+- ESPN as the only implemented provider; Sleeper and Yahoo are intended public-launch providers that are **not implemented**
 - Separate development and production environments
 - Mobile-first web support before a future native application
 
+Do not describe Sleeper or Yahoo as functional, supported, or available until their provider branches are merged and validated.
+
+The implemented code still contains the workspace model until the roadmap cutover branches land. Treat that code as the legacy baseline being replaced, not as a contract to extend.
+
 ## Superseding Deployment Decision
 
-The hosted multi-workspace SaaS deployment will be initialized as a new deployment.
+The hosted SaaS deployment will be initialized as a new deployment.
 
 Do not design new work around preserving, backfilling, or migrating legacy single-installation production data into the hosted SaaS unless Henry explicitly changes this decision.
 
@@ -54,74 +57,81 @@ Backward compatibility is not required for:
 - The retired single-value `PROVIDER_CREDENTIAL_KEY` setting
 - Legacy installations that predate the versioned provider credential keyring
 
-Some governing documents still describe preserving the v1.0.1 installation as the first League Workspace. Treat that language as a known documentation conflict. Do not implement those migration requirements. Update the governing documents in a dedicated documentation slice before relying on them for implementation decisions.
+Any remaining text that describes preserving the v1.0.1 installation as the first League Workspace is historical. Do not implement those migration requirements.
 
 Development compatibility paths may remain temporarily when explicitly required by the active roadmap, but they must not expand into permanent SaaS contracts.
 
 ## Non-Negotiable Product and Security Invariants
 
-### Workspace isolation
+### Independent personal accounts
 
-- Every authenticated request must resolve an authorized workspace context before accessing workspace-owned data.
-- Queries, mutations, synchronization, analytics, jobs, sessions, and provider credentials must remain scoped to the authenticated workspace.
-- Never trust a client-provided workspace ID without independently validating access.
-- Add negative tests for cross-workspace access whenever workspace-owned behavior changes.
-- Never weaken workspace isolation to preserve legacy global behavior.
+- Every person has an independent account. No other account administers, shares, or controls it.
+- Email is the sole login identity. Generated usernames, where they still exist during the cutover, are internal storage values and never login credentials.
+- Do not add administrator roles, spectator roles, invitations that confer control, shared accounts, or shared passwords.
+- Support multiple concurrent sessions per account. Password reset and consequential account-security actions revoke all sessions.
 
-### Provider league ownership
+### Canonical shared leagues
 
-- A normalized provider league identity may belong to at most one League Workspace.
-- The database constraint is the authoritative concurrency control.
-- Application-level availability checks are not sufficient.
-- Concurrent attempts to claim the same provider league must allow at most one success.
+- A provider league is a shared canonical resource identified by provider and normalized provider league ID. Seasons are identified by canonical league and season year.
+- The first importer creates the record when absent, does not own it, cannot administer or remove other users, and cannot decide whether another user retains access.
+- ESPN league IDs are validated as digits and stripped of leading zeroes.
+- The database uniqueness constraint is the authoritative concurrency control. Application-level existence checks are not sufficient.
+- Do not invent Sleeper or Yahoo identity rules. Establish them from provider evidence in their provider branches.
 
-### Atomic duplicate-claim failure
+### Per-user, per-season authorization
 
-A rejected duplicate league claim must not leave partial tenant-owned state, including:
+- Authorization is persisted per user and season in `user_league_season_access` with uniqueness on user and season.
+- Every league-season read, mutation, analytic, and job status requires an `active` access row for the requesting user.
+- Existing records, another user's access, cached data, or another user's credentials never prove authorization for a new user.
+- Possessing or guessing an internal League or Season ID never grants access.
+- Inaccessible and nonexistent resources return the same uniform response and never reveal that a canonical league exists.
+- Add negative cross-user tests whenever league-data behavior changes.
+- Revoke access only on definitive provider evidence. Expired credentials, 401 alone, timeouts, outages, rate limits, generic authentication failure, and ambiguous ESPN 403 or 404 mark a connection invalid or set `reverification_required` instead.
 
-- Workspace
-- User
-- Authentication session
-- Provider connection
-- Provider credentials
-- League
-- Season
-- Team
-- Matchup
-- Player data
-- Synchronization run
-- Successful-registration audit event
+### Proof-first private import and atomic import
 
-The response may reveal only that the provider league is already connected. It must not reveal the existing owner, administrator, spectator, workspace ID, account state, season data, synchronization activity, or credentials.
-
-### Account model
-
-- The initial SaaS release has exactly one administrator per activated workspace.
-- Do not add administrator invitations, multiple administrators, role transfer, or one administrator controlling multiple workspaces.
-- Each workspace has one shared spectator account, not individual spectator accounts.
-- Administrator email login is the target public authentication contract.
-- Legacy username login is temporary compatibility behavior.
-- Do not add new username-login dependencies or expand username login to newly registered SaaS administrators.
-- Eventual removal of public username login must remain tracked in migration planning.
+- Authenticate and verify the user, require CSRF, and persist throttle state in a short committed operation.
+- Perform provider proof with no open database transaction, using only anonymous access or the requesting user's own credentials.
+- Persist no League, Season, access, or connection state after failed proof.
+- After successful proof, one atomic transaction upserts the user's connection, inserts or retrieves the canonical league and season, clears `orphaned_at`, inserts or reactivates the access row, queues at most one synchronization job, and sets a default season when absent.
+- Simultaneous imports create one league, one season, one access row per user, and at most one active job. A failed import never deletes another user's records or access.
 
 ### Credentials and secrets
 
+- Provider credentials belong to the user who supplied them, never to the canonical league, and are never visible to or used to prove access for another user.
 - Never print, log, commit, expose, or place secrets in agent memory.
 - Never read `.env`, `.env.prod`, production credentials, private keys, or unrelated home-directory files unless Henry explicitly authorizes the exact access.
 - Never include provider credentials, password hashes, session hashes, reset tokens, verification tokens, API keys, or raw provider responses in errors or fixtures.
-- Preserve the versioned provider credential keyring design.
-- Do not restore the retired single-key credential design.
+- Preserve the versioned provider credential keyring design. Do not restore the retired single-key credential design.
+- Store account fingerprints only as HMACs.
 - Use sanitized deterministic fixtures for provider behavior.
 
-### Registration and onboarding
+### League-season synchronization
+
+- Synchronization is owned by the league season. The active-job idempotency key is `league-season-sync:{season_id}`.
+- Jobs contain no secrets and reveal no credential-owner identity. Status responses never disclose whose credentials are used, connection IDs, or another user's details.
+- Public seasons synchronize anonymously where supported. Private seasons use any currently valid connection whose owner holds active access to that season.
+- **No provider network call may run inside an open database transaction.** Load and select in a short transaction, fetch with no transaction, then persist in a short transaction under the season advisory lock.
+
+### Shared-data deletion safety and retention
+
+- Removing one user's league connection removes only that user's access rows and never deletes shared data while another user retains active access.
+- Account deletion removes personal data, sessions, preferences, user-owned connections, and access rows, but never shared league data while another user retains active access.
+- When the last active access disappears, mark the league orphaned, set `orphaned_at`, and retain the data for 30 days. Re-import during retention revives the same record. After 30 days a purge job locks the league and deletes it only after confirming zero active access relationships.
+- Do not retain credentials merely because orphaned league data remains.
+
+### Player and scoring boundaries
+
+- Canonical NFL player identity and global raw weekly statistics are later work and are not part of the account cutover. NFL team is not immutable player identity.
+- League-specific records (ownership, rosters, lineups, matchups, waivers, transactions, keepers, schedule, provider-applied points) stay season-specific.
+- Scoring configuration belongs to the league season, with a normalized form and a deterministic scoring-profile fingerprint.
+- Launch continues to use ESPN provider-supplied fantasy points. Independent NFL-statistics ingestion is separately estimated and is not launch-critical.
+
+### Registration
 
 - Registration modes must be enforced by the backend.
-- Production registration remains closed until isolation, recovery, and operational launch gates are satisfied.
+- Public registration remains closed until the account-model cutover, authorization, import, synchronization, and frontend selection flows are complete and validated. Current staging is not acceptance evidence for the retired workspace model.
 - Email verification and recovery tokens must be hashed, expiring, revocable, and protected against account enumeration.
-- Provider network calls must not hold a database transaction open.
-- League claiming must remain atomic.
-- Initial synchronization must be recoverable and performed through durable background work as required by the architecture.
-- Workspace activation requires internally consistent workspace-owned data.
 
 ## Architecture Boundaries
 
@@ -131,8 +141,8 @@ The response may reveal only that the provider league is already connected. It m
 - API modules should coordinate request and response behavior rather than absorb domain logic.
 - Business workflows belong in services.
 - Database access belongs in repository or persistence boundaries.
-- Workspace authorization must not depend on globally selecting the first or only row.
-- Background jobs must include workspace ownership and must not contain secrets.
+- League-season authorization must not depend on globally selecting the first or only row, or on a client-supplied league or season ID alone.
+- Background jobs are keyed by league season and must not contain secrets or credential-owner identity.
 - Do not introduce an abstraction without a current concrete use.
 - Prefer descriptive names over generic names such as `canonical.py` when a clearer domain name exists.
 
@@ -156,7 +166,7 @@ Do not introduce:
 - Excessively rounded cards
 - A new component library without approval
 
-Prioritize signed-in team information, current standings, synchronization state, and clear mobile behavior. Preserve the acceptable desktop experience while improving mobile usability.
+Prioritize the selected league season's team information, current standings, synchronization state, and clear mobile behavior. Preserve the acceptable desktop experience while improving mobile usability.
 
 ## Required Reading
 
@@ -168,13 +178,16 @@ For consequential SaaS work, begin with:
 - `docs/roadmap/SAAS_MIGRATION_ROADMAP.md`
 - `docs/architecture/SAAS_TARGET_ARCHITECTURE.md`
 
-Then read only the relevant task-specific ADR:
+Read ADR 0010 for any account, league, access, import, or synchronization work. Then read only the relevant task-specific ADR:
 
-- Multi-tenancy: `docs/architecture/0004-League-Workspace-Multi-Tenancy.md`
-- Identity: `docs/architecture/0005-SaaS-Identity-Registration-and-Sessions.md`
-- Onboarding and jobs: `docs/architecture/0006-Resumable-Onboarding-and-Background-Jobs.md`
-- Provider data: `docs/architecture/0007-SaaS-Provider-Data-and-Credential-Strategy.md`
+- Account model, canonical leagues, access, import, synchronization: `docs/architecture/0010-Personal-Accounts-and-Shared-Canonical-Leagues.md`
+- Identity mechanics (verification, recovery, throttling): `docs/architecture/0005-SaaS-Identity-Registration-and-Sessions.md` (partially superseded)
+- Job mechanics: `docs/architecture/0006-Resumable-Onboarding-and-Background-Jobs.md` (partially superseded)
+- Provider data and credentials: `docs/architecture/0007-SaaS-Provider-Data-and-Credential-Strategy.md` (partially superseded)
+- Schema direction: `docs/architecture/0002-Canonical-Season-and-Provider-Schema.md` (partially superseded)
+- Email: `docs/architecture/0009-Durable-Transactional-Email.md`
 - Deployment: `docs/architecture/0008-Homelab-SaaS-Deployment-and-Recovery.md`
+- Historical only: `docs/architecture/0004-League-Workspace-Multi-Tenancy.md` (superseded; do not use for new work)
 
 Use `docs/DEVELOPMENT.md` for development commands and `docs/OPERATIONS.md` for operational behavior.
 
@@ -218,7 +231,7 @@ Stop and request approval before:
 - Adding, removing, or upgrading a runtime dependency
 - Creating or modifying a database migration unless explicitly in scope
 - Changing a public API contract
-- Changing authentication, authorization, workspace ownership, or session policy beyond the approved task
+- Changing authentication, league-season authorization, canonical league lifecycle, or session policy beyond the approved task
 - Changing an architecture decision
 - Adding a network-exposed service
 - Reading secrets or files outside the repository
@@ -324,11 +337,11 @@ Include relevant:
 - Success behavior
 - Validation failures
 - Authorization failures
-- Cross-workspace negative cases
+- Cross-user and cross-season negative cases
 - Concurrency and transaction behavior
 - Rollback and partial-state assertions
 - Privacy-safe errors
-- Session replacement or concurrency behavior
+- Concurrent-session behavior and session revocation
 - Provider failure behavior
 - Regression coverage
 

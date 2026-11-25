@@ -2,819 +2,289 @@
 
 ## Document Status
 
-- **Status:** Draft
-- **Product baseline:** v1.0.1
+- **Status:** Draft, rewritten for ADR 0010
+- **Governing decision:** `docs/architecture/0010-Personal-Accounts-and-Shared-Canonical-Leagues.md`
 - **Parent document:** `docs/product/SAAS_VISION.md`
-- **Target deployment:** Hosted multi-tenant SaaS
+- **Target deployment:** Hosted SaaS of independent personal accounts and shared canonical leagues
 - **Initial capacity target:** 50 to 100 registered users
 - **Initial hosting environment:** Henry's homelab
 - **Initial sport:** Fantasy football
+- **Registration:** Public registration remains closed (see Launch Gates)
 
 ## Purpose
 
-This document defines the functional, security, data, provider, operational, and user-experience requirements for converting Fantasy What-If from a single self-hosted installation into a hosted multi-tenant service.
+This document defines the functional, security, data, provider, operational, and user-experience requirements for the hosted service. These requirements describe observable behavior. Database tables, API routes, queue design, and deployment topology belong in the architecture documents.
 
-These requirements describe observable behavior. Detailed database tables, API routes, migrations, queue design, and deployment topology belong in the architecture and system-design documents.
+The earlier League Workspace requirements (one administrator, one shared spectator, workspace slug login, exclusive provider-league claims, workspace activation, and workspace deletion) are superseded by ADR 0010 and remain available in Git history and ADRs 0004 through 0007 as historical records only.
 
 ## Hosted Deployment Decision
 
-This decision is final and overrides any older text in the vision, roadmap, or architecture documents that describes preserving the v1.0.1 installation.
+- The hosted SaaS is a new deployment. No v1 data is migrated, imported, or preserved.
+- SaaS registration and import are the only setup path. There is no installation setup wizard, bootstrap account, or `/api/setup` API.
+- Users authenticate by verified email and password only. Generated internal usernames, where they still exist during the cutover, are never login credentials and are never returned or displayed.
+- Provider credentials are encrypted only with the versioned `PROVIDER_CREDENTIAL_KEYS` keyring. There is no single-value key and no environment-based ESPN credential fallback.
+- Runtime services resolve league data from the authenticated user's active season access or from a season-keyed job, and never search globally for the only league.
 
-- The hosted multi-workspace SaaS is a new deployment. No v1 data is migrated, imported, or preserved, and v1 single-installation databases are not supported.
-- SaaS onboarding is the sole setup path. There is no installation setup wizard, bootstrap administrator, setup finalization, or `/api/setup` API, and an empty database never offers bootstrap.
-- Administrators authenticate only by email and password.
-- Spectators authenticate only by workspace slug plus the shared spectator password.
-- Generated internal usernames may remain stored for administrators and spectators, but they are never login credentials, never chosen by anyone, never returned by a modern API, and never displayed.
-- Provider credentials are encrypted only with the versioned `PROVIDER_CREDENTIAL_KEYS` keyring. There is no single-value `PROVIDER_CREDENTIAL_KEY` and no environment-based ESPN credential fallback.
-- Runtime services resolve the workspace from the authenticated session or job and never search globally for the only installation, league, or spectator.
+## Implementation Status
+
+The implemented code still follows the retired workspace model. The requirements below describe the target. Until the account-model cutover completes, treat the workspace-era behavior as legacy baseline, and keep public registration closed.
+
+- ESPN: implemented.
+- Sleeper: **not implemented.**
+- Yahoo: **not implemented.**
 
 ## Terminology
 
-### League Workspace
+### Personal Account
 
-A League Workspace is the tenant and security boundary for one registered league owner and the fantasy league claimed during onboarding.
+An independent user account with a display name, a verified email, and a password. A person may connect multiple fantasy leagues across multiple providers. A personal account has no role and is not controlled by any other account.
 
-A League Workspace owns its:
+### Canonical League
 
-- Administrator
-- Shared spectator account
-- Authentication sessions
-- Provider connections
-- Claimed provider league
-- Imported seasons
-- Canonical fantasy data
-- Analytics results
-- Synchronization runs
-- Configuration
-- Audit events
+A shared provider league stored once, identified by provider and normalized provider league ID. A canonical league is not owned by any user. The first importer creates it when absent and gains no authority over it.
 
-The `Installation` model stores League Workspaces.
+### League Season
 
-### Administrator
+A season of a canonical league, identified by canonical league and season year. Each season carries its own synchronization state and requires its own access proof.
 
-The administrator is the single account authorized to configure and manage a League Workspace.
+### Season Access
 
-The administrator is the person who creates and operates the Fantasy What-If workspace. They do not need to be the provider league manager, the commissioner, or the owner of any particular fantasy team. Any verified administrator who can identify a public league, or provide valid access to a private league, may connect it. Fantasy What-If is read-only with respect to the provider and never changes rosters, lineups, teams, scoring, schedules, or league administration.
+A persisted per-user, per-season authorization relation (`user_league_season_access`) with statuses `active`, `reverification_required`, and `revoked`.
 
-Product messaging targets fantasy players generally, for example: "Connect your fantasy league to explore deeper statistics, alternate outcomes, and what-if scenarios." It must not state or imply that only league managers may create a workspace, that commissioner verification is required, or that the administrator must prove league ownership.
+### Provider Connection
 
-### Spectator
-
-The spectator is one shared read-only account for a League Workspace. Multiple people may use the spectator account concurrently.
-
-The administrator creates and manages the single shared spectator password. Spectators sign in with the workspace slug plus that shared password. Spectators do not register, provide or verify an email address, choose a username, recover their own password, receive individual invitations, or receive team-specific accounts. The spectator's generated internal username is a storage value only: it is never chosen by the administrator, entered by a spectator, shown in the interface, or returned by any API.
-
-The public entry points are worded "Create a workspace", "Administrator sign in", and "Spectator sign in". The wording "Join as spectator" must not be used, because it implies self-registration or an access-request workflow.
-
-### Provider League Identity
-
-A provider league identity is the normalized combination of:
-
-- Provider name
-- Provider league ID or provider league key
-
-Examples include:
-
-- `espn` plus ESPN league ID
-- `sleeper` plus Sleeper league ID
-- `yahoo` plus Yahoo league key
-
-### League Claim
-
-A league claim is the exclusive association between one provider league identity and one League Workspace.
+A user-owned, encrypted credential record for one provider. It is never attached to a canonical league and never visible to another user.
 
 ## Product Scope
 
-The first SaaS release must allow a user to:
+A user can:
 
-1. Open the hosted Fantasy What-If service.
-2. Register one workspace administrator.
-3. Connect a supported fantasy provider.
-4. Claim one provider league.
-5. Complete the initial synchronization.
-6. Configure one shared spectator account.
-7. Access canonical analytics.
-8. Manage synchronization and workspace settings.
-9. Use the service without hosting infrastructure.
+1. Open the hosted service and register a personal account.
+2. Verify the email address.
+3. Import a first league by proving access to a league season.
+4. Import additional leagues and seasons across providers.
+5. Switch between connected leagues and seasons.
+6. View synchronization state and canonical analytics for each connected season.
+7. Remove a league from the account, or delete the account.
 
-The first SaaS release supports one claimed fantasy league per League Workspace.
+Fantasy What-If is read-only with respect to providers. It never changes rosters, lineups, teams, scoring, schedules, or league administration. Product messaging targets fantasy players generally and must not imply that only commissioners may connect a league.
 
 ## Functional Requirements
 
-### FR-1: Public Registration
+### FR-1: Personal Account Registration
 
-The service must provide public administrator registration when registration is enabled.
-
-Registration must collect:
-
-- Display name
-- Email address
-- Password
-- Password confirmation
-- Workspace display name when required
-- Workspace slug or slug preference
-- Acceptance of required legal terms when those terms are introduced
-
-The service must normalize email and workspace-slug values before uniqueness checks.
-
-The current schema still requires a `users.username` value. Registration generates an internal unique value for that column. The value is not collected from the registrant, is never returned by registration responses, and must not become a public SaaS login dependency.
-
-Password handling must retain the existing Argon2 hashing behavior.
-
-The API must never return a password, password hash, session token hash, or provider credential.
+Registration collects display name, email, password, and confirmed password. Registration creates an independent account. It never creates a workspace, role, or league claim. Email is verified before the account can import leagues. Registration must be protected against account enumeration.
 
 ### FR-2: Registration Availability
 
-The service operator must be able to:
+The service operator must be able to enable, disable, or place registration into maintenance mode while existing logins continue. When registration is disabled the API returns a stable safe response (`registration_unavailable`) rather than relying on a hidden frontend control. **Public registration remains closed** until every launch gate below is satisfied.
 
-- Enable public registration
-- Disable public registration
-- Place registration into maintenance mode
-- Preserve existing login access while new registration is disabled
+### FR-3: Email Login
 
-When registration is disabled, the API must return a stable safe response rather than relying only on a hidden frontend control.
+Email and password are the sole login. There are no administrator, spectator, workspace-slug, or username logins. Login failures are uniform and throttled.
 
-Recommended application error code:
+### FR-4: Concurrent Sessions
 
-```text
-registration_unavailable
-```
+An account may hold multiple concurrent sessions. Creating a session never revokes another. Password reset and consequential account-security actions revoke all sessions.
 
-### FR-3: Workspace Creation
+### FR-5: Provider Selection
 
-A successful registration flow must create one provisional League Workspace associated with the new administrator.
+The user selects a provider at import. ESPN is the only provider that can be selected. Sleeper and Yahoo may be displayed only as unavailable and must not be described as functional.
 
-A provisional workspace must not be visible to other tenants.
+### FR-6: Proof-First League Import
 
-A provisional workspace must not be treated as active until provider validation, league claiming, initial synchronization, and required account setup are complete.
+Import must:
 
-Workspace lifecycle states should include at least:
+1. Authenticate and verify the user and require CSRF protection.
+2. Persist throttle state in a short committed operation.
+3. Perform provider verification with no open database transaction, using only anonymous access where applicable or credentials supplied by the requesting user.
+4. Verify the returned provider target and season.
+5. Return a uniform failure that does not reveal whether the canonical league already exists.
+6. Persist no League, Season, access, or connection state after failed proof.
+7. After successful proof, commit one atomic transaction (see FR-7).
 
-- `pending_registration`
-- `setup_in_progress`
-- `synchronizing`
-- `active`
-- `setup_failed`
-- `suspended`
-- `deletion_pending`
+### FR-7: Atomic Import and Idempotency
 
-Exact enum names will be finalized during system design.
+After proof, one transaction upserts the requesting user's provider connection when credentials were supplied, inserts or retrieves the canonical league and season through database uniqueness, coordinates with orphan purging, clears `orphaned_at`, inserts or reactivates the user's access row, queues at most one synchronization job, and sets a default season when absent. A repeat import by the same user is idempotent. Simultaneous imports yield one league, one season, one access row per user, and at most one active job. A failure rolls back only the requesting user's transaction.
 
-### FR-4: One Administrator per Workspace
+### FR-8: Shared Canonical League
 
-Each League Workspace must have exactly one administrator identity after activation.
+A second authorized user reuses the existing canonical records. There is no duplicate-claim rejection, no first-importer ownership, and no requirement that the first importer remain connected.
 
-The first SaaS version must not support:
+### FR-9: Per-Season Private Authorization
 
-- Multiple administrators
-- Administrator invitations
-- Administrator role transfer
-- One administrator account managing multiple workspaces
+Every user must independently prove access to every private league season. Existing records, another user's access, cached data, or another user's credentials never prove authorization. Importing a new season requires fresh proof. Possessing or guessing an internal League or Season ID never grants access.
 
-These capabilities may be added later through explicit migrations and authorization changes.
+### FR-10: Uniform Inaccessible-Resource Responses
 
-### FR-5: One Active Administrator Session
+Missing access, revoked access, and nonexistent resources return the same response. Responses must not reveal whether a canonical league or season exists, who else has access, or whose credentials are used.
 
-Each League Workspace may have at most one active administrator session.
+### FR-11: Access Reverification
 
-After successful administrator authentication:
+Private access is reverified periodically, initially every seven days. Expired credentials, HTTP 401 alone, timeouts, outages, rate limiting, generic authentication failure, and ambiguous ESPN 403 or 404 never revoke access automatically. They mark the connection invalid or set the access to `reverification_required`. Access is revoked only on definitive provider evidence. A season that becomes private requires private proof.
 
-- The application must revoke every previously active administrator session for that workspace.
-- The application must create the new administrator session.
-- Revocation and session creation must be transactionally consistent.
-- The previous browser must lose authenticated administrator access on its next protected request.
+### FR-12: League and Season Selection
 
-A failed login must not revoke the current administrator session.
+The user can list connected leagues, switch between leagues and seasons, import another league, and set a default season. The application verifies that the user retains access to the default season and clears the preference when access disappears. Query caches are isolated by season. No code path may assume a single current league.
 
-The application may later provide a warning or session-replacement notice, but the one-session rule must be enforced by the backend.
+### FR-13: Synchronization State
 
-### FR-6: Shared Spectator Account
+Seasons expose `never_synced`, `queued`, `syncing`, `fresh`, `stale`, and `failed`. Importing an existing season reuses `fresh` data immediately, shows `stale` data while queuing one refresh, shows prior data (or an importing state) while `queued` or `syncing`, and shows prior data with a warning (or a failed-import state) plus a safe retry when `failed`. Status responses never disclose credential owners, connection IDs, secrets, or other users' details.
 
-Each active League Workspace may have exactly one spectator identity.
+### FR-14: League-Season Synchronization
 
-The administrator must be able to:
+Synchronization is keyed by `league-season-sync:{season_id}` with at most one active job per season. Jobs carry no secrets and no credential-owner identity. Public seasons synchronize anonymously where supported. Private seasons use any valid connection whose owner has active access to that season. Provider requests never run inside an open database transaction.
 
-- Create the spectator account
-- Change the spectator display name
-- Change the spectator password
-- Enable spectator access
-- Disable spectator access
+### FR-15: Credential Reconnection
 
-A spectator password reset or account disable operation must revoke all existing spectator sessions for that workspace. Re-enabling spectator access must not reveal the stored password.
+When a user's own provider connection becomes invalid, only that user sees reconnection messaging. Other users' access and synchronization are unaffected unless they depend solely on that connection.
 
-Spectator setup occurs during onboarding after initial synchronization succeeds and before workspace activation.
+### FR-16: Removing a League Connection
 
-The administrator chooses only the shared password: at least 14 and at most 128 characters, never trimmed. The server generates the internal compatibility username and stores no spectator email. Changing the password revokes all spectator sessions. Disabling access revokes them and blocks sign-in with the generic credential failure. Re-enabling access always requires a new shared password, so the previous one is never revealed or silently restored. Completing spectator setup completes onboarding; workspace activation is a separate step.
+Removing a league removes or deactivates only the requesting user's access to every connected season of that league. It never deletes canonical data while another user retains active access, removes another user's connection, or interrupts another authorized user.
 
-### FR-7: Concurrent Spectator Sessions
+### FR-17: Account Deletion
 
-The spectator identity must support multiple concurrent sessions.
+Account deletion removes the user, sessions, verification and reset records, preferences, user-owned provider connections, season access, and other personal data. It never deletes shared league data while another user retains active access. Deletion confirmation email uses the durable email design of ADR 0009.
 
-A new spectator login must not revoke other spectator sessions.
+### FR-18: Orphan Retention
 
-Session storage and cleanup must support multiple active session records for the spectator user.
-
-The initial SaaS release does not require a configurable spectator-session limit. The architecture must allow a limit to be added later if abuse or resource usage requires one.
-
-### FR-8: Tenant-Aware Login
-
-A login attempt must resolve exactly one workspace identity without exposing another workspace's account information.
-
-The selected login design must prevent ambiguous credentials across workspaces.
-
-The system design must choose one of these supported approaches:
-
-- Globally unique administrator and spectator usernames
-- Workspace slug plus workspace-local username
-- Email-based administrator login plus workspace-specific spectator login
-
-The final choice must address:
-
-- Username collisions
-- Workspace discovery
-- Spectator usability
-- Password reset
-- Mobile-app compatibility
-- Information disclosure
-- Migration of existing usernames
-
-Decision: email-based administrator login plus workspace-slug spectator login with the shared spectator password (ADR 0005). Username login has been removed; there are no existing usernames to migrate.
-
-### FR-9: Provider Selection
-
-The onboarding interface must display supported providers and their implementation status.
-
-Providers planned for the SaaS architecture are:
-
-- ESPN Fantasy Football
-- Sleeper
-- Yahoo Fantasy Sports
-
-A provider must not be selectable as operational until the integration supports end-to-end validation, synchronization, persistence, and recovery.
-
-### FR-10: Provider Validation
-
-Provider validation must:
-
-- Validate required identifiers
-- Validate credentials or authorization when required
-- Confirm that the provider league exists
-- Confirm that the account may access the league
-- Return safe errors
-- Avoid persisting canonical league data before the claim transaction
-- Avoid exposing raw provider responses
-
-Validation must not create a permanent league claim by itself.
-
-Validation must not synchronize or import league data, and must not require the administrator to be the provider league manager, commissioner, or a team owner.
-
-For ESPN, the administrator provides the League ID and season year. Fantasy What-If first makes one minimal, bounded anonymous request for that exact league season:
-
-- If anonymous access succeeds, the league is public. No credentials are requested or stored.
-- If ESPN clearly requires authentication, the interface then asks for `SWID` and `espn_s2`, validates authenticated access, and stores the credentials encrypted.
-- Any ambiguous failure (nonexistent league, wrong season, timeout, outage, malformed response) returns one safe failure, reveals no credential fields, stores nothing, and does not advance onboarding.
-
-A successful validation stores the validated target (League ID, initial season year, public or private access mode, validation time, and encrypted credentials only for private access) and advances onboarding to league claim confirmation.
-
-### FR-11: Exclusive Provider League Claim
-
-A provider league identity may belong to only one League Workspace.
-
-The database must enforce uniqueness for the normalized pair:
-
-- `provider`
-- `provider_league_id`
-
-Season is not part of claim uniqueness. The workspace represents the continuing fantasy league, seasons belong to that workspace, and the same provider league must not create a separate workspace each year.
-
-Application-level availability checks may improve the interface but must not be the authoritative concurrency control.
-
-### FR-12: Atomic Duplicate-Claim Rejection
-
-If two registrations attempt to claim the same provider league concurrently, at most one transaction may succeed.
-
-The losing transaction must return:
-
-- HTTP `409 Conflict`
-- Stable application error code `provider_league_already_claimed`
-- A safe user-facing message
-
-Recommended message:
-
-> This fantasy league is already connected to Fantasy What-If. Contact the league owner and ask for the workspace's spectator account if you need viewing access.
-
-The rejected transaction must not leave behind:
-
-- A League Workspace
-- A user
-- An authentication session
-- A provider connection
-- Encrypted credentials
-- A league
-- A season
-- Teams
-- Matchups
-- Player data
-- Synchronization runs
-- Audit records indicating a successful registration
-
-Security and abuse audit records may be retained separately if they do not create tenant-owned application state.
-
-Validation and claim are separate steps. Validation confirms access; the claim happens only after the administrator explicitly confirms the validated target. The losing registration is removed in the same transaction that detects the conflict, its authentication cookies are cleared, and the browser shows a public outcome page with Administrator sign in and Spectator sign in actions. The response discloses no owner identity, email, workspace slug, claim identifier or account detail.
-
-### FR-13: Duplicate-Claim Privacy
-
-Duplicate-claim responses must not expose:
-
-- Workspace ID
-- Administrator username
-- Administrator display name
-- Administrator email
-- Spectator username
-- Spectator activity
-- Existing season data
-- Provider credentials
-- Account status
-- Last synchronization time
-- Whether a specific person owns the workspace
-
-The response may reveal only that the provider league is already connected.
-
-### FR-14: Resumable Onboarding
-
-Onboarding should be resumable after safe intermediate steps.
-
-A user who signs out or loses browser connectivity should be able to resume from the last committed setup stage.
-
-Resumable onboarding must not weaken atomic league claiming. The system design must distinguish between:
-
-- Provisional registration data
-- Exclusive league claim creation
-- Long-running initial synchronization
-- Final workspace activation
-
-### FR-15: Initial Synchronization
-
-Workspace activation requires a successful initial synchronization.
-
-The initial synchronization must:
-
-- Use the claimed provider league
-- Create canonical league and season data
-- Persist provider capabilities
-- Persist lineup and schedule rules when available
-- Record a synchronization run
-- Preserve safe failure information
-- Avoid exposing provider credentials
-- Be recoverable after an HTTP timeout or browser disconnect
-
-A failed initial synchronization must leave the workspace resumable or safely recoverable.
-
-### FR-16: Workspace Activation
-
-A League Workspace may become active only when:
-
-- The administrator exists
-- The provider connection is valid
-- The provider league claim exists
-- The active league exists
-- The active season exists
-- Initial synchronization succeeded
-- Required canonical settings exist
-- The workspace ownership graph is internally consistent
-
-Spectator setup happens before activation: activation also requires one enabled shared spectator with a password and no email.
-
-Activation is a separate final gate. `onboarding_stage = complete` alone is not sufficient: activation independently rechecks the persisted invariants (validated connection and target, claim attached to the workspace's own League, the Season for the validated year, a succeeded initial synchronization, core league data, and spectator access). It performs no provider I/O, decryption or synchronization. On success it sets the active League and Season and makes the workspace available. SaaS onboarding is the sole setup path.
-
-### FR-17: Workspace-Scoped Season Import
-
-Historical season import must operate within the authenticated League Workspace.
-
-Historical season import must not search globally for the only installation or only league.
-
-The service must:
-
-- Resolve the workspace from the authenticated session
-- Resolve the workspace's claimed league
-- Use the workspace-owned provider connection
-- Prevent duplicate seasons within the league
-- Prevent access to another workspace's seasons
-- Record workspace-scoped synchronization results
-
-### FR-18: Workspace Selection
-
-The first SaaS release does not require one user to belong to multiple workspaces.
-
-Authenticated requests may derive the League Workspace directly from the authenticated user.
-
-API design should avoid unnecessary workspace IDs in client-controlled paths when the session already determines the workspace.
-
-If a workspace ID is accepted from the client, the backend must verify ownership independently.
+When the last active access relation disappears the canonical league is marked orphaned with `orphaned_at` and retained for 30 days. Re-import during retention revives the same record. After 30 days a purge job locks the league and deletes it only after confirming zero active access relationships. Credentials are not retained merely because orphaned data remains.
 
 ### FR-19: Analytics Isolation
 
-Every analytics query must be constrained to the authenticated League Workspace's league and season.
-
-This includes:
-
-- Dashboard
-- Current standings
-- All-Play standings
-- League Average
-- Schedule Swap
-- Optimal Lineups
-- Playoff Predictor
-- Historical season browsing
-
-Internal numeric IDs must never be considered authorization.
-
-### FR-20: Workspace Deletion
-
-The SaaS design must support administrator-requested deletion of an active workspace.
-
-Workspace deletion uses a 30-day grace period.
-
-#### Request
-
-Only the workspace administrator may request deletion. A request requires all of the following:
-
-- A verified administrator.
-- An `active` workspace. Suspended workspaces cannot request self-service deletion; operator handling of suspended workspaces is a separate policy.
-- A standard administrator session. A `deletion_recovery` session cannot request deletion.
-- CSRF and origin validation.
-- The administrator's current password.
-- Exact confirmation of the workspace slug, compared after slug normalization.
-
-When deletion is requested, one transaction must:
-
-- Set `registration_status` to `deletion_pending`.
-- Record `requested_at` and `scheduled_for` (`requested_at` plus 30 days).
-- Revoke every administrator and spectator session.
-- Cancel pending and retry-scheduled workspace jobs.
-- Queue exactly one scheduled `workspace_deletion` job.
-- Block all ordinary workspace access, including login, reads, writes, synchronization, and imports.
-
-#### Grace-Period Retention
-
-During the grace period the workspace retains its provider league claim, workspace slug, administrator email, provider connection, and encrypted provider credentials. The claim, slug, and email remain reserved and cannot be used by another registration until final deletion.
-
-#### Cancellation and Recovery
-
-Cancellation is available only while the current time is earlier than `scheduled_for`. At or after `scheduled_for`, cancellation is refused even if the deletion job has not yet run.
-
-Cancellation uses a restricted `deletion_recovery` session:
-
-- It is created only by a correct administrator email and password login to a `deletion_pending` workspace.
-- It lasts 15 minutes and cannot be renewed.
-- It is denied by default outside `/auth/me`, deletion status, cancellation, and logout.
-- Cancellation requires the current password again.
-- Previously revoked sessions stay revoked, and cancellation does not create a standard session. The administrator must log in again after cancellation.
-
-Password reset remains available while deletion is pending. A successful reset never reactivates the workspace and never cancels deletion.
-
-#### Final Cleanup
-
-At or after `scheduled_for`, the `workspace_deletion` job performs final cleanup in one ordered transaction:
-
-1. Lock the workspace and recheck that it is still `deletion_pending` and due.
-2. Delete synchronization runs that are not otherwise removed.
-3. Delete the workspace's leagues, cascading seasons and imported data.
-4. Write an anonymized `workspace_deletion_record`.
-5. Delete the workspace, cascading provider connections, users, sessions, tokens, provider league claims, and jobs.
-
-The workspace row is hard-deleted. `deleted` is not a persisted workspace state. Final deletion releases the provider claim, slug, and administrator email together. No claim is retained as a released or historical row.
-
-The `seasons.provider_connection_id` foreign key remains `RESTRICT`. Explicit deletion order, not a weaker foreign key, must satisfy it.
-
-The job may delete its own `BackgroundJob` row. `workspace_deletion_records` is the durable completion authority.
-
-If cleanup fails terminally, the workspace remains `deletion_pending` and inaccessible. Operators re-enqueue the job after repair.
-
-#### Retention After Deletion
-
-Anonymized deletion records are retained for 365 days. A record contains only the former workspace ID, provider, normalized provider League ID, requested, scheduled, and completed timestamps, outcome, and retention expiration. It must not contain the slug, email, display name, credentials, passwords, tokens, or internal usernames.
-
-- Tenant-owned background-job and synchronization history is deleted with the tenant.
-- Login-attempt and registration-rate-limit rows remain until their normal expiration. They are hashed and not workspace-linked.
-- Audit-event retention is deferred until audit infrastructure exists.
-
-#### Notification Dependency
-
-Before public deletion launches, durable email delivery (ADR 0009) must support a deletion-request confirmation, a seven-day reminder, and a deletion-completion notice. Best-effort email from a worker is not an acceptable substitute.
-
-- The request transaction creates the confirmation and the reminder intents. The reminder is scheduled for `scheduled_for` minus seven days.
-- Cancellation suppresses the pending reminder.
-- The final deletion transaction creates the completion intent and its encrypted recipient. The recipient is wiped when delivery reaches a final state.
-- The deletion worker never sends email directly.
-- A deletion-cancellation confirmation is recommended but not launch-blocking.
-
-#### Boundaries
-
-Provisional duplicate-claim cleanup is separate from FR-20.
-
-Operator suspension, security investigation, or abuse response must not release the provider league claim.
-
-Deleted data may remain in encrypted backups until backup retention expires. The deletion workflow and user-facing policy must disclose this limitation.
+Analytics, caches, exports, and derived results are keyed by season and returned only to users with active access to that season.
 
 ## Provider Requirements
 
 ### PR-1: Canonical Provider Contract
 
-All providers must produce the canonical domain objects defined by the provider architecture.
-
-Analytics must not consume raw ESPN, Sleeper, or Yahoo objects.
+All providers produce the canonical domain objects defined by the provider architecture. Analytics must not consume raw provider objects.
 
 ### PR-2: Provider Identity Normalization
 
-Each provider adapter must define how provider league identity is normalized.
-
-Normalization must be deterministic and documented.
-
-The application must preserve the original provider identifier when useful for diagnostics while enforcing claims against the normalized identity.
+Each provider adapter defines deterministic, documented identity normalization. For ESPN the canonical identity is provider `espn` plus the normalized league ID (digits validated, leading zeroes stripped), and the season is the canonical league plus season year. Sleeper and Yahoo identity rules must not be invented here. Their provider branches establish identity, authentication, privacy, and season behavior from evidence.
 
 ### PR-3: ESPN Hardening
 
-Before open SaaS registration, ESPN must support:
+ESPN must support public and private leagues, encrypted `espn_s2` and `SWID` storage per user, correct future schedules, historical seasons, league and playoff settings, stable string identifiers, retry classification, safe authentication errors, sanitized deterministic fixtures, credential replacement, and credential deletion. Environment-level ESPN credential fallback must not be used.
 
-- Multiple workspace-owned provider connections
-- Public and private leagues
-- Encrypted `espn_s2` and `SWID` storage
-- Correct future schedules
-- Historical seasons
-- League settings
-- Playoff settings
-- Stable string identifiers
-- Retry classification
-- Safe authentication errors
-- Sanitized deterministic fixtures
-- Credential replacement
-- Credential deletion
+### PR-4: Sleeper Integration (not implemented)
 
-Environment-level ESPN credential fallback must not be used for ordinary SaaS tenants.
+Sleeper is not implemented. Its provider branch must establish identity, authentication, privacy, season ancestry, scoring, and rate-limit behavior from evidence before any support claim.
 
-### PR-4: Sleeper Integration
+### PR-5: Yahoo Integration (not implemented)
 
-Sleeper support must implement the same canonical provider protocol.
-
-Sleeper investigation and implementation must cover:
-
-- User lookup when needed
-- League discovery
-- League ID normalization
-- Season ancestry
-- Rosters
-- Matchups
-- Weekly scores
-- Lineup slots
-- Scoring rules
-- Playoff settings
-- Historical availability
-- Provider capabilities
-- Error handling
-- Rate-limit behavior
-
-### PR-5: Yahoo Integration
-
-Yahoo support must include:
-
-- OAuth authorization
-- State and callback validation
-- Access-token storage
-- Refresh-token storage
-- Token refresh
-- Authorization revocation
-- Yahoo league-key normalization
-- Required scopes
-- Reauthorization behavior
-- Safe provider errors
-- Tenant-scoped callback resolution
-- Protection against callback-account confusion
-
-Yahoo must not be exposed as implemented until token refresh and synchronization recovery are tested end to end.
+Yahoo is not implemented. Its provider branch must cover OAuth state and callback validation, token storage and refresh, revocation, league-key normalization, scopes, reauthorization, safe errors, and protection against callback-account confusion. OAuth callback exposure is a later consequential network and deployment review. Yahoo must not be exposed as implemented until token refresh and synchronization recovery are tested end to end.
 
 ### PR-6: Provider Capability Honesty
 
-A provider or season must advertise only supported analytics.
-
-The application must not fabricate missing data to make an analytics feature appear available.
+A provider or season advertises only supported analytics. The application never fabricates missing data. **Sleeper and Yahoo must not be claimed as supported until implemented.**
 
 ### PR-7: Provider Rate Protection
 
-Synchronization must protect provider services and the hosted application through:
+Synchronization protects providers and the application through per-provider concurrency limits, per-season locks, retry classification, backoff, safe handling of HTTP `429`, and scheduling jitter. Provider-proof attempts are throttled per user.
 
-- Per-provider concurrency limits
-- Per-workspace synchronization locks
-- Per-season synchronization locks
-- Retry classification
-- Exponential backoff where appropriate
-- Safe handling of HTTP `429` responses
-- Synchronization scheduling with jitter
+### PR-8: Player and Scoring Direction
 
-Exact provider limits must be documented when verified.
+Later work introduces canonical NFL player identity, provider player mappings, globally stored raw weekly statistics, and league-season scoring profiles with a deterministic fingerprint (ADR 0010). These do not block the account cutover. Launch uses ESPN provider-supplied fantasy points. Independent NFL-statistics ingestion is separately estimated.
 
 ## Authorization Requirements
 
-### AR-1: Workspace Context
+### AR-1: League-Season Context
 
-Every protected request must resolve an authenticated user and League Workspace context.
+Every league-data request resolves an active access row for the authenticated user and season before reading data. Authorization never relies on selecting the first or only row, or on a client-supplied ID alone.
 
-The context must include at least:
+### AR-2: No Roles
 
-- User ID
-- Workspace ID
-- Role
-- Session ID
+There is no administrator or spectator authorization. Every account has the same capabilities over its own data and its own season access.
 
-### AR-2: Administrator Authorization
+### AR-3: Deny by Default
 
-Administrator-only capabilities include:
+Missing access context denies access with the uniform response of FR-10.
 
-- Provider connection changes
-- Synchronization
-- Historical import
-- Spectator management
-- Workspace settings
-- Tiebreaker fallback configuration
-- Account security changes
-- Workspace deletion request
+### AR-4: Cross-User Tests
 
-### AR-3: Spectator Authorization
+Tests must prove, for every league-data endpoint, that:
 
-Spectators may read supported workspace analytics.
-
-Spectators must not:
-
-- Modify provider settings
-- Trigger synchronization
-- Import seasons
-- Change spectator credentials
-- Access encrypted credentials
-- Change workspace settings
-- View administrator account details
-- Request workspace deletion
-
-What-if selections that remain local browser state are permitted.
-
-### AR-4: Deny by Default
-
-New workspace-owned routes must deny access unless tenant context and role authorization are explicitly applied.
-
-### AR-5: Cross-Tenant Tests
-
-Every repository or service that reads workspace-owned data must have tests proving that another workspace cannot access the data.
-
-Representative tests must cover:
-
-- Direct internal-ID substitution
-- Season-query substitution
-- League-query substitution
-- Provider-connection substitution
-- Synchronization-target substitution
-- Administrator endpoint access as spectator
-- Workspace-deletion boundaries
+1. User A cannot read User B's private season without independent proof.
+2. A guessed or known internal League or Season ID grants nothing.
+3. Another user's connection or access never authorizes a new user.
+4. Revoked and `reverification_required` access follow the documented behavior.
+5. User A cannot trigger or observe synchronization for a season without active access.
+6. Responses for inaccessible and nonexistent resources are indistinguishable.
 
 ## Session Requirements
 
 ### SR-1: Secure Session Storage
 
-Session tokens must remain:
+Session tokens are random, stored only as hashes, revocable, expiring, and bound to a user.
 
-- Random
-- Stored only as hashes
-- Revocable
-- Expiring
-- Bound to a user
-- Resolvable to a workspace
+### SR-2: Concurrent Sessions
 
-### SR-2: Administrator Replacement
+Multiple concurrent sessions per account are permitted.
 
-Creating a new administrator session must revoke active administrator sessions for that workspace in the same transaction.
+### SR-3: Bulk Revocation
 
-### SR-3: Spectator Concurrency
+Password reset and consequential account-security actions revoke all sessions.
 
-Creating a spectator session must not revoke other spectator sessions.
+### SR-4: Session Cleanup
 
-### SR-4: Role Change Revocation
-
-Disabling or changing an account must revoke affected sessions.
-
-### SR-5: Session Cleanup
-
-Expired and revoked sessions must be removable through workspace-safe maintenance.
-
-Cleanup may operate globally as an operator task because session deletion does not expose tenant data, but application-facing results must not reveal other tenants' session counts.
+Expired and revoked sessions are removable through maintenance that exposes no other user's session counts.
 
 ## Data Requirements
 
 ### DR-1: Explicit Ownership
 
-Every workspace-owned aggregate must have an explicit ownership path to a League Workspace.
+Personal data is owned by the user. Provider connections are owned by the user. Canonical league data is shared and unowned. The access relation links them.
 
-Direct ownership columns should be added where the columns materially improve:
+### DR-2: Canonical Constraints
 
-- Authorization
-- Query safety
-- Uniqueness constraints
-- Deletion
-- Operational maintenance
-
-Ownership must not rely solely on assumptions about one global installation.
-
-### DR-2: Tenant-Scoped Constraints
-
-Uniqueness constraints must reflect intended scope.
-
-Examples requiring design review include:
-
-- Username
-- Email
-- Provider league identity
-- Provider connection
-- League identity
-- Season year
-- Spectator identity
-- Active league
-- Active season
+The database enforces uniqueness on provider plus normalized league ID, on league plus season year, and on user plus season in the access relation. Database constraints are authoritative.
 
 ### DR-3: Canonical Numeric Data
 
-Scores and fantasy points must continue using decimal-safe persistence.
+Scores and statistics use deterministic decimal serialization.
 
 ### DR-4: Provider Metadata
 
-Provider metadata may preserve noncanonical fields but must exclude:
-
-- Passwords
-- Cookies
-- OAuth access tokens
-- OAuth refresh tokens
-- API secrets
-- Authorization headers
-- Raw private-account payloads
+Provider metadata and identifiers are stored as stable strings with version information where needed.
 
 ### DR-5: Audit Events
 
-Security-sensitive SaaS actions must produce structured audit events.
-
-Required categories include:
-
-- Registration attempt
-- Registration success
-- Duplicate league claim
-- Login success
-- Login failure
-- Administrator session replacement
-- Spectator password reset
-- Provider connection creation
-- Provider credential replacement
-- Synchronization request
-- Workspace suspension
-- Workspace deletion request
-
-Audit events must not contain secrets.
+Structured audit events cover registration, login, password reset, session revocation, league import, access revocation, reverification outcomes, connection invalidation, account deletion, and orphan purge. They contain no secrets or credential-owner identity visible to other users. Audit events are required before public launch.
 
 ## Synchronization Requirements
 
-### SYR-1: Tenant-Scoped Resolution
+### SYR-1: Season-Scoped Resolution
 
-Synchronization must accept or resolve a specific workspace and season.
+Synchronization resolves its season from the job and never searches globally.
 
-Synchronization must not query for the only active installation.
+### SYR-2: Season Locks
 
-### SYR-2: Tenant-Scoped Locks
-
-Synchronization and import advisory locks must be derived from stable resource identifiers.
-
-Global constant lock keys that serialize unrelated tenants must be removed or restricted to operator-wide tasks.
+Persistence acquires the season advisory transaction lock and compares `data_version` when needed.
 
 ### SYR-3: Background Execution
 
-Long-running provider synchronization should execute outside the request lifecycle before open SaaS registration.
-
-The API should enqueue or create work and return a job or synchronization-run identifier.
-
-The existing persisted-state polling behavior is a migration foundation.
+Synchronization runs through durable PostgreSQL-backed jobs. Network calls never occur inside an open transaction.
 
 ### SYR-4: Idempotency
 
-Repeated synchronization of unchanged provider data must preserve an equivalent canonical state.
+The active-job key is `league-season-sync:{season_id}`.
 
 ### SYR-5: Failure Isolation
 
-One workspace's synchronization failure must not block unrelated workspaces.
+One season's failure never blocks another season or another user's access to prior data.
 
 ### SYR-6: Scheduling
 
-Automatic synchronization must be workspace-aware and distribute provider requests over time.
-
-The scheduler must avoid launching all workspaces simultaneously.
+Scheduled synchronization refreshes stale seasons and triggers periodic access reverification.
 
 ## Mobile and API Requirements
 
 ### MR-1: Responsive Registration
 
-Registration and onboarding must work at a viewport width of 320 CSS pixels without page-level horizontal scrolling.
+Registration and league import must work at a viewport width of 320 CSS pixels without page-level horizontal scrolling.
 
 ### MR-2: Responsive Analytics
 
@@ -826,11 +296,11 @@ Touch targets should generally be at least 44 by 44 CSS pixels where practical.
 
 Authentication and API contracts must not assume that all clients are browser pages.
 
-The future native application may require a different token transport, but authorization and tenant ownership must remain shared.
+The future native application may require a different token transport, but per-user, per-season authorization must remain shared.
 
 ### MR-4: Desktop Stability
 
-The SaaS conversion should not redesign the desktop analytics interface unless a change is required for tenant selection, registration, security, or provider support.
+The SaaS conversion should not redesign the desktop analytics interface unless a change is required for league and season selection, registration, security, or provider support.
 
 ## Operational Requirements
 
@@ -841,7 +311,7 @@ The homelab deployment must support the initial target of 50 to 100 registered u
 Capacity testing must model:
 
 - Concurrent logins
-- Concurrent spectator reads
+- Concurrent authenticated analytics reads
 - Background synchronization
 - Database connection usage
 - Provider latency
@@ -923,7 +393,7 @@ The SaaS conversion must preserve:
 - Encrypted provider credentials
 - Safe error handling
 - Secure cookie configuration
-- Role authorization
+- Per-user, per-season authorization
 
 ### SER-2: Registration Abuse Protection
 
@@ -942,14 +412,14 @@ CAPTCHA is deferred unless observed abuse justifies the additional friction.
 
 Before public launch, the product must define:
 
-- Whether administrator email is mandatory
+- Whether account email is mandatory
 - Email verification
 - Password-reset delivery
 - Reset-token expiration
 - Reset-token single use
-- Administrator account recovery when provider credentials are unavailable
+- Account recovery when provider credentials are unavailable
 
-Decision (ADR 0009): administrator email is mandatory and verified. Transactional email uses Resend on the permanent free plan at $0 spend, with durable delivery, a configured daily limit (initially 100) and monthly ceiling (initially 2,900), and reserved capacity for recovery and deletion notices. Registration success means delivery was queued. Quota exhaustion or failed email readiness closes public registration. Resend acceptance means sent, and inbox delivery is not claimed. Required initial email: verification, verification resend, password reset, password-changed confirmation, deletion-request confirmation, seven-day deletion reminder, and deletion-completion notice.
+Decision (ADR 0009): account email is mandatory and verified. Transactional email uses Resend on the permanent free plan at $0 spend, with durable delivery, a configured daily limit (initially 100) and monthly ceiling (initially 2,900), and reserved capacity for recovery and deletion notices. Registration success means delivery was queued. Quota exhaustion or failed email readiness closes public registration. Resend acceptance means sent, and inbox delivery is not claimed. Required initial email: verification, verification resend, password reset, password-changed confirmation, deletion-request confirmation, seven-day deletion reminder, and deletion-completion notice.
 
 ### SER-4: Credential Encryption
 
@@ -981,58 +451,37 @@ Initial targets for normal homelab operation:
 
 Provider-dependent operations may exceed these targets and must not hold frontend reverse-proxy requests open indefinitely.
 
-## Acceptance Requirements
 
-The SaaS foundation is not ready for implementation completion until automated tests prove:
+## Launch Gates
 
-1. Two workspaces may coexist.
-2. Each workspace has one administrator.
-3. Each workspace has at most one spectator identity.
-4. Administrator login replaces the previous administrator session.
-5. Spectator logins remain concurrent.
-6. A duplicate provider league claim is rejected.
-7. Concurrent duplicate claims produce exactly one winner.
-8. The rejected claim leaves no partial tenant state.
-9. Workspace A cannot read Workspace B's league.
-10. Workspace A cannot read Workspace B's season.
-11. Workspace A cannot trigger Workspace B's synchronization.
-12. A spectator cannot use administrator endpoints.
-13. A new hosted deployment initializes without migrating v1 installation data.
-14. ESPN synchronization still passes its contract tests.
-15. Registration works at 320 CSS pixels.
-16. Backup restoration has been tested.
+Public registration stays closed until all of these are satisfied:
+
+1. The account-only identity cutover is complete: no administrator, spectator, workspace-slug, or username login remains.
+2. Per-user, per-season authorization, proof-first import, and atomic import are implemented and validated, including concurrency tests.
+3. League-season synchronization replaces workspace synchronization and performs no network call inside an open transaction.
+4. Frontend league and season selection, the empty-account import flow, and synchronization states are implemented.
+5. Account deletion and 30-day orphan retention are implemented and tested for shared-data safety.
+6. Cross-user negative tests pass for every league-data endpoint.
+7. Durable email (ADR 0009), audit events, operational gates (OR-2, OR-3, OR-4, OR-5), and published policies are satisfied.
+8. Homelab availability limitations are disclosed.
+
+Current staging validated the retired workspace model and is not acceptance evidence for these gates. Sleeper and Yahoo cannot be claimed as supported until implemented.
 
 ## Deferred Decisions
 
-The system design must resolve:
-
-- Login identifier and workspace discovery
-- Mandatory email and verification
-- Password-reset delivery
-- Registration transaction boundaries
-- Provisional-workspace expiration
-- Background-job implementation
-- Workspace-slug requirements
-- Whether the physical `installations` table is renamed
-- Whether tenant IDs are added directly to all high-volume tables
-- Tenant-aware database defense beyond application queries
-- Operator administration interface
-- Terms, privacy, and acceptable-use workflows
-- Yahoo OAuth client configuration
-- Cloud migration architecture
+- Sleeper and Yahoo identity, authentication, privacy, and season behavior.
+- Yahoo OAuth callback exposure review.
+- ESPN evidence for definitive loss of access.
+- Independent NFL-statistics source, licensing, corrections, player matching, defensive scoring, bonuses, and rounding.
+- Operator administration interface.
+- Native-app token transport.
 
 ## Traceability
 
-Future architecture and implementation documents should reference requirement IDs from this document.
-
-Examples:
-
 ```text
-FR-12: Atomic duplicate-claim rejection
-AR-5: Cross-tenant tests
-SYR-2: Tenant-scoped locks
-SER-4: Credential encryption
-
+FR-6, FR-7: Proof-first atomic import
+FR-9, AR-4: Per-season authorization and cross-user tests
+FR-14, SYR-2: League-season synchronization and season locks
+FR-16, FR-17, FR-18: Shared-data deletion safety and orphan retention
+PR-2: ESPN canonical identity
 ```
-
-A requirement should be updated here when product behavior changes. Architecture documents should explain how the requirement is satisfied rather than redefining product behavior.

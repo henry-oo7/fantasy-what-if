@@ -1,8 +1,10 @@
 # 0005: SaaS Identity, Registration, Login, and Session Policy
 
+> **Partially superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Administrator and spectator roles, workspace slug, shared spectator identity, tenant-scoped login, one-active-administrator-session replacement, workspace-scoped constraints, and claim-timed registration are superseded by independent personal accounts with email login and concurrent sessions. Email verification, password recovery, throttling, enumeration protection, and password requirements continue to apply to personal accounts. Sections marked superseded are historical.
+
 ## Status
 
-Proposed
+Proposed; partially superseded by ADR 0010
 
 ## Date
 
@@ -57,6 +59,9 @@ Fantasy What-If will use two explicit login modes.
 
 ### Administrator Login
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 Administrators authenticate with:
 
 ```text
@@ -67,6 +72,9 @@ password
 Administrator email addresses are globally unique and verified.
 
 ### Spectator Login
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 Spectators authenticate with:
 
@@ -117,6 +125,9 @@ The workspace slug already identifies which shared spectator credential should b
 
 ## Login Routes
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 The frontend will present two clear login choices:
 
 ```text
@@ -145,6 +156,9 @@ The selected login mode must be preserved during validation errors.
 The forms must not submit account-type guesses based on the entered value.
 
 ## Administrator Registration
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 Public registration creates an administrator account and a provisional League Workspace.
 
@@ -293,6 +307,9 @@ Cleanup must not release an active provider league claim except through the docu
 
 ## Workspace Slug
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 Every League Workspace will have a public login slug.
 
 Example:
@@ -379,6 +396,9 @@ A future slug-change feature must define:
 
 ## Spectator Identity
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 Each League Workspace may have zero or one spectator identity.
 
 The spectator identity is not a separate registered person.
@@ -429,6 +449,9 @@ Implementation:
 
 ## Spectator Login
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 Spectator login requires:
 
 ```text
@@ -450,6 +473,9 @@ A successful spectator login must not revoke other spectator sessions.
 
 ## Spectator Login Privacy
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 Spectator login failures must avoid unnecessary workspace enumeration.
 
 The API should use a common safe message for:
@@ -470,6 +496,9 @@ The user interface may separately explain the expected format of a workspace slu
 
 ## Spectator Credential Sharing
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 The administrator is responsible for sharing the workspace slug and spectator password with intended viewers.
 
 Fantasy What-If must never display the existing spectator password after creation.
@@ -486,6 +515,9 @@ The administrator interface must not retrieve or decrypt a password because only
 
 ## Spectator Password Reset
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 Resetting the spectator password must:
 
 1. Require an authenticated administrator.
@@ -499,6 +531,9 @@ Resetting the spectator password must:
 If the administrator generated the password in the frontend, the plaintext may be displayed only before submission and must not be recoverable afterward.
 
 ## Administrator Login
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 Administrator login requires:
 
@@ -524,6 +559,9 @@ A failed login must not revoke an existing administrator session.
 
 ## Deletion Recovery Sessions
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 A `deletion_pending` workspace permits no ordinary administrator login. The only permitted authentication is a restricted `deletion_recovery` session used to cancel deletion (FR-20).
 
 - It is created only by a correct administrator email and password login, while the current time is earlier than `scheduled_for`. Login failures remain enumeration-safe and generic.
@@ -538,6 +576,9 @@ A `deletion_pending` workspace permits no ordinary administrator login. The only
 Spectator sessions are never created for a `deletion_pending` workspace.
 
 ## Administrator Session Replacement
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 Only one administrator session may remain active per workspace.
 
@@ -559,6 +600,9 @@ Recommended user-facing message:
 The response must not disclose the replacing device, IP address, user agent, or location.
 
 ## Spectator Session Concurrency
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 Multiple spectator sessions may remain active at the same time.
 
@@ -763,6 +807,9 @@ These initial values require adjustment after observing legitimate use and abuse
 
 ## Provider League Claim Timing
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 Creating an administrator account does not claim a provider league.
 
 The claim occurs only after:
@@ -783,6 +830,9 @@ The response must not expose the existing workspace slug.
 The registrant must obtain the workspace slug and spectator password directly from the league owner.
 
 ## Duplicate League Registration Outcome
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 The duplicate-claim outcome must not leave an active registration.
 
@@ -910,6 +960,9 @@ The identity schema must enforce:
 
 ### One Administrator per Workspace
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 ```sql
 CREATE UNIQUE INDEX
     uq_users_one_admin_per_workspace
@@ -918,6 +971,9 @@ WHERE role = 'admin';
 ```
 
 ### One Spectator per Workspace
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 ```sql
 CREATE UNIQUE INDEX
@@ -942,6 +998,9 @@ WHERE role = 'admin';
 ```
 
 ### Unique Workspace Slug
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 ```sql
 UNIQUE (normalized_slug)
@@ -975,6 +1034,9 @@ The mobile-first registration interface must:
 
 ### Administrator Login
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 The administrator form must:
 
 - Clearly request email
@@ -985,6 +1047,9 @@ The administrator form must:
 
 ### Spectator Login
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
+
 The spectator form must:
 
 - Clearly request workspace slug
@@ -994,6 +1059,9 @@ The spectator form must:
 - Avoid revealing whether a workspace exists
 
 ### Login Mode Selection
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal-account email login. Retained as historical record.
+
 
 The two modes must remain visually distinct.
 

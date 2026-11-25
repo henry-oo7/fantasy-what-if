@@ -1,6 +1,8 @@
 # ADR 0002: Canonical Season and Provider Schema
 
-- **Status:** Accepted
+> **Partially superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** The Installation (workspace) ownership model, the one-active-season rule, the authentication transition, workspace data-isolation rules, and workspace deletion behavior described below are superseded by personal accounts, shared canonical leagues, and per-user, per-season access. The canonical season, team, player, scoring, and lineup schema direction is not superseded. Sections marked superseded are historical.
+
+- **Status:** Accepted; partially superseded by ADR 0010
 - **Date:** 2026-11-08
 - **Depends on:** ADR 0001
 - **Starting database revision:** `12c9cf9bbb5a`
@@ -143,6 +145,9 @@ The explicit sport field prevents football assumptions from being hidden inside 
 
 ## Installations
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by personal accounts and shared canonical leagues. Retained as historical record.
+
+
 Create:
 
 ```text
@@ -174,6 +179,9 @@ This is enforced initially through application logic. A singleton database const
 The active season reference is a convenience pointer. The authoritative season state remains `seasons.status`.
 
 ## Provider Connections
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Provider connections are user-owned under ADR 0010, not installation-owned. Retained as historical record.
+
 
 Create:
 
@@ -214,6 +222,9 @@ Provider league identifiers and provider season identifiers do not belong in thi
 Sleeper may use a provider connection without stored credentials.
 
 ## Canonical League Changes
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Installation ownership of leagues is replaced by canonical uniqueness on provider and normalized league ID. Retained as historical record.
+
 
 Retain the existing `leagues` table.
 
@@ -336,6 +347,9 @@ UNIQUE (
 ```
 
 ## One Active Season
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by per-user default season preference and per-user, per-season access. Retained as historical record.
+
 
 Only one active season may exist for one logical league.
 
@@ -713,6 +727,9 @@ analytics_rebuilt = false
 
 ## Authentication Transition
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Replaced by the account-only identity cutover. Retained as historical record.
+
+
 The first canonical migration does not remove or change:
 
 ```text
@@ -729,6 +746,9 @@ The viewer role is introduced in a separate authentication migration after setup
 The existing administrator remains valid throughout the schema transition.
 
 ## Installation Backfill
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** No installation backfill applies to the new deployment. Retained as historical record.
+
 
 The first canonical migration creates one installation row for the existing application.
 
@@ -757,6 +777,9 @@ setup_completed_at = now()
 The administrator may update these values later through installation settings.
 
 ## Provider Connection Backfill
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** No provider-connection backfill applies to the new deployment. Retained as historical record.
+
 
 Create one provider connection for the existing ESPN application:
 
@@ -837,6 +860,9 @@ The dynamic slot tables are populated by a later ESPN rule-import service becaus
 
 ## Data Isolation Rules
 
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Installation isolation is replaced by per-user, per-season authorization. Retained as historical record.
+
+
 All season-owned queries must include an explicit internal `season_id`.
 
 The following entities are season-owned:
@@ -858,6 +884,9 @@ Repositories must not choose a season from environment settings after the season
 Provider identifiers must never be used as database foreign keys.
 
 ## Deletion Behavior
+
+> **Superseded by [ADR 0010](0010-Personal-Accounts-and-Shared-Canonical-Leagues.md).** Installation deletion is replaced by account deletion and 30-day orphan retention. Retained as historical record.
+
 
 Deletion rules are:
 
