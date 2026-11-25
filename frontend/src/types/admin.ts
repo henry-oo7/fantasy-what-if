@@ -53,6 +53,7 @@ export interface BackgroundJobProgress {
 export interface BackgroundJob {
   job_id: number;
   job_type:
+    | "league_season_sync"
     | "incremental_season_sync"
     | "full_season_sync";
   status: BackgroundJobStatus;

@@ -536,7 +536,8 @@ class WorkspaceDeletionRecord(Base):
 class BackgroundJob(TimestampMixin, Base):
     """Durable workspace-owned background work.
 
-    ``workspace_id`` is NULL only for unscoped transactional-email jobs.
+    ``workspace_id`` is NULL only for unscoped transactional-email jobs and
+    League-Season synchronization jobs whose League has no workspace.
     """
 
     __tablename__ = "background_jobs"
@@ -587,12 +588,37 @@ class BackgroundJob(TimestampMixin, Base):
             "status <> 'canceled'::background_job_status OR canceled_at IS NOT NULL",
             name="ck_background_jobs_canceled_timestamp",
         ),
-        # A NULL workspace is allowed only for transactional-email jobs whose
-        # delivery is explicitly unscoped. job_type is NOT NULL, so the OR
-        # never evaluates to SQL NULL.
+        # A NULL workspace is allowed only for unscoped transactional-email
+        # jobs and League-Season synchronization (ADR 0010). job_type is NOT
+        # NULL, so the OR never evaluates to SQL NULL. The historical name is
+        # kept so earlier migrations and their rehearsals stay valid.
         CheckConstraint(
-            "workspace_id IS NOT NULL OR job_type::text = 'transactional_email_delivery'",
+            "workspace_id IS NOT NULL OR job_type::text IN "
+            "('transactional_email_delivery', 'league_season_sync')",
             name="ck_background_jobs_workspace_required_except_email",
+        ),
+        # Season-sync payloads carry exactly {"version": 1, "season_id": <positive
+        # integer>}; the Season row is authoritative for everything else.
+        CheckConstraint(
+            "job_type::text <> 'league_season_sync' "
+            "OR COALESCE("
+            "payload_version = 1 "
+            "AND jsonb_typeof(payload) = 'object' "
+            "AND (payload - 'version' - 'season_id') = '{}'::jsonb "
+            "AND jsonb_typeof(payload -> 'version') = 'number' "
+            "AND payload ->> 'version' = '1' "
+            "AND jsonb_typeof(payload -> 'season_id') = 'number' "
+            "AND payload ->> 'season_id' ~ '^[1-9][0-9]{0,9}$', "
+            "false)",
+            name="ck_background_jobs_league_season_sync_payload_shape",
+        ),
+        # The active idempotency key is derived from the payload Season, so the
+        # partial unique index allows at most one active job per Season.
+        CheckConstraint(
+            "job_type::text <> 'league_season_sync' "
+            "OR COALESCE(idempotency_key = 'league-season-sync:' || (payload ->> 'season_id'), "
+            "false)",
+            name="ck_background_jobs_league_season_sync_key",
         ),
         # Email job payloads carry exactly {version, delivery_id}, both numbers.
         # COALESCE keeps every branch NULL-safe.

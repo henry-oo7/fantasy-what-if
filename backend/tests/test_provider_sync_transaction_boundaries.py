@@ -24,6 +24,7 @@ from app.db.platform_enums import (
     BackgroundJobStatus,
     BackgroundJobType,
     FantasyProvider,
+    SeasonSyncState,
     WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import BackgroundJob, Installation, ProviderConnection
@@ -40,8 +41,8 @@ from app.services.background_job_worker import (
 from app.services.provider_sync import (
     SUPERSEDED_SYNC_MESSAGE,
     execute_provider_sync,
-    prepare_provider_sync,
-    synchronize_provider,
+    prepare_season_sync,
+    synchronize_season,
 )
 from app.services.season_import import SeasonImportUnavailableError, import_provider_season
 from app.services.sync_lock import PROVIDER_SYNC_LOCK_NAMESPACE
@@ -175,15 +176,18 @@ def test_provider_failure_changes_no_canonical_data_and_records_failed_run(
     )
 
     with pytest.raises(ProviderUnavailableError):
-        synchronize_provider(
+        synchronize_season(
             session_factory=harness.factory,
             season_id=graph.season_id,
-            provider=adapter,
-            full_sync=True,
+            settings=worker_settings(),
+            registry=registry_for(adapter),
         )
 
     assert "advisory_lock" not in harness.recorder.kinds()
-    assert "workspace_lock" not in harness.recorder.kinds()
+    # Preparation may reconcile the workspace's active Season; nothing after
+    # the provider call locks the workspace, so persistence never began.
+    kinds = harness.recorder.kinds()
+    assert "workspace_lock" not in kinds[kinds.index("commit") + 1 :]
     assert canonical_state(graph) == before
 
     run = latest_run(graph.season_id)
@@ -224,11 +228,11 @@ def test_persistence_failure_rolls_back_every_write(
     adapter = SyntheticSeasonAdapter(provider_league_id=graph.provider_league_id, dataset="alpha")
 
     with pytest.raises(RuntimeError, match="synthetic derived-analytics failure"):
-        synchronize_provider(
+        synchronize_season(
             session_factory=harness.factory,
             season_id=graph.season_id,
-            provider=adapter,
-            full_sync=True,
+            settings=worker_settings(),
+            registry=registry_for(adapter),
         )
 
     assert reached == ["flushed:4"]
@@ -276,11 +280,11 @@ def test_deletion_committed_during_fetch_discards_fetched_data(
     )
 
     with pytest.raises(BackgroundJobExecutionError) as raised:
-        synchronize_provider(
+        synchronize_season(
             session_factory=harness.factory,
             season_id=graph.season_id,
-            provider=adapter,
-            full_sync=True,
+            settings=worker_settings(),
+            registry=registry_for(adapter),
         )
 
     assert raised.value.safe_error_code == "workspace_unavailable"
@@ -328,11 +332,11 @@ def test_deletion_request_holding_workspace_lock_wins_over_persistence(
 
     try:
         with pytest.raises(BackgroundJobExecutionError) as raised:
-            synchronize_provider(
+            synchronize_season(
                 session_factory=harness.factory,
                 season_id=graph.season_id,
-                provider=adapter,
-                full_sync=True,
+                settings=worker_settings(),
+                registry=registry_for(adapter),
             )
     finally:
         assert committed.wait(WAIT_SECONDS)
@@ -409,11 +413,11 @@ def test_connection_replacement_during_fetch_prevents_persistence(
     )
 
     with pytest.raises(BackgroundJobExecutionError) as raised:
-        synchronize_provider(
+        synchronize_season(
             session_factory=harness.factory,
             season_id=graph.season_id,
-            provider=adapter,
-            full_sync=True,
+            settings=worker_settings(),
+            registry=registry_for(adapter),
         )
 
     assert raised.value.safe_error_code == "provider_connection_changed"
@@ -449,21 +453,21 @@ def test_older_fetch_finishing_last_cannot_overwrite_newer_data(
     newer = SyntheticSeasonAdapter(provider_league_id=graph.provider_league_id, dataset="newer")
 
     thread, older_outcome = run_in_thread(
-        lambda: synchronize_provider(
+        lambda: synchronize_season(
             session_factory=harness.factory,
             season_id=graph.season_id,
-            provider=older,
-            full_sync=True,
+            settings=worker_settings(),
+            registry=registry_for(older),
         )
     )
     assert older_fetching.wait(WAIT_SECONDS)
 
     # Both attempts are now fetching concurrently; the newer one commits.
-    newer_result = synchronize_provider(
+    newer_result = synchronize_season(
         session_factory=harness.factory,
         season_id=graph.season_id,
-        provider=newer,
-        full_sync=True,
+        settings=worker_settings(),
+        registry=registry_for(newer),
     )
     after_newer = canonical_state(graph)
 
@@ -490,37 +494,50 @@ def test_older_fetch_finishing_last_cannot_overwrite_newer_data(
     assert older_run.safe_error_message == SUPERSEDED_SYNC_MESSAGE
 
 
-def test_newer_fetch_finishing_last_still_persists(
+def test_first_commit_wins_and_later_prepared_attempt_is_discarded(
     harness: Harness,
     make_graph: Callable[[], SyncGraph],
 ) -> None:
+    """data_version, not attempt order, decides: the first commit wins."""
+
     graph = make_graph()
-
-    with harness.factory() as session:
-        older_plan = prepare_provider_sync(
-            session, season_id=graph.season_id, provider=_adapter(graph, "older"), full_sync=True
-        )
-        session.commit()
-
-    with harness.factory() as session:
-        newer_plan = prepare_provider_sync(
-            session, season_id=graph.season_id, provider=_adapter(graph, "newer"), full_sync=True
-        )
-        session.commit()
+    older_plan, older_adapter = _prepare(harness, graph, "older")
+    newer_plan, newer_adapter = _prepare(harness, graph, "newer")
+    assert older_plan.expected_data_version == newer_plan.expected_data_version == 0
 
     older = execute_provider_sync(
-        session_factory=harness.factory, plan=older_plan, provider=_adapter(graph, "older")
+        session_factory=harness.factory, plan=older_plan, provider=older_adapter
     )
     newer = execute_provider_sync(
-        session_factory=harness.factory, plan=newer_plan, provider=_adapter(graph, "newer")
+        session_factory=harness.factory, plan=newer_plan, provider=newer_adapter
     )
 
-    assert older.superseded is False and newer.superseded is False
-    assert canonical_state(graph)["league_name"] == "Synthetic newer League"
+    assert older.superseded is False and newer.superseded is True
+    assert canonical_state(graph)["league_name"] == "Synthetic older League"
     assert [run.status for run in sync_runs(graph.season_id)[-2:]] == [
         SyncStatus.SUCCEEDED,
-        SyncStatus.SUCCEEDED,
+        SyncStatus.FAILED,
     ]
+    assert sync_runs(graph.season_id)[-1].safe_error_message == SUPERSEDED_SYNC_MESSAGE
+    assert _season(graph).data_version == 1
+    assert _season(graph).sync_state is SeasonSyncState.FRESH
+
+
+def _prepare(harness: Harness, graph: SyncGraph, dataset: str):  # noqa: ANN202
+    return prepare_season_sync(
+        session_factory=harness.factory,
+        season_id=graph.season_id,
+        settings=worker_settings(),
+        registry=registry_for(_adapter(graph, dataset)),
+    )
+
+
+def _season(graph: SyncGraph) -> Season:
+    with SessionFactory() as session:
+        season = session.get(Season, graph.season_id)
+        assert season is not None
+        session.expunge(season)
+        return season
 
 
 def _adapter(graph: SyncGraph, dataset: str) -> SyntheticSeasonAdapter:
@@ -544,11 +561,11 @@ def test_season_advisory_lock_still_serializes_persistence(
         )
 
         with pytest.raises(BackgroundJobExecutionError) as raised:
-            synchronize_provider(
+            synchronize_season(
                 session_factory=harness.factory,
                 season_id=graph.season_id,
-                provider=_adapter(graph, "alpha"),
-                full_sync=True,
+                settings=worker_settings(),
+                registry=registry_for(_adapter(graph, "alpha")),
             )
 
         transaction.rollback()
@@ -595,7 +612,7 @@ def test_lost_job_lease_during_fetch_cannot_commit(
         session_factory=harness.factory,
         settings=worker_settings(),
         registry=registry_for(adapter),
-    )[BackgroundJobType.FULL_SEASON_SYNC]
+    )[BackgroundJobType.LEAGUE_SEASON_SYNC]
 
     with pytest.raises(BackgroundJobExecutionError) as raised:
         handler(snapshot)
@@ -634,7 +651,7 @@ def test_credentials_and_provider_detail_never_leak(
                 session_factory=harness.factory,
                 settings=worker_settings(),
                 registry=registry_for(adapter),
-            )[BackgroundJobType.FULL_SEASON_SYNC]
+            )[BackgroundJobType.LEAGUE_SEASON_SYNC]
             snapshot = claim(failing_job) if adapter is failing else None
 
             if snapshot is not None:
@@ -642,11 +659,12 @@ def test_credentials_and_provider_detail_never_leak(
                     handler(snapshot)
                 captured.extend((str(raised.value.__class__), repr(snapshot)))
             else:
-                with harness.factory() as session:
-                    plan = prepare_provider_sync(
-                        session, season_id=graph.season_id, provider=adapter, full_sync=True
-                    )
-                    session.commit()
+                plan, _ = prepare_season_sync(
+                    session_factory=harness.factory,
+                    season_id=graph.season_id,
+                    settings=worker_settings(),
+                    registry=registry_for(adapter),
+                )
                 captured.append(repr(plan))
                 execute_provider_sync(session_factory=harness.factory, plan=plan, provider=adapter)
 

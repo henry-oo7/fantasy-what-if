@@ -17,13 +17,14 @@ from app.db.models import (
     Matchup,
     OptimalLineupResult,
     PlayerWeekScore,
+    Season,
     SyncStatus,
     Team,
 )
-from app.db.platform_enums import FantasyProvider
+from app.db.platform_enums import FantasyProvider, SeasonSyncState
 from app.db.session import SessionFactory
 from app.providers.domain import ProviderMatchup
-from app.services.provider_sync import synchronize_provider
+from app.services.provider_sync import synchronize_season
 from app.services.provider_sync_policy import ProviderSyncValidationError
 from tests.support.provider_sync_fixtures import (
     SyncGraph,
@@ -32,7 +33,9 @@ from tests.support.provider_sync_fixtures import (
     forbid_live_network,
     graph_factory,
     latest_run,
+    registry_for,
     sync_runs,
+    worker_settings,
 )
 
 
@@ -66,6 +69,15 @@ class UnknownTeamMatchupAdapter(SyntheticSeasonAdapter):
         )
 
 
+def season_state(season_id: int) -> Season:
+    with SessionFactory() as session:
+        season = session.get(Season, season_id)
+        assert season is not None
+        session.expunge(season)
+
+        return season
+
+
 def week_count(model: type, season_id: int, week: int) -> int:
     with SessionFactory() as session:
         return int(
@@ -78,19 +90,18 @@ def week_count(model: type, season_id: int, week: int) -> int:
         )
 
 
-def test_incremental_provider_sync_orchestrates_canonical_writes(
+def test_season_sync_orchestrates_canonical_writes(
     make_graph: Callable[[], SyncGraph],
 ) -> None:
     graph = make_graph()
+    before_season = season_state(graph.season_id)
     adapter = SyntheticSeasonAdapter(provider_league_id=graph.provider_league_id, dataset="alpha")
 
-    result = synchronize_provider(
+    result = synchronize_season(
         session_factory=SessionFactory,
         season_id=graph.season_id,
-        provider=adapter,
-        full_sync=False,
-        explicit_from_week=2,
-        explicit_through_week=2,
+        settings=worker_settings(),
+        registry=registry_for(adapter),
     )
 
     assert result.season_id == graph.season_id
@@ -98,14 +109,14 @@ def test_incremental_provider_sync_orchestrates_canonical_writes(
     assert result.provider_league_id == graph.provider_league_id
     assert result.provider_season_id == "2026"
     assert result.current_week == 3
-    assert result.full_sync is False
+    assert result.full_sync is True
     assert result.superseded is False
-    assert result.matchup_weeks == (2,)
-    assert result.player_weeks == (2,)
+    assert result.matchup_weeks == (1, 2, 3)
+    assert result.player_weeks == (1, 2)
     assert result.teams_upserted == 4
-    assert result.matchups_upserted == 2
+    assert result.matchups_upserted == 6
     assert result.fantasy_byes_upserted == 0
-    assert result.player_week_scores_upserted == 4
+    assert result.player_week_scores_upserted == 8
     assert result.analytics_rebuilt is True
 
     assert adapter.calls == ["fetch_league", "fetch_matchups", "fetch_weekly_rosters"]
@@ -113,9 +124,11 @@ def test_incremental_provider_sync_orchestrates_canonical_writes(
     state = canonical_state(graph)
     alpha_teams = [team for team in state["teams"] if team.startswith("alpha-")]
     assert alpha_teams == [f"alpha-{index}" for index in range(1, 5)]
-    assert week_count(Matchup, graph.season_id, 2) == 2
-    assert week_count(PlayerWeekScore, graph.season_id, 2) == 4
-    assert week_count(OptimalLineupResult, graph.season_id, 2) == 4
+    for week in (1, 2, 3):
+        assert week_count(Matchup, graph.season_id, week) == 2
+    for week in (1, 2):
+        assert week_count(PlayerWeekScore, graph.season_id, week) == 4
+        assert week_count(OptimalLineupResult, graph.season_id, week) == 4
 
     with SessionFactory() as session:
         team_count = session.scalar(
@@ -127,31 +140,41 @@ def test_incremental_provider_sync_orchestrates_canonical_writes(
     assert run.status is SyncStatus.SUCCEEDED
     assert run.provider is FantasyProvider.ESPN
     assert run.provider_connection_id == graph.connection_id
-    assert run.requested_from_week == 2
-    assert run.requested_through_week == 2
+    assert run.is_full_sync is True
     assert run.teams_upserted == 4
-    assert run.matchups_upserted == 2
-    assert run.player_week_scores_upserted == 4
+    assert run.matchups_upserted == 6
+    assert run.player_week_scores_upserted == 8
     assert run.analytics_rebuilt is True
 
+    season = season_state(graph.season_id)
+    assert season.data_version == before_season.data_version + 1
+    assert season.sync_state is SeasonSyncState.FRESH
+    assert season.last_successful_sync_at is not None
+    assert season.last_synced_at == season.last_successful_sync_at
+    assert season.last_sync_failure_code is None
 
-def test_provider_must_match_season_connection(
+
+def test_adapter_provider_must_match_league_provider(
     make_graph: Callable[[], SyncGraph],
 ) -> None:
     graph = make_graph()
     runs_before = len(sync_runs(graph.season_id))
+    before = canonical_state(graph)
 
-    with pytest.raises(ValueError, match="does not match"):
-        synchronize_provider(
+    # The registry rejects a mismatched adapter (TypeError) before the
+    # service's own ValueError check, which is therefore defense in depth.
+    with pytest.raises(TypeError, match="different provider"):
+        synchronize_season(
             session_factory=SessionFactory,
             season_id=graph.season_id,
-            provider=WrongProvider(provider_league_id=graph.provider_league_id, dataset="alpha"),
-            full_sync=False,
-            explicit_from_week=2,
-            explicit_through_week=2,
+            settings=worker_settings(),
+            registry=registry_for(
+                WrongProvider(provider_league_id=graph.provider_league_id, dataset="alpha")
+            ),
         )
 
     assert len(sync_runs(graph.season_id)) == runs_before
+    assert canonical_state(graph) == before
 
 
 def test_invalid_provider_data_rolls_back(
@@ -159,17 +182,18 @@ def test_invalid_provider_data_rolls_back(
 ) -> None:
     graph = make_graph()
     before = canonical_state(graph)
+    before_season = season_state(graph.season_id)
 
     with pytest.raises(ProviderSyncValidationError):
-        synchronize_provider(
+        synchronize_season(
             session_factory=SessionFactory,
             season_id=graph.season_id,
-            provider=UnknownTeamMatchupAdapter(
-                provider_league_id=graph.provider_league_id, dataset="alpha"
+            settings=worker_settings(),
+            registry=registry_for(
+                UnknownTeamMatchupAdapter(
+                    provider_league_id=graph.provider_league_id, dataset="alpha"
+                )
             ),
-            full_sync=False,
-            explicit_from_week=2,
-            explicit_through_week=2,
         )
 
     assert issubclass(ProviderSyncValidationError, ValueError)
@@ -178,3 +202,8 @@ def test_invalid_provider_data_rolls_back(
     run = latest_run(graph.season_id)
     assert run.status is SyncStatus.FAILED
     assert run.safe_error_message == "The provider returned invalid synchronization data."
+
+    season = season_state(graph.season_id)
+    assert season.data_version == before_season.data_version
+    assert season.sync_state is SeasonSyncState.FAILED
+    assert season.last_sync_failure_code == "invalid_provider_data"

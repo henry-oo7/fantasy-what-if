@@ -17,7 +17,6 @@ from app.db.league_access_models import UserLeagueSeasonAccess, UserPreference
 from app.db.models import League, Season
 from app.db.platform_enums import (
     FantasyProvider,
-    SeasonSyncState,
     UserSeasonAccessStatus,
     UserSeasonProofMode,
 )
@@ -166,28 +165,3 @@ class LeagueAccessRepository:
             )
             or 0
         )
-
-    def update_season_sync_metadata(
-        self,
-        *,
-        season_id: int,
-        sync_state: SeasonSyncState,
-        last_sync_attempt_at: datetime | None = None,
-        last_successful_sync_at: datetime | None = None,
-        last_sync_failure_code: str | None = None,
-        increment_data_version: bool = False,
-    ) -> Season | None:
-        season = self.session.scalar(select(Season).where(Season.id == season_id).with_for_update())
-        if season is None:
-            return None
-
-        season.sync_state = sync_state
-        season.last_sync_failure_code = last_sync_failure_code
-        if last_sync_attempt_at is not None:
-            season.last_sync_attempt_at = last_sync_attempt_at
-        if last_successful_sync_at is not None:
-            season.last_successful_sync_at = last_successful_sync_at
-        if increment_data_version:
-            season.data_version += 1
-        self.session.flush()
-        return season

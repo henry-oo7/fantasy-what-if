@@ -1,35 +1,42 @@
-"""Provider-independent synchronization orchestration.
+"""League-Season-owned synchronization orchestration (ADR 0010).
 
 Transaction boundaries (no provider network call runs inside a database
 transaction):
 
-1. Preparation: one short transaction resolves the target, checks the
-   workspace lifecycle, records a ``running`` SyncRun, and captures a
-   detached :class:`ProviderSyncPlan`. The caller commits and closes the
-   Session before any provider call.
+1. Preparation: one short transaction locks the Season, rechecks job
+   authority, selects the credential source, decrypts private credentials
+   into the adapter (process memory only), marks the attempt ``syncing``,
+   records a ``running`` SyncRun and captures ``data_version`` in a detached
+   :class:`ProviderSyncPlan`. It commits and closes before any provider call.
 2. Fetch: every provider request runs with no Session, no checked-out
-   connection, no row lock and no advisory lock. The result is plain
-   provider-domain data.
-3. Persistence: a new short transaction locks the workspace row, rechecks
-   lifecycle, job authority, connection and provider target, acquires the
-   season advisory lock, rejects stale fetches, then writes canonical and
-   derived data and completes the SyncRun before commit.
+   connection, no row lock and no advisory lock.
+3. Persistence: a new short transaction re-locks the Season (and, for the
+   legacy workspace fallback, the workspace row first), rechecks job
+   authority, takes the Season advisory lock, rechecks the target and the
+   credential source, rejects the write unless ``data_version`` is unchanged,
+   then writes canonical and derived data, completes the SyncRun and advances
+   the Season lifecycle before commit.
 
-The SyncRun id allocated during preparation is the freshness marker: a
-fetch is stale when a SyncRun with a larger id for the same season has
-already succeeded, because that attempt was prepared (and began fetching)
-later.
+Credential source, in order:
+
+- Public: some active access row was proven anonymously. Anonymous provider
+  access; no connection is selected.
+- Private: a user-owned connection whose owner holds active
+  ``private_credentials`` access to this Season (most recently validated,
+  then lowest ID). Which connection was used is never returned or recorded.
+- Transitional workspace fallback: only when nobody holds active personal
+  access and the Season's League still belongs to a workspace. Uses only that
+  workspace's own connection under the workspace lifecycle rules. Retired by
+  the identity cutover.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
 
 from sqlalchemy import exists, select, update
 from sqlalchemy.orm import Session, sessionmaker
@@ -37,22 +44,27 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.analytics.optimal_lineup import (
     calculate_team_week_optimal_lineup,
 )
-from app.db.models import SyncRun, SyncStatus
+from app.core.settings import Settings
+from app.db.models import Season, SyncRun, SyncStatus
 from app.db.platform_enums import (
     BackgroundJobStatus,
     FantasyProvider,
     OnboardingStage,
+    ProviderAccessMode,
     SeasonStatus,
+    SeasonSyncState,
     WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import BackgroundJob, Installation, ProviderConnection
 from app.providers.base import ProviderAdapter
 from app.providers.domain import (
+    ProviderCredentials,
     ProviderLeague,
     ProviderMatchup,
     ProviderWeeklyRoster,
 )
-from app.providers.errors import ProviderError
+from app.providers.errors import ProviderError, ProviderNotSupportedError
+from app.providers.registry import ProviderRegistry
 from app.repositories.optimal_lineup_repository import (
     replace_optimal_lineup_results,
 )
@@ -61,9 +73,19 @@ from app.repositories.player_week_repository import (
 )
 from app.repositories.provider_sync_repository import (
     ProviderSyncContext,
+    ProviderSyncContextError,
+    ProviderSyncContextNotFoundError,
     ProviderSyncRepository,
 )
-from app.services.background_job_worker import BackgroundJobExecutionError
+from app.services.background_job_worker import (
+    BackgroundJobExecutionError,
+    provider_error_code,
+)
+from app.services.provider_adapter_resolver import (
+    ProviderAdapterResolutionError,
+    build_provider_registry,
+    resolve_connection_credentials,
+)
 from app.services.provider_sync_policy import (
     ProviderSyncValidationError,
     select_completed_weeks,
@@ -71,6 +93,13 @@ from app.services.provider_sync_policy import (
     validate_provider_league,
     validate_provider_matchups,
     validate_provider_rosters,
+)
+from app.services.season_lifecycle_reconciliation import reconcile_stale_active_season
+from app.services.season_sync_state import (
+    mark_failed,
+    mark_succeeded,
+    mark_syncing,
+    safe_failure_code,
 )
 from app.services.sync_lock import (
     SyncAlreadyRunningError,
@@ -81,9 +110,14 @@ from app.services.workspace_lifecycle import is_active_workspace, is_deletion_pe
 LOGGER = logging.getLogger(__name__)
 
 WORKSPACE_DELETION_PENDING_SYNC_CODE = "workspace_unavailable"
+REVERIFICATION_REQUIRED_CODE = "provider_reverification_required"
 SUPERSEDED_SYNC_MESSAGE = "A newer synchronization completed first; this result was discarded."
 GENERIC_SYNC_FAILURE_MESSAGE = "Provider synchronization failed."
 INVALID_PROVIDER_DATA_MESSAGE = "The provider returned invalid synchronization data."
+
+# Preparation failures that must not touch Season state: the job no longer
+# owns the attempt, or the Season is gone.
+_NO_SEASON_OUTCOME_CODES = frozenset({"job_authority_lost", "season_unavailable"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,13 +137,13 @@ class ProviderSyncResult:
     fantasy_byes_upserted: int
     player_week_scores_upserted: int
     analytics_rebuilt: bool
-    # True when a newer synchronization committed first and this fetch was
+    # True when another synchronization committed first and this fetch was
     # discarded without writing canonical data.
     superseded: bool = False
 
 
 class SyncWorkspaceRequirement(StrEnum):
-    """Workspace lifecycle a synchronization must still satisfy at commit."""
+    """Workspace lifecycle the transitional workspace fallback must satisfy."""
 
     ACTIVE_SEASON = "active_season"
     INITIAL_ONBOARDING = "initial_onboarding"
@@ -138,27 +172,31 @@ class ProviderFetchTarget:
 class ProviderSyncPlan:
     """Immutable preparation snapshot carried across the provider fetch.
 
-    Holds identifiers and safe markers only. Credential material stays in
-    the adapter instance; the credential marker is a digest of ciphertext
-    and key versions, never of plaintext.
+    Identifiers and safe markers only. Credential material stays inside the
+    adapter instance. ``provider_connection_id`` and ``credential_marker`` are
+    internal recheck markers (a digest of ciphertext and key versions, never of
+    plaintext) and never leave the worker; no owner identity is held.
     """
 
-    workspace_id: int
-    league_id: int
     season_id: int
+    league_id: int
     season_year: int
     provider: FantasyProvider
-    provider_connection_id: int
-    credential_marker: str
-    sync_run_id: int
+    access_mode: ProviderAccessMode
+    provider_connection_id: int | None
+    credential_marker: str | None
+    legacy_workspace_id: int | None
     requirement: SyncWorkspaceRequirement
+    expected_data_version: int
+    sync_run_id: int
     target: ProviderFetchTarget
     job_authority: SyncJobAuthority | None = None
 
     def __repr__(self) -> str:
         return (
-            f"ProviderSyncPlan(workspace_id={self.workspace_id}, season_id={self.season_id}, "
-            f"sync_run_id={self.sync_run_id}, requirement={self.requirement.value})"
+            f"ProviderSyncPlan(season_id={self.season_id}, sync_run_id={self.sync_run_id}, "
+            f"access_mode={self.access_mode.value}, "
+            f"expected_data_version={self.expected_data_version})"
         )
 
 
@@ -181,6 +219,13 @@ class _WriteCounts:
     analytics_rebuilt: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _CredentialSource:
+    access_mode: ProviderAccessMode
+    connection: ProviderConnection | None
+    legacy_workspace_id: int | None
+
+
 def credential_marker(connection: ProviderConnection) -> str:
     """Safe change marker for a connection's stored credential envelope."""
 
@@ -201,33 +246,27 @@ def credential_marker(connection: ProviderConnection) -> str:
 # --------------------------------------------------------------------------
 
 
-def synchronize_provider(
+def synchronize_season(
     *,
     session_factory: sessionmaker[Session],
     season_id: int,
-    provider: ProviderAdapter,
-    full_sync: bool,
-    requirement: SyncWorkspaceRequirement = SyncWorkspaceRequirement.ACTIVE_SEASON,
-    explicit_from_week: int | None = None,
-    explicit_through_week: int | None = None,
+    settings: Settings,
+    registry: ProviderRegistry | None = None,
     job_authority: SyncJobAuthority | None = None,
+    requirement: SyncWorkspaceRequirement = SyncWorkspaceRequirement.ACTIVE_SEASON,
     expected_credential_marker: str | None = None,
 ) -> ProviderSyncResult:
-    """Prepare, fetch and persist one season synchronization."""
+    """Prepare, fetch and persist one full League-Season synchronization."""
 
-    with session_factory() as session:
-        plan = prepare_provider_sync(
-            session,
-            season_id=season_id,
-            provider=provider,
-            full_sync=full_sync,
-            requirement=requirement,
-            explicit_from_week=explicit_from_week,
-            explicit_through_week=explicit_through_week,
-            job_authority=job_authority,
-            expected_credential_marker=expected_credential_marker,
-        )
-        session.commit()
+    plan, provider = prepare_season_sync(
+        session_factory=session_factory,
+        season_id=season_id,
+        settings=settings,
+        registry=registry,
+        job_authority=job_authority,
+        requirement=requirement,
+        expected_credential_marker=expected_credential_marker,
+    )
 
     return execute_provider_sync(
         session_factory=session_factory,
@@ -236,76 +275,38 @@ def synchronize_provider(
     )
 
 
-def prepare_provider_sync(
-    session: Session,
+def prepare_season_sync(
     *,
+    session_factory: sessionmaker[Session],
     season_id: int,
-    provider: ProviderAdapter,
-    full_sync: bool,
-    requirement: SyncWorkspaceRequirement = SyncWorkspaceRequirement.ACTIVE_SEASON,
-    explicit_from_week: int | None = None,
-    explicit_through_week: int | None = None,
+    settings: Settings,
+    registry: ProviderRegistry | None = None,
     job_authority: SyncJobAuthority | None = None,
+    requirement: SyncWorkspaceRequirement = SyncWorkspaceRequirement.ACTIVE_SEASON,
     expected_credential_marker: str | None = None,
-) -> ProviderSyncPlan:
-    """Phase 1. Validate the target and record a running SyncRun.
+) -> tuple[ProviderSyncPlan, ProviderAdapter]:
+    """Phase 1 in its own short transaction, committed and closed on return."""
 
-    Runs in the caller's transaction; the caller must commit and close the
-    Session before calling :func:`execute_provider_sync`.
-    """
+    try:
+        with session_factory() as session:
+            plan, provider = _prepare_in_transaction(
+                session,
+                season_id=season_id,
+                settings=settings,
+                registry=registry,
+                job_authority=job_authority,
+                requirement=requirement,
+                expected_credential_marker=expected_credential_marker,
+            )
+            session.commit()
+    except BackgroundJobExecutionError as exc:
+        if exc.safe_error_code not in _NO_SEASON_OUTCOME_CODES:
+            _record_unstarted_attempt_failure(
+                session_factory, season_id=season_id, failure_code=exc.safe_error_code
+            )
+        raise
 
-    repository = ProviderSyncRepository(session)
-    context = repository.load_context(season_id=season_id)
-
-    if provider.provider is not context.provider:
-        raise ValueError("The provider adapter does not match the season provider connection.")
-
-    workspace_id = context.league.installation_id
-
-    if workspace_id is None:  # load_context already rejects this.
-        raise ValueError("The league does not belong to an installation.")
-
-    _require_workspace_eligible(
-        session.get(Installation, workspace_id),
-        requirement=requirement,
-        season_id=context.season_id,
-        season_status=context.season.status,
-    )
-
-    marker = credential_marker(context.provider_connection)
-
-    if expected_credential_marker is not None and marker != expected_credential_marker:
-        raise _connection_changed()
-
-    sync_run = repository.create_sync_run(
-        context=context,
-        is_full_sync=full_sync,
-        requested_weeks=(),
-        provider_request_metadata={
-            "explicit_from_week": explicit_from_week,
-            "explicit_through_week": explicit_through_week,
-        },
-    )
-
-    return ProviderSyncPlan(
-        workspace_id=workspace_id,
-        league_id=context.league_id,
-        season_id=context.season_id,
-        season_year=context.season.year,
-        provider=context.provider,
-        provider_connection_id=context.provider_connection_id,
-        credential_marker=marker,
-        sync_run_id=sync_run.id,
-        requirement=requirement,
-        target=ProviderFetchTarget(
-            provider_league_id=context.provider_league_id,
-            provider_season_id=context.provider_season_id,
-            full_sync=full_sync,
-            explicit_from_week=explicit_from_week,
-            explicit_through_week=explicit_through_week,
-        ),
-        job_authority=job_authority,
-    )
+    return plan, provider
 
 
 def execute_provider_sync(
@@ -319,11 +320,7 @@ def execute_provider_sync(
     try:
         fetched = fetch_provider_sync_data(provider, plan.target)
     except BaseException as exc:
-        record_sync_run_failure(
-            session_factory,
-            sync_run_id=plan.sync_run_id,
-            safe_error_message=safe_sync_failure_message(exc),
-        )
+        record_sync_failure(session_factory, plan=plan, error=exc)
         raise
 
     return persist_provider_sync(
@@ -331,6 +328,210 @@ def execute_provider_sync(
         plan=plan,
         fetched=fetched,
     )
+
+
+def _prepare_in_transaction(
+    session: Session,
+    *,
+    season_id: int,
+    settings: Settings,
+    registry: ProviderRegistry | None,
+    job_authority: SyncJobAuthority | None,
+    requirement: SyncWorkspaceRequirement,
+    expected_credential_marker: str | None,
+) -> tuple[ProviderSyncPlan, ProviderAdapter]:
+    repository = ProviderSyncRepository(session)
+    workspace_id = _load_context(repository, season_id).league.installation_id
+
+    # Transitional: a workspace's prior-year active Season is completed before
+    # its fallback sync, exactly as the retired active-season path did.
+    if (
+        workspace_id is not None
+        and requirement is SyncWorkspaceRequirement.ACTIVE_SEASON
+        and not repository.has_active_access(season_id=season_id)
+    ):
+        reconcile_stale_active_season(session, workspace_id=workspace_id)
+
+    context = _load_context(repository, season_id, lock=True)
+    _require_job_authority(session, job_authority)
+
+    source = _select_credential_source(session, repository, context, requirement=requirement)
+    marker = credential_marker(source.connection) if source.connection is not None else None
+
+    if expected_credential_marker is not None and marker != expected_credential_marker:
+        raise _connection_changed()
+
+    target = ProviderFetchTarget(
+        provider_league_id=context.provider_league_id,
+        provider_season_id=context.provider_season_id,
+        full_sync=True,
+    )
+    provider = _build_adapter(
+        source,
+        context=context,
+        target=target,
+        settings=settings,
+        registry=registry,
+    )
+
+    mark_syncing(context.season, attempt_at=datetime.now(UTC))
+    sync_run = repository.create_sync_run(
+        context=context,
+        is_full_sync=True,
+        requested_weeks=(),
+        provider_connection_id=(
+            source.connection.id
+            if source.connection is not None and source.legacy_workspace_id is not None
+            else None
+        ),
+    )
+
+    plan = ProviderSyncPlan(
+        season_id=context.season_id,
+        league_id=context.league_id,
+        season_year=context.season.year,
+        provider=context.provider,
+        access_mode=source.access_mode,
+        provider_connection_id=source.connection.id if source.connection is not None else None,
+        credential_marker=marker,
+        legacy_workspace_id=source.legacy_workspace_id,
+        requirement=requirement,
+        expected_data_version=context.season.data_version,
+        sync_run_id=sync_run.id,
+        target=target,
+        job_authority=job_authority,
+    )
+
+    return plan, provider
+
+
+# --------------------------------------------------------------------------
+# Credential source selection
+# --------------------------------------------------------------------------
+
+
+def _select_credential_source(
+    session: Session,
+    repository: ProviderSyncRepository,
+    context: ProviderSyncContext,
+    *,
+    requirement: SyncWorkspaceRequirement,
+) -> _CredentialSource:
+    season_id = context.season_id
+
+    if repository.has_active_public_access(season_id=season_id):
+        return _CredentialSource(ProviderAccessMode.PUBLIC, None, None)
+
+    connections = repository.eligible_private_connections(
+        season_id=season_id, provider=context.provider
+    )
+
+    if connections:
+        return _CredentialSource(ProviderAccessMode.PRIVATE, connections[0], None)
+
+    workspace_id = context.league.installation_id
+
+    if workspace_id is not None and not repository.has_active_access(season_id=season_id):
+        return _legacy_workspace_source(
+            context,
+            workspace=session.get(Installation, workspace_id),
+            requirement=requirement,
+            session=session,
+        )
+
+    raise _reverification_required()
+
+
+def _legacy_workspace_source(
+    context: ProviderSyncContext,
+    *,
+    workspace: Installation | None,
+    requirement: SyncWorkspaceRequirement,
+    session: Session,
+) -> _CredentialSource:
+    """Shortcut: transitional workspace credentials, removed at the identity cutover."""
+
+    _require_workspace_eligible(
+        workspace,
+        requirement=requirement,
+        season_id=context.season_id,
+        season_status=context.season.status,
+    )
+    assert workspace is not None
+
+    connection_id = context.season.provider_connection_id
+    connection = (
+        session.scalar(
+            select(ProviderConnection)
+            .where(ProviderConnection.id == connection_id)
+            .execution_options(populate_existing=True)
+        )
+        if connection_id is not None
+        else None
+    )
+
+    if (
+        connection is None
+        or connection.installation_id != workspace.id
+        or connection.user_id is not None
+        or not connection.is_active
+        or connection.provider is not context.provider
+    ):
+        raise _reverification_required()
+
+    if connection.access_mode is ProviderAccessMode.PUBLIC:
+        return _CredentialSource(ProviderAccessMode.PUBLIC, connection, workspace.id)
+
+    if connection.encrypted_credentials is None or connection.credential_version is None:
+        raise _reverification_required()
+
+    return _CredentialSource(ProviderAccessMode.PRIVATE, connection, workspace.id)
+
+
+def _build_adapter(
+    source: _CredentialSource,
+    *,
+    context: ProviderSyncContext,
+    target: ProviderFetchTarget,
+    settings: Settings,
+    registry: ProviderRegistry | None,
+) -> ProviderAdapter:
+    values: dict[str, str] = {}
+
+    if source.access_mode is ProviderAccessMode.PRIVATE:
+        assert source.connection is not None
+
+        try:
+            stored, _ = resolve_connection_credentials(
+                connection=source.connection,
+                season=context.season,
+                settings=settings,
+            )
+        except ProviderAdapterResolutionError as exc:
+            raise BackgroundJobExecutionError(
+                safe_error_code="provider_credentials_unavailable",
+                safe_error_message="The saved league access could not be used.",
+            ) from exc
+
+        values.update(stored.values)
+
+    # The canonical Season is the target, whatever target the connection
+    # was first validated against.
+    values["league_id"] = target.provider_league_id
+    values["season"] = target.provider_season_id
+
+    active_registry = registry if registry is not None else build_provider_registry()
+
+    try:
+        provider = active_registry.create(context.provider, ProviderCredentials(values=values))
+    except ProviderNotSupportedError as exc:
+        raise BackgroundJobExecutionError(
+            safe_error_code="provider_not_supported",
+            safe_error_message="The fantasy provider is not implemented.",
+        ) from exc
+
+    # ProviderRegistry.create already refuses an adapter for another provider.
+    return provider
 
 
 # --------------------------------------------------------------------------
@@ -435,11 +636,7 @@ def persist_provider_sync(
                 session.rollback()
                 raise
     except BaseException as exc:
-        record_sync_run_failure(
-            session_factory,
-            sync_run_id=plan.sync_run_id,
-            safe_error_message=safe_sync_failure_message(exc),
-        )
+        record_sync_failure(session_factory, plan=plan, error=exc)
         raise
 
     return result
@@ -451,28 +648,25 @@ def _persist_in_transaction(
     plan: ProviderSyncPlan,
     fetched: ProviderSyncFetch,
 ) -> ProviderSyncResult:
-    # The deletion request locks the same workspace row first, so either
-    # this transaction commits before the request starts, or this lock
-    # waits and then observes the committed deletion_pending state.
-    workspace = session.scalar(
-        select(Installation)
-        .where(Installation.id == plan.workspace_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    workspace: Installation | None = None
 
-    if workspace is None or is_deletion_pending(workspace):
-        raise _workspace_unavailable()
+    if plan.legacy_workspace_id is not None:
+        # Workspace before Season, the order every workspace writer uses. The
+        # deletion request locks this row first, so either this transaction
+        # commits before the request starts, or it waits and then observes
+        # the committed deletion_pending state.
+        workspace = session.scalar(
+            select(Installation)
+            .where(Installation.id == plan.legacy_workspace_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+        if workspace is None or is_deletion_pending(workspace):
+            raise _workspace_unavailable()
 
     repository = ProviderSyncRepository(session)
-    context = repository.load_context(season_id=plan.season_id)
-
-    _require_workspace_eligible(
-        workspace,
-        requirement=plan.requirement,
-        season_id=plan.season_id,
-        season_status=context.season.status,
-    )
+    context = _load_context(repository, plan.season_id, lock=True)
     _require_job_authority(session, plan.job_authority)
 
     try:
@@ -485,6 +679,7 @@ def _persist_in_transaction(
         ) from exc
 
     _require_target_unchanged(context, plan)
+    _require_credential_source_unchanged(session, repository, context, plan, workspace)
 
     sync_run = session.scalar(
         select(SyncRun)
@@ -498,7 +693,9 @@ def _persist_in_transaction(
             safe_error_message="The synchronization attempt is no longer current.",
         )
 
-    if _newer_sync_succeeded(session, plan):
+    # data_version is the durable stale-write marker: another attempt has
+    # committed since this one started, so its result wins and ours is dropped.
+    if context.season.data_version != plan.expected_data_version:
         repository.fail_sync_run(sync_run, safe_error_message=SUPERSEDED_SYNC_MESSAGE)
 
         return _result(plan, fetched, counts=None)
@@ -512,6 +709,9 @@ def _persist_in_transaction(
         explicit_from_week=plan.target.explicit_from_week,
         explicit_through_week=plan.target.explicit_through_week,
     )
+    assert sync_run.completed_at is not None
+    mark_succeeded(context.season, completed_at=sync_run.completed_at)
+    session.flush()
 
     return _result(plan, fetched, counts=counts)
 
@@ -528,7 +728,8 @@ def write_fetched_season_data(
 ) -> _WriteCounts:
     """Write canonical and derived data inside the caller's transaction.
 
-    The caller must hold the season advisory lock and owns commit/rollback.
+    The caller must hold the season advisory lock, owns commit/rollback, and
+    advances the Season lifecycle after this returns.
     """
 
     player_weeks = fetched.player_weeks
@@ -656,12 +857,32 @@ def _result(
 # --------------------------------------------------------------------------
 
 
+def _load_context(
+    repository: ProviderSyncRepository,
+    season_id: int,
+    *,
+    lock: bool = False,
+) -> ProviderSyncContext:
+    try:
+        return repository.load_context(season_id=season_id, lock=lock)
+    except ProviderSyncContextNotFoundError as exc:
+        raise BackgroundJobExecutionError(
+            safe_error_code="season_unavailable",
+            safe_error_message="The background job season is unavailable.",
+        ) from exc
+    except ProviderSyncContextError as exc:
+        raise BackgroundJobExecutionError(
+            safe_error_code="season_target_invalid",
+            safe_error_message="The season does not have a valid provider target.",
+        ) from exc
+
+
 def _require_workspace_eligible(
     workspace: Installation | None,
     *,
     requirement: SyncWorkspaceRequirement,
     season_id: int,
-    season_status: SeasonStatus,
+    season_status: SeasonStatus | None,
 ) -> None:
     if workspace is None or is_deletion_pending(workspace):
         raise _workspace_unavailable()
@@ -719,17 +940,8 @@ def _require_target_unchanged(
     context: ProviderSyncContext,
     plan: ProviderSyncPlan,
 ) -> None:
-    # load_context already requires an active, same-workspace, same-provider
-    # connection; a failure there raises ProviderSyncContextError.
-    if (
-        context.provider_connection_id != plan.provider_connection_id
-        or credential_marker(context.provider_connection) != plan.credential_marker
-    ):
-        raise _connection_changed()
-
     if (
         context.league_id != plan.league_id
-        or context.league.installation_id != plan.workspace_id
         or context.provider is not plan.provider
         or context.provider_league_id != plan.target.provider_league_id
         or context.provider_season_id != plan.target.provider_season_id
@@ -742,18 +954,56 @@ def _require_target_unchanged(
         )
 
 
-def _newer_sync_succeeded(session: Session, plan: ProviderSyncPlan) -> bool:
-    return bool(
-        session.scalar(
-            select(
-                exists().where(
-                    SyncRun.season_id == plan.season_id,
-                    SyncRun.status == SyncStatus.SUCCEEDED,
-                    SyncRun.id > plan.sync_run_id,
-                )
-            )
+def _require_credential_source_unchanged(
+    session: Session,
+    repository: ProviderSyncRepository,
+    context: ProviderSyncContext,
+    plan: ProviderSyncPlan,
+    workspace: Installation | None,
+) -> None:
+    """The fetch is persisted only while its credential source still authorizes it."""
+
+    season_id = plan.season_id
+
+    if plan.legacy_workspace_id is not None:
+        if repository.has_active_access(season_id=season_id):
+            raise _access_mode_changed()
+
+        if context.league.installation_id != plan.legacy_workspace_id:
+            raise _connection_changed()
+
+        source = _legacy_workspace_source(
+            context, workspace=workspace, requirement=plan.requirement, session=session
         )
-    )
+    else:
+        public = repository.has_active_public_access(season_id=season_id)
+
+        if public is not (plan.access_mode is ProviderAccessMode.PUBLIC):
+            raise _access_mode_changed()
+
+        if public:
+            return
+
+        connections = repository.eligible_private_connections(
+            season_id=season_id,
+            provider=context.provider,
+            connection_id=plan.provider_connection_id,
+        )
+
+        if not connections:
+            raise _connection_changed()
+
+        source = _CredentialSource(ProviderAccessMode.PRIVATE, connections[0], None)
+
+    if source.access_mode is not plan.access_mode:
+        raise _access_mode_changed()
+
+    if (
+        source.connection is None
+        or source.connection.id != plan.provider_connection_id
+        or credential_marker(source.connection) != plan.credential_marker
+    ):
+        raise _connection_changed()
 
 
 def _workspace_unavailable() -> BackgroundJobExecutionError:
@@ -772,8 +1022,24 @@ def _connection_changed() -> BackgroundJobExecutionError:
     )
 
 
+def _access_mode_changed() -> BackgroundJobExecutionError:
+    return BackgroundJobExecutionError(
+        safe_error_code="provider_access_mode_changed",
+        safe_error_message="The league's access changed during synchronization.",
+        retryable=True,
+    )
+
+
+def _reverification_required() -> BackgroundJobExecutionError:
+    return BackgroundJobExecutionError(
+        safe_error_code=REVERIFICATION_REQUIRED_CODE,
+        safe_error_message="No saved league access can currently synchronize this season.",
+        retryable=False,
+    )
+
+
 # --------------------------------------------------------------------------
-# SyncRun failure bookkeeping
+# Failure bookkeeping
 # --------------------------------------------------------------------------
 
 
@@ -794,31 +1060,96 @@ def safe_sync_failure_message(error: BaseException) -> str:
     return GENERIC_SYNC_FAILURE_MESSAGE
 
 
-def record_sync_run_failure(
-    session_factory: sessionmaker[Session] | Callable[[], Session],
-    *,
-    sync_run_id: int,
-    safe_error_message: str,
-) -> None:
-    """Mark a still-running SyncRun failed in its own short transaction.
+def sync_failure_code(error: BaseException) -> str:
+    """Bounded safe Season failure code; never provider text."""
 
-    Never raises: the original synchronization failure stays authoritative.
+    if isinstance(error, BackgroundJobExecutionError):
+        return safe_failure_code(error.safe_error_code)
+
+    if isinstance(error, ProviderError):
+        return safe_failure_code(provider_error_code(error))
+
+    if isinstance(error, ProviderSyncValidationError):
+        return "invalid_provider_data"
+
+    return safe_failure_code(None)
+
+
+def record_sync_failure(
+    session_factory: sessionmaker[Session],
+    *,
+    plan: ProviderSyncPlan,
+    error: BaseException,
+) -> None:
+    """Short outcome transaction for a started attempt that did not persist.
+
+    Fails the attempt's SyncRun, keeps every canonical row and ``data_version``,
+    and moves the Season to ``stale`` or ``failed`` only while this attempt is
+    still the newest one: ``syncing``, the same ``data_version``, and no newer
+    SyncRun. Never raises; the original failure stays authoritative.
     """
 
-    values: dict[str, Any] = {
-        "status": SyncStatus.FAILED,
-        "completed_at": datetime.now(UTC),
-        "safe_error_message": (safe_error_message.strip() or GENERIC_SYNC_FAILURE_MESSAGE)[:1000],
-        "analytics_rebuilt": False,
-    }
+    message = (safe_sync_failure_message(error).strip() or GENERIC_SYNC_FAILURE_MESSAGE)[:1000]
 
     try:
         with session_factory() as session:
+            season = session.scalar(
+                select(Season)
+                .where(Season.id == plan.season_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
             session.execute(
                 update(SyncRun)
-                .where(SyncRun.id == sync_run_id, SyncRun.status == SyncStatus.RUNNING)
-                .values(**values)
+                .where(SyncRun.id == plan.sync_run_id, SyncRun.status == SyncStatus.RUNNING)
+                .values(
+                    status=SyncStatus.FAILED,
+                    completed_at=datetime.now(UTC),
+                    safe_error_message=message,
+                    analytics_rebuilt=False,
+                )
             )
+            newer_attempt = session.scalar(
+                select(
+                    exists().where(
+                        SyncRun.season_id == plan.season_id,
+                        SyncRun.id > plan.sync_run_id,
+                    )
+                )
+            )
+
+            if (
+                season is not None
+                and season.sync_state is SeasonSyncState.SYNCING
+                and season.data_version == plan.expected_data_version
+                and not newer_attempt
+            ):
+                mark_failed(season, failure_code=sync_failure_code(error))
+
             session.commit()
     except Exception:  # noqa: BLE001 - bookkeeping must not mask the cause
-        LOGGER.warning("Could not record synchronization failure: sync_run_id=%s.", sync_run_id)
+        LOGGER.warning(
+            "Could not record synchronization failure: season_id=%s, sync_run_id=%s.",
+            plan.season_id,
+            plan.sync_run_id,
+        )
+
+
+def _record_unstarted_attempt_failure(
+    session_factory: sessionmaker[Session],
+    *,
+    season_id: int,
+    failure_code: str,
+) -> None:
+    """Record why an attempt could not start, unless another attempt is syncing."""
+
+    try:
+        with session_factory() as session:
+            season = session.scalar(select(Season).where(Season.id == season_id).with_for_update())
+
+            if season is not None and season.sync_state is not SeasonSyncState.SYNCING:
+                mark_failed(season, failure_code=failure_code)
+
+            session.commit()
+    except Exception:  # noqa: BLE001 - bookkeeping must not mask the cause
+        LOGGER.warning("Could not record synchronization start failure: season_id=%s.", season_id)

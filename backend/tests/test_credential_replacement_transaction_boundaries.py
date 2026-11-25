@@ -34,7 +34,7 @@ from app.services.provider_credential_replacement import (
     ProviderCredentialReplacementValidationError,
     replace_provider_credentials,
 )
-from app.services.provider_sync import synchronize_provider
+from app.services.provider_sync import synchronize_season
 from tests.support.provider_sync_fixtures import (
     KEY,
     WAIT_SECONDS,
@@ -387,13 +387,15 @@ def test_sync_persistence_completes_while_replacement_validates(
         # workspace here, so this synchronization would block on its
         # persistence lock until the timeout below.
         thread, outcome = run_in_thread(
-            lambda: synchronize_provider(
+            lambda: synchronize_season(
                 session_factory=SessionFactory,
                 season_id=graph.season_id,
-                provider=SyntheticSeasonAdapter(
-                    provider_league_id=graph.provider_league_id, dataset="synced"
+                settings=worker_settings(),
+                registry=registry_for(
+                    SyntheticSeasonAdapter(
+                        provider_league_id=graph.provider_league_id, dataset="synced"
+                    )
                 ),
-                full_sync=True,
             )
         )
         thread.join(WAIT_SECONDS)

@@ -15,6 +15,7 @@ from sqlalchemy import inspect, text
 from app.db.session import engine
 
 REVISION = "f1b6d2c8a9e4"
+HEAD_REVISION = "b9e4c2d7a1f3"  # League-Season sync job; later than REVISION
 PREVIOUS_REVISION = "a3c9e5f1b7d2"
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ID = 990_501
@@ -156,14 +157,14 @@ def restore_head() -> Iterator[None]:
     ],
 )
 def test_downgrade_refuses_to_discard_target_state(seed, fragment) -> None:
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     seed()
 
     result = alembic("downgrade", PREVIOUS_REVISION)
 
     assert result.returncode != 0
     assert "Refusing to downgrade" in result.stderr and fragment in result.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     assert set(NEW_TABLES) <= set(inspect(engine).get_table_names())
 
 
@@ -190,7 +191,7 @@ def test_round_trip_preserves_workspace_rows_and_restores_old_constraints() -> N
     assert scalar(f"SELECT count(*) FROM seasons WHERE id = {ID}") == 1
 
     assert alembic("upgrade", "head").returncode == 0
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     assert alembic("check").returncode == 0
     assert scalar(f"SELECT data_version FROM seasons WHERE id = {ID}") == 0
     assert scalar(f"SELECT sync_state FROM seasons WHERE id = {ID}") is None

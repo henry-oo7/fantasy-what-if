@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from datetime import timedelta
-from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
@@ -14,7 +13,6 @@ from app.db.models import (
 )
 from app.db.platform_enums import (
     BackgroundJobStatus,
-    BackgroundJobType,
 )
 from app.db.platform_models import BackgroundJob
 from app.db.session import engine
@@ -27,6 +25,7 @@ from app.services.background_job_handlers import (
 from app.services.background_job_worker import (
     execute_one_background_job,
 )
+from app.services.season_sync_jobs import enqueue_season_sync
 from tests.support.credential_aware_espn import (
     credential_aware_espn_registry,
 )
@@ -78,18 +77,8 @@ def enqueue_workspace_job(
     season_id: int,
 ) -> int:
     with factory() as session:
-        result = BackgroundJobRepository(session).enqueue(
-            workspace_id=workspace_id,
-            job_type=(BackgroundJobType.INCREMENTAL_SEASON_SYNC),
-            payload={
-                "season_id": season_id,
-                "full_sync": False,
-                "trigger": "multi_workspace_test",
-            },
-            idempotency_key=(f"multi-workspace:{workspace_id}:{uuid4().hex}"),
-            priority=100,
-            maximum_attempts=5,
-        )
+        result = enqueue_season_sync(session, season_id=season_id, priority=100)
+        assert result.job.workspace_id == workspace_id
         job_id = result.job.id
 
         assert job_id is not None

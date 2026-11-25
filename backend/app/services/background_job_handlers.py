@@ -11,39 +11,81 @@ from app.db.platform_enums import BackgroundJobType
 from app.db.platform_models import Installation
 from app.notifications.recipient_encryption import TransactionalEmailRecipientCipher
 from app.providers.registry import ProviderRegistry
-from app.services.active_provider_sync import (
-    prepare_active_season_sync,
-)
 from app.services.background_job_worker import (
     BackgroundJobExecutionError,
     BackgroundJobHandler,
     BackgroundJobSnapshot,
 )
 from app.services.onboarding_initial_sync import InitialWorkspaceSyncHandler
-from app.services.provider_sync import SyncJobAuthority, execute_provider_sync
+from app.services.provider_sync import SyncJobAuthority, synchronize_season
+from app.services.season_sync_jobs import enqueue_season_sync
 from app.services.synchronization_job_contract import (
     SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
+    InvalidSeasonSyncPayloadError,
     synchronization_payload_contains_prohibited_names,
+    validate_season_sync_payload,
 )
 from app.services.transactional_email_delivery import TransactionalEmailDeliveryHandler
 from app.services.workspace_deletion_execution import WorkspaceDeletionJobHandler
 
 
-class SynchronizationBackgroundJobHandler:
-    """Execute one workspace-owned season synchronization."""
+class SeasonSynchronizationJobHandler:
+    """Execute one League-Season synchronization (ADR 0010).
+
+    The Season comes only from the exact payload; workspace active-Season
+    state never selects what is synchronized.
+    """
 
     def __init__(
         self,
         *,
         session_factory: sessionmaker[Session],
         settings: Settings,
-        full_sync: bool,
         registry: ProviderRegistry | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
-        self.full_sync = full_sync
         self.registry = registry
+
+    def __call__(
+        self,
+        job: BackgroundJobSnapshot,
+    ) -> None:
+        try:
+            season_id = validate_season_sync_payload(
+                job.payload, payload_version=job.payload_version
+            )
+        except InvalidSeasonSyncPayloadError as exc:
+            raise BackgroundJobExecutionError(
+                safe_error_code="invalid_job_payload",
+                safe_error_message="The background job payload is invalid.",
+            ) from exc
+
+        synchronize_season(
+            session_factory=self.session_factory,
+            season_id=season_id,
+            settings=self.settings,
+            registry=self.registry,
+            job_authority=SyncJobAuthority(job_id=job.id, attempt_count=job.attempt_count),
+        )
+
+
+class LegacySynchronizationJobAdapter:
+    """Compatibility for persisted workspace incremental/full sync jobs.
+
+    Shortcut: re-enqueues the payload Season through the Season-owned job and
+    succeeds; retire once no workspace-era sync job can still be queued. It
+    never synchronizes a Season other than the payload's own.
+    """
+
+    def __init__(
+        self,
+        *,
+        session_factory: sessionmaker[Session],
+        full_sync: bool,
+    ) -> None:
+        self.session_factory = session_factory
+        self.full_sync = full_sync
 
     def __call__(
         self,
@@ -54,34 +96,20 @@ class SynchronizationBackgroundJobHandler:
             expected_full_sync=self.full_sync,
         )
 
-        # Phase 1: one short preparation transaction, committed and closed
-        # before any provider network call.
+        if job.workspace_id is None:
+            raise BackgroundJobExecutionError(
+                safe_error_code="workspace_unavailable",
+                safe_error_message="The background job workspace is unavailable.",
+            )
+
         with self.session_factory() as session:
             validate_sync_job_ownership(
                 session,
                 workspace_id=job.workspace_id,
                 season_id=season_id,
             )
-
-            plan, provider = prepare_active_season_sync(
-                session=session,
-                workspace_id=job.workspace_id,
-                settings=self.settings,
-                full_sync=self.full_sync,
-                registry=self.registry,
-                job_authority=SyncJobAuthority(
-                    job_id=job.id,
-                    attempt_count=job.attempt_count,
-                ),
-            )
+            enqueue_season_sync(session, season_id=season_id)
             session.commit()
-
-        # Phases 2 and 3: fetch with no session, then persist under rechecks.
-        execute_provider_sync(
-            session_factory=self.session_factory,
-            plan=plan,
-            provider=provider,
-        )
 
 
 def build_background_job_handlers(
@@ -96,19 +124,18 @@ def build_background_job_handlers(
     """Build the executable worker-handler registry."""
 
     return {
-        (BackgroundJobType.INCREMENTAL_SEASON_SYNC): SynchronizationBackgroundJobHandler(
+        BackgroundJobType.LEAGUE_SEASON_SYNC: SeasonSynchronizationJobHandler(
             session_factory=session_factory,
             settings=settings,
-            full_sync=False,
             registry=registry,
         ),
-        BackgroundJobType.FULL_SEASON_SYNC: (
-            SynchronizationBackgroundJobHandler(
-                session_factory=session_factory,
-                settings=settings,
-                full_sync=True,
-                registry=registry,
-            )
+        BackgroundJobType.INCREMENTAL_SEASON_SYNC: LegacySynchronizationJobAdapter(
+            session_factory=session_factory,
+            full_sync=False,
+        ),
+        BackgroundJobType.FULL_SEASON_SYNC: LegacySynchronizationJobAdapter(
+            session_factory=session_factory,
+            full_sync=True,
         ),
         BackgroundJobType.INITIAL_WORKSPACE_SYNC: InitialWorkspaceSyncHandler(
             session_factory=session_factory,

@@ -12,6 +12,7 @@ from app.repositories.background_job_repository import (
     BackgroundJobRepository,
 )
 from app.services.onboarding_sync_outcome import apply_initial_sync_outcome
+from app.services.season_sync_jobs import apply_season_sync_lease_recovery
 from app.services.transactional_email_job_outcome import (
     apply_transactional_email_job_failure,
 )
@@ -65,6 +66,12 @@ def recover_expired_background_jobs(
             job,
             retry_at=retry_at,
             now=timestamp,
+        )
+
+        apply_season_sync_lease_recovery(
+            session,
+            job=job,
+            retrying=recovered_status is BackgroundJobStatus.RETRY_SCHEDULED,
         )
 
         if recovered_status is BackgroundJobStatus.RETRY_SCHEDULED:

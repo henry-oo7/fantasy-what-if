@@ -42,7 +42,6 @@ from app.db.models import (
     Team,
 )
 from app.db.platform_enums import (
-    BackgroundJobType,
     FantasyProvider,
     FantasySport,
 )
@@ -68,6 +67,7 @@ from app.services.background_job_worker import (
     BackgroundJobSnapshot,
     snapshot_background_job,
 )
+from app.services.season_sync_jobs import enqueue_season_sync
 from app.services.sync_lock import PROVIDER_SYNC_LOCK_NAMESPACE
 from tests.support.workspace_deletion_graph import (
     TEST_JOB_PRIORITY,
@@ -498,15 +498,10 @@ def registry_for(adapter: SyntheticSeasonAdapter) -> ProviderRegistry:
 
 
 def enqueue_sync_job(graph: SyncGraph) -> int:
+    """Queue the graph Season's one League-Season synchronization job."""
+
     with SessionFactory() as session:
-        result = BackgroundJobRepository(session).enqueue(
-            workspace_id=graph.workspace_id,
-            job_type=BackgroundJobType.FULL_SEASON_SYNC,
-            payload={"season_id": graph.season_id, "full_sync": True, "trigger": "boundary"},
-            idempotency_key=f"sync-boundary:{graph.workspace_id}:{uuid4().hex}",
-            priority=TEST_JOB_PRIORITY,
-            maximum_attempts=3,
-        )
+        result = enqueue_season_sync(session, season_id=graph.season_id, priority=TEST_JOB_PRIORITY)
         session.commit()
 
         return result.job.id

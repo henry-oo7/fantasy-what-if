@@ -11,8 +11,10 @@ transaction):
    with no Session.
 3. Persistence: one atomic transaction re-locks the workspace, league and
    connection, rechecks every prepared value, creates the Season, writes
-   canonical and derived data under the season advisory lock, and switches
-   the active season.
+   canonical and derived data under the season advisory lock, records the
+   Season's first successful synchronization (``data_version`` 1, ``fresh``),
+   and switches the active season. This is the same detached fetch/persist
+   boundary the Season-owned synchronization uses; the API stays synchronous.
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ from app.services.season_lifecycle import (
     ImportedSeasonLifecycle,
     classify_imported_season,
 )
+from app.services.season_sync_state import mark_succeeded, mark_syncing
 from app.services.sync_lock import acquire_season_sync_lock
 from app.services.workspace_lifecycle import is_active_workspace
 
@@ -367,10 +370,14 @@ def _persist_import(
 
     repository = ProviderSyncRepository(session)
     context = repository.load_context(season_id=season.id)
+    # The Season row is new and locked by its own insert; this attempt is
+    # its first authoritative synchronization.
+    mark_syncing(season, attempt_at=timestamp)
     sync_run = repository.create_sync_run(
         context=context,
         is_full_sync=True,
         requested_weeks=(),
+        provider_connection_id=connection.id,
     )
     counts = write_fetched_season_data(
         session,
@@ -381,6 +388,8 @@ def _persist_import(
         explicit_from_week=None,
         explicit_through_week=None,
     )
+    assert sync_run.completed_at is not None
+    mark_succeeded(season, completed_at=sync_run.completed_at)
     sync_result = build_sync_result(
         provider=context.provider,
         season_id=season.id,

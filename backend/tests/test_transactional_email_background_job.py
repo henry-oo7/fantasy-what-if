@@ -41,8 +41,9 @@ GOOD_PAYLOAD = {"version": 1, "delivery_id": 1}
 def test_every_non_email_job_type_requires_a_workspace(database_session: Session) -> None:
     workspace = make_workspace(database_session)
 
+    # League-Season sync may omit its workspace; its own tests cover it.
     for job_type in BackgroundJobType:
-        if job_type is EMAIL:
+        if job_type in (EMAIL, BackgroundJobType.LEAGUE_SEASON_SYNC):
             continue
 
         assert_rejected(database_session, job(None, job_type, {}))

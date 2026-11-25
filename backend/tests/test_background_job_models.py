@@ -50,6 +50,7 @@ def test_background_job_enum_values_are_stable() -> None:
         "expired_token_cleanup",
         "workspace_deletion",
         "transactional_email_delivery",
+        "league_season_sync",
     )
 
 
