@@ -116,3 +116,27 @@ class TransactionalEmailDeliveryStatus(StrEnum):
     SENT = "sent"
     PERMANENTLY_FAILED = "permanently_failed"
     CANCELED = "canceled"
+
+
+class SeasonSyncState(StrEnum):
+    """Synchronization lifecycle of one League Season (NULL on legacy rows)."""
+
+    NEVER_SYNCED = "never_synced"
+    QUEUED = "queued"
+    SYNCING = "syncing"
+    FRESH = "fresh"
+    STALE = "stale"
+    FAILED = "failed"
+
+
+class UserSeasonAccessStatus(StrEnum):
+    ACTIVE = "active"
+    REVERIFICATION_REQUIRED = "reverification_required"
+    REVOKED = "revoked"
+
+
+class UserSeasonProofMode(StrEnum):
+    """How the user proved access: anonymously or with their own credentials."""
+
+    PUBLIC = "public"
+    PRIVATE_CREDENTIALS = "private_credentials"

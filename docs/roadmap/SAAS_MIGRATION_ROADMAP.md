@@ -78,6 +78,8 @@ Additive migration: user-owned provider connection reference, `user_league_seaso
 
 Exit: single Alembic head, upgrade and downgrade clean, constraints proven.
 
+Status: implemented on this branch as Alembic revision `f1b6d2c8a9e4` (expand-only). Nothing reads the new tables as authorization yet, and the workspace model remains the active authority.
+
 ### Branch 3: `feature/league-import-service`
 
 Proof-first import: T0 throttle, provider proof with no transaction, uniform failure, atomic T1. Idempotent repeats, concurrent-import safety, safe coordination with orphan purge.
