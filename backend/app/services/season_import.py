@@ -1,4 +1,19 @@
-"""Import another season into one workspace's existing fantasy league."""
+"""Import another season into one workspace's existing fantasy league.
+
+Transaction boundaries (no provider network call runs inside a database
+transaction):
+
+1. Preparation: a short read-only transaction checks the workspace, league,
+   duplicate year and single active connection, decrypts the stored
+   credentials into the provider adapter (process memory only), and
+   captures detached identifiers. It is closed before any provider call.
+2. Fetch: provider validation, league snapshot, matchups and rosters run
+   with no Session.
+3. Persistence: one atomic transaction re-locks the workspace, league and
+   connection, rechecks every prepared value, creates the Season, writes
+   canonical and derived data under the season advisory lock, and switches
+   the active season.
+"""
 
 from __future__ import annotations
 
@@ -6,15 +21,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import model_registry  # noqa: F401
 from app.db.models import League, Season
-from app.db.platform_enums import SeasonStatus
+from app.db.platform_enums import FantasySport, SeasonStatus
 from app.db.platform_models import (
     Installation,
     ProviderConnection,
 )
+from app.providers.base import ProviderAdapter
 from app.providers.credential_keyring import (
     ProviderCredentialKeyring,
 )
@@ -24,17 +40,25 @@ from app.providers.credential_vault import (
 from app.providers.domain import ProviderCredentials
 from app.providers.errors import ProviderNotSupportedError
 from app.providers.registry import ProviderRegistry
+from app.repositories.provider_sync_repository import ProviderSyncRepository
 from app.services.provider_adapter_resolver import (
     build_provider_registry,
 )
 from app.services.provider_sync import (
+    ProviderFetchTarget,
+    ProviderSyncFetch,
     ProviderSyncResult,
-    synchronize_provider,
+    build_sync_result,
+    credential_marker,
+    fetch_provider_sync_data,
+    write_fetched_season_data,
 )
 from app.services.season_lifecycle import (
     FutureSeasonImportError,
+    ImportedSeasonLifecycle,
     classify_imported_season,
 )
+from app.services.sync_lock import acquire_season_sync_lock
 from app.services.workspace_lifecycle import is_active_workspace
 
 SEASON_IMPORT_LOCK_KEY = 1_179_921_931
@@ -69,8 +93,26 @@ class SeasonImportResult:
     sync_result: ProviderSyncResult
 
 
+@dataclass(frozen=True, slots=True)
+class _SeasonImportPlan:
+    """Detached preparation snapshot. No ORM objects and no credentials."""
+
+    workspace_id: int
+    league_id: int
+    provider_league_id: str
+    league_sport: FantasySport | None
+    provider_connection_id: int
+    credential_marker: str
+    season_year: int
+
+    def __repr__(self) -> str:
+        return (
+            f"_SeasonImportPlan(workspace_id={self.workspace_id}, season_year={self.season_year})"
+        )
+
+
 def import_provider_season(
-    session: Session,
+    session_factory: sessionmaker[Session],
     *,
     workspace_id: int,
     season_year: int,
@@ -92,79 +134,68 @@ def import_provider_season(
     except ValueError as exc:
         raise SeasonImportValidationError(str(exc)) from exc
 
-    # Imports serialize per workspace only; other workspaces are unaffected.
-    session.execute(
-        text(
-            """
-            SELECT pg_advisory_xact_lock(
-                :lock_key,
-                :workspace_id
-            )
-            """
-        ),
-        {
-            "lock_key": SEASON_IMPORT_LOCK_KEY,
-            "workspace_id": workspace_id,
-        },
-    )
+    # Phase 1: short preparation transaction, closed before provider I/O.
+    with session_factory() as session:
+        plan, provider = _prepare_import(
+            session,
+            workspace_id=workspace_id,
+            season_year=season_year,
+            credential_keyring=credential_keyring,
+            registry=registry,
+        )
+        session.rollback()
 
-    installation = session.get(
-        Installation,
-        workspace_id,
-        with_for_update=True,
-    )
+    # Phase 2: provider requests with no database session.
+    fetched = _fetch_import(provider, plan)
+
+    # Phase 3: one atomic persistence transaction.
+    with session_factory() as session:
+        try:
+            result = _persist_import(
+                session,
+                plan=plan,
+                fetched=fetched,
+                lifecycle=lifecycle,
+                timestamp=timestamp,
+            )
+            session.commit()
+        except BaseException:
+            session.rollback()
+            raise
+
+    return result
+
+
+def _prepare_import(
+    session: Session,
+    *,
+    workspace_id: int,
+    season_year: int,
+    credential_keyring: ProviderCredentialKeyring,
+    registry: ProviderRegistry | None,
+) -> tuple[_SeasonImportPlan, ProviderAdapter]:
+    installation = session.get(Installation, workspace_id)
 
     if installation is None or not is_active_workspace(installation):
         raise SeasonImportUnavailableError(
             "Another season can be imported only for an active workspace."
         )
 
-    leagues = session.scalars(
-        select(League)
-        .where(
-            League.installation_id == installation.id,
-        )
-        .order_by(League.id)
-        .with_for_update()
-    ).all()
-
-    if len(leagues) != 1:
-        raise SeasonImportUnavailableError("The workspace must have exactly one fantasy league.")
-
-    league = leagues[0]
+    league = _single_league(session, workspace_id=installation.id, lock=False)
 
     if league.provider is None or league.provider_league_id is None:
         raise SeasonImportUnavailableError(
             "The installed league does not have canonical provider identity."
         )
 
-    duplicate_season_id = session.scalar(
-        select(Season.id)
-        .where(
-            Season.league_id == league.id,
-            Season.year == season_year,
-        )
-        .limit(1)
+    _reject_duplicate(session, league_id=league.id, season_year=season_year)
+
+    connection = _single_connection(
+        session,
+        workspace_id=installation.id,
+        league=league,
+        lock=False,
     )
-
-    if duplicate_season_id is not None:
-        raise SeasonImportConflictError(f"Season {season_year} is already imported.")
-
-    connections = session.scalars(
-        select(ProviderConnection)
-        .where(
-            ProviderConnection.installation_id == installation.id,
-            ProviderConnection.provider == league.provider,
-            ProviderConnection.is_active.is_(True),
-        )
-        .order_by(ProviderConnection.id)
-        .with_for_update()
-    ).all()
-
-    if len(connections) != 1:
-        raise SeasonImportUnavailableError("Exactly one active provider connection is required.")
-
-    connection = connections[0]
 
     if connection.encrypted_credentials is None or connection.credential_version is None:
         raise SeasonImportUnavailableError("The provider connection has no stored credentials.")
@@ -200,29 +231,117 @@ def import_provider_season(
             "The configured fantasy provider is not implemented."
         ) from exc
 
+    plan = _SeasonImportPlan(
+        workspace_id=installation.id,
+        league_id=league.id,
+        provider_league_id=league.provider_league_id,
+        league_sport=league.sport,
+        provider_connection_id=connection.id,
+        credential_marker=credential_marker(connection),
+        season_year=season_year,
+    )
+
+    return plan, provider
+
+
+def _fetch_import(
+    provider: ProviderAdapter,
+    plan: _SeasonImportPlan,
+) -> ProviderSyncFetch:
     validation = provider.validate_configuration()
 
     if not validation.is_valid:
-        connection.last_validation_error = validation.safe_message
-
         raise SeasonImportValidationError(validation.safe_message)
 
     provider_league = provider.fetch_league(
-        provider_league_id=(league.provider_league_id),
-        provider_season_id=str(season_year),
+        provider_league_id=plan.provider_league_id,
+        provider_season_id=str(plan.season_year),
     )
 
-    if provider_league.provider_league_id != league.provider_league_id:
+    if provider_league.provider_league_id != plan.provider_league_id:
         raise SeasonImportValidationError("The provider returned a different league.")
 
     if (
-        provider_league.provider_season_id != str(season_year)
-        or provider_league.season_year != season_year
+        provider_league.provider_season_id != str(plan.season_year)
+        or provider_league.season_year != plan.season_year
     ):
         raise SeasonImportValidationError("The provider returned a different season.")
 
-    if league.sport is not None and provider_league.sport is not league.sport:
+    if plan.league_sport is not None and provider_league.sport is not plan.league_sport:
         raise SeasonImportValidationError("The provider season uses a different sport.")
+
+    return fetch_provider_sync_data(provider, _import_target(plan))
+
+
+def _import_target(plan: _SeasonImportPlan) -> ProviderFetchTarget:
+    return ProviderFetchTarget(
+        provider_league_id=plan.provider_league_id,
+        provider_season_id=str(plan.season_year),
+        full_sync=True,
+    )
+
+
+def _persist_import(
+    session: Session,
+    *,
+    plan: _SeasonImportPlan,
+    fetched: ProviderSyncFetch,
+    lifecycle: ImportedSeasonLifecycle,
+    timestamp: datetime,
+) -> SeasonImportResult:
+    # Imports serialize per workspace only; other workspaces are unaffected.
+    session.execute(
+        text(
+            """
+            SELECT pg_advisory_xact_lock(
+                :lock_key,
+                :workspace_id
+            )
+            """
+        ),
+        {
+            "lock_key": SEASON_IMPORT_LOCK_KEY,
+            "workspace_id": plan.workspace_id,
+        },
+    )
+
+    installation = session.get(
+        Installation,
+        plan.workspace_id,
+        with_for_update=True,
+        populate_existing=True,
+    )
+
+    # A deletion request, suspension or other lifecycle change committed
+    # during the provider fetch discards the fetched data.
+    if installation is None or not is_active_workspace(installation):
+        raise SeasonImportUnavailableError(
+            "Another season can be imported only for an active workspace."
+        )
+
+    league = _single_league(session, workspace_id=installation.id, lock=True)
+
+    if league.id != plan.league_id or league.provider_league_id != plan.provider_league_id:
+        raise SeasonImportUnavailableError("The workspace league changed during the import.")
+
+    _reject_duplicate(session, league_id=league.id, season_year=plan.season_year)
+
+    connection = _single_connection(
+        session,
+        workspace_id=installation.id,
+        league=league,
+        lock=True,
+    )
+
+    if (
+        connection.id != plan.provider_connection_id
+        or credential_marker(connection) != plan.credential_marker
+    ):
+        raise SeasonImportUnavailableError(
+            "The provider connection changed during the import. Try again."
+        )
+
+    provider_league = fetched.provider_league
 
     connection.last_validated_at = timestamp
     connection.last_validation_error = None
@@ -244,12 +363,30 @@ def import_provider_season(
     session.add(season)
     session.flush()
 
-    sync_result = synchronize_provider(
-        session=session,
+    acquire_season_sync_lock(session, season_id=season.id)
+
+    repository = ProviderSyncRepository(session)
+    context = repository.load_context(season_id=season.id)
+    sync_run = repository.create_sync_run(
+        context=context,
+        is_full_sync=True,
+        requested_weeks=(),
+    )
+    counts = write_fetched_season_data(
+        session,
+        repository=repository,
+        context=context,
+        fetched=fetched,
+        sync_run=sync_run,
+        explicit_from_week=None,
+        explicit_through_week=None,
+    )
+    sync_result = build_sync_result(
+        provider=context.provider,
         season_id=season.id,
-        provider=provider,
-        full_sync=True,
-        commit_transaction=False,
+        target=_import_target(plan),
+        fetched=fetched,
+        counts=counts,
     )
 
     if lifecycle.synchronization_enabled:
@@ -277,7 +414,6 @@ def import_provider_season(
         installation.active_season_id = season.id
 
     session.flush()
-    session.commit()
 
     return SeasonImportResult(
         installation_id=installation.id,
@@ -288,3 +424,59 @@ def import_provider_season(
         synchronization_enabled=(lifecycle.synchronization_enabled),
         sync_result=sync_result,
     )
+
+
+def _single_league(session: Session, *, workspace_id: int, lock: bool) -> League:
+    statement = select(League).where(League.installation_id == workspace_id).order_by(League.id)
+
+    if lock:
+        statement = statement.with_for_update()
+
+    leagues = session.scalars(statement).all()
+
+    if len(leagues) != 1:
+        raise SeasonImportUnavailableError("The workspace must have exactly one fantasy league.")
+
+    return leagues[0]
+
+
+def _reject_duplicate(session: Session, *, league_id: int, season_year: int) -> None:
+    duplicate_season_id = session.scalar(
+        select(Season.id)
+        .where(
+            Season.league_id == league_id,
+            Season.year == season_year,
+        )
+        .limit(1)
+    )
+
+    if duplicate_season_id is not None:
+        raise SeasonImportConflictError(f"Season {season_year} is already imported.")
+
+
+def _single_connection(
+    session: Session,
+    *,
+    workspace_id: int,
+    league: League,
+    lock: bool,
+) -> ProviderConnection:
+    statement = (
+        select(ProviderConnection)
+        .where(
+            ProviderConnection.installation_id == workspace_id,
+            ProviderConnection.provider == league.provider,
+            ProviderConnection.is_active.is_(True),
+        )
+        .order_by(ProviderConnection.id)
+    )
+
+    if lock:
+        statement = statement.with_for_update()
+
+    connections = session.scalars(statement).all()
+
+    if len(connections) != 1:
+        raise SeasonImportUnavailableError("Exactly one active provider connection is required.")
+
+    return connections[0]

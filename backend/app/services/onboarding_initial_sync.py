@@ -10,8 +10,8 @@ Ownership boundaries:
 - The worker handler loads every input from persisted state, fetches the
   authoritative ESPN league snapshot outside any database transaction,
   creates or reuses the League and Season with the real provider values,
-  attaches the claim, and then runs the existing full-season importer
-  with its established transaction boundary.
+  attaches the claim, and then runs the shared full-season synchronization,
+  which prepares, fetches with no transaction, and persists separately.
 - The job-success or terminal-failure transaction advances onboarding
   (see ``onboarding_sync_outcome``).
 """
@@ -61,7 +61,12 @@ from app.services.provider_onboarding import (
     ProviderOnboardingError,
     authorize_onboarding_administrator,
 )
-from app.services.provider_sync import synchronize_provider
+from app.services.provider_sync import (
+    SyncJobAuthority,
+    SyncWorkspaceRequirement,
+    credential_marker,
+    synchronize_provider,
+)
 from app.services.season_lifecycle import classify_imported_season
 from app.services.synchronization_job_contract import (
     synchronization_payload_contains_prohibited_names,
@@ -315,6 +320,7 @@ class _SyncContext:
     season_year: int
     swid: str | None
     espn_s2: str | None
+    credential_marker: str
 
     def __repr__(self) -> str:
         return (
@@ -361,14 +367,17 @@ class InitialWorkspaceSyncHandler:
 
         season_id = self._persist_identity(job.workspace_id, context, snapshot)
 
-        # Existing full-season importer and its own transaction boundary.
-        with self.session_factory() as session:
-            synchronize_provider(
-                session=session,
-                season_id=season_id,
-                provider=provider,
-                full_sync=True,
-            )
+        # Shared full-season synchronization: short preparation transaction,
+        # provider fetch with no transaction, separate persistence transaction.
+        synchronize_provider(
+            session_factory=self.session_factory,
+            season_id=season_id,
+            provider=provider,
+            full_sync=True,
+            requirement=SyncWorkspaceRequirement.INITIAL_ONBOARDING,
+            job_authority=SyncJobAuthority(job_id=job.id, attempt_count=job.attempt_count),
+            expected_credential_marker=context.credential_marker,
+        )
 
         self._verify_and_classify(season_id, snapshot.season_year)
 
@@ -424,6 +433,7 @@ class InitialWorkspaceSyncHandler:
                 season_year=target.season_year,
                 swid=swid,
                 espn_s2=espn_s2,
+                credential_marker=credential_marker(connection),
             )
 
     def _decrypt(self, connection: ProviderConnection) -> tuple[str, str]:

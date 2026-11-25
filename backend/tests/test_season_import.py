@@ -1,35 +1,26 @@
+"""Season import service tests on committed data.
+
+Real persistence in ``fantasy_what_if_test`` through ``SessionFactory``;
+providers are synthetic and in-process. The critical import races and
+transaction boundaries live in ``test_provider_sync_transaction_boundaries.py``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-from cryptography.fernet import Fernet
+from sqlalchemy import event, func, select, update
 
-from app.db.models import League, Season
-from app.db.platform_enums import (
-    FantasyProvider,
-    FantasySport,
-    InstallationStatus,
-    SeasonStatus,
-    WorkspaceRegistrationStatus,
-)
-from app.db.platform_models import (
-    Installation,
-    ProviderConnection,
-)
-from app.providers.credential_keyring import (
-    ProviderCredentialKeyring,
-)
-from app.providers.credential_vault import (
-    ProviderCredentialVault,
-)
-from app.providers.domain import (
-    ProviderCapabilities,
-    ProviderCredentials,
-    ProviderLeague,
-    ProviderScheduleRules,
-    ProviderValidationResult,
-)
+from app.db.models import Season, SyncRun
+from app.db.platform_enums import FantasyProvider, SeasonStatus, WorkspaceRegistrationStatus
+from app.db.platform_models import Installation
+from app.db.session import SessionFactory
+from app.db.session import engine as default_engine
+from app.providers.credential_keyring import ProviderCredentialKeyring
+from app.providers.domain import ProviderCredentials
 from app.providers.registry import ProviderRegistry
 from app.services.season_import import (
     SEASON_IMPORT_LOCK_KEY,
@@ -38,452 +29,340 @@ from app.services.season_import import (
     SeasonImportValidationError,
     import_provider_season,
 )
-
-NOW = datetime(
-    2026,
-    11,
-    10,
-    tzinfo=UTC,
+from tests.support.provider_sync_fixtures import (
+    KEY,
+    SyncGraph,
+    SyntheticSeasonAdapter,
+    canonical_state,
+    forbid_live_network,
+    graph_factory,
 )
 
-
-def credential_keyring(
-    key: str,
-    *,
-    current_version: int = 1,
-    historical_keys: dict[int, str] | None = None,
-) -> ProviderCredentialKeyring:
-    keys = dict(historical_keys or {})
-    keys[current_version] = key
-
-    return ProviderCredentialKeyring(
-        keys=keys,
-        current_version=current_version,
-    )
+NOW = datetime(2026, 11, 10, tzinfo=UTC)
+KEYRING = ProviderCredentialKeyring(keys={1: KEY}, current_version=1)
 
 
-class FakeProvider:
-    provider = FantasyProvider.ESPN
+@pytest.fixture
+def make_graph() -> Iterator[Callable[[], SyncGraph]]:
+    with graph_factory() as create:
+        yield create
 
-    def __init__(
-        self,
-        credentials: ProviderCredentials,
-        *,
-        returned_year: int,
-    ) -> None:
-        self.credentials = dict(credentials.values)
-        self.returned_year = returned_year
 
-    def validate_configuration(
-        self,
-    ) -> ProviderValidationResult:
-        return ProviderValidationResult(
-            is_valid=True,
-            provider=self.provider,
-            safe_message="Configuration is valid.",
+@pytest.fixture(autouse=True)
+def no_live_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    forbid_live_network(monkeypatch)
+
+
+class Registry:
+    """ESPN registry that records created adapters and their credentials."""
+
+    def __init__(self, adapter_factory: Callable[[], SyntheticSeasonAdapter]) -> None:
+        self.adapter_factory = adapter_factory
+        self.credentials: list[dict[str, str]] = []
+        self.adapters: list[SyntheticSeasonAdapter] = []
+
+    def build(self) -> ProviderRegistry:
+        registry = ProviderRegistry()
+
+        def create(credentials: ProviderCredentials) -> SyntheticSeasonAdapter:
+            adapter = self.adapter_factory()
+            self.credentials.append(dict(credentials.values))
+            self.adapters.append(adapter)
+
+            return adapter
+
+        registry.register(FantasyProvider.ESPN, create)
+
+        return registry
+
+
+def registry_for_year(graph: SyncGraph, year: int) -> Registry:
+    return Registry(
+        lambda: SyntheticSeasonAdapter(
+            provider_league_id=graph.provider_league_id, dataset="imp", season_year=year
         )
-
-    def discover_leagues(self) -> tuple:
-        return ()
-
-    def fetch_league(
-        self,
-        *,
-        provider_league_id: str,
-        provider_season_id: str,
-    ) -> ProviderLeague:
-        assert provider_league_id == "529250970"
-        assert provider_season_id == str(self.returned_year)
-
-        return ProviderLeague(
-            provider_league_id="529250970",
-            provider_season_id=str(self.returned_year),
-            name="Jimmy and Friends",
-            sport=FantasySport.FOOTBALL,
-            season_year=self.returned_year,
-            current_week=18,
-            regular_season_weeks=14,
-            playoff_week_start=None,
-            playoff_week_end=None,
-            scoring_type="head_to_head_points",
-            logo_url=None,
-            teams=(),
-            lineup_slots=(),
-            scoring_rules=(),
-            schedule_rules=ProviderScheduleRules(
-                regular_season_weeks=14,
-                playoff_week_start=None,
-                playoff_week_end=None,
-                has_divisions=False,
-                has_median_game=False,
-                has_doubleheaders=False,
-                allows_ties=True,
-            ),
-            capabilities=ProviderCapabilities(
-                supports_head_to_head=True,
-                supports_weekly_matchups=True,
-                supports_lineup_history=True,
-                supports_optimal_lineups=False,
-                supports_schedule_swap=True,
-                supports_all_play=True,
-                supports_league_average=True,
-                supports_team_logos=False,
-            ),
-        )
-
-    def fetch_matchups(self, **_):
-        raise AssertionError("Synchronization is mocked.")
-
-    def fetch_weekly_rosters(self, **_):
-        raise AssertionError("Synchronization is mocked.")
-
-
-def registry(
-    *,
-    returned_year: int,
-    captured: dict,
-) -> ProviderRegistry:
-    result = ProviderRegistry()
-
-    def factory(
-        credentials: ProviderCredentials,
-    ) -> FakeProvider:
-        provider = FakeProvider(
-            credentials,
-            returned_year=returned_year,
-        )
-        captured.update(provider.credentials)
-        return provider
-
-    result.register(
-        FantasyProvider.ESPN,
-        factory,
     )
 
-    return result
+
+def seasons_of(graph: SyncGraph) -> dict[int, Season]:
+    with SessionFactory() as session:
+        seasons = session.scalars(select(Season).where(Season.league_id == graph.league_id)).all()
+        for season in seasons:
+            session.expunge(season)
+
+        return {season.year: season for season in seasons}
 
 
-def objects():
-    key = Fernet.generate_key().decode("ascii")
+def load_workspace(workspace_id: int) -> Installation:
+    with SessionFactory() as session:
+        workspace = session.get(Installation, workspace_id)
+        assert workspace is not None
+        session.expunge(workspace)
 
-    encrypted = ProviderCredentialVault(keys={1: key}).encrypt(
-        provider=FantasyProvider.ESPN,
-        credentials=ProviderCredentials(
-            values={
-                "league_id": "529250970",
-                "season": "2024",
-                "espn_s2": "private-cookie",
-                "swid": "{private-swid}",
-            }
-        ),
-        key_version=1,
+        return workspace
+
+
+def season_count(graph: SyncGraph) -> int:
+    return len(seasons_of(graph))
+
+
+def test_historical_import_is_completed_without_active_sync(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+    registry = registry_for_year(graph, 2025)
+
+    result = import_provider_season(
+        SessionFactory,
+        workspace_id=graph.workspace_id,
+        season_year=2025,
+        credential_keyring=KEYRING,
+        registry=registry.build(),
+        now=NOW,
     )
-
-    installation = Installation(
-        id=1,
-        application_name="Fantasy What-If",
-        status=InstallationStatus.ACTIVE,
-        active_league_id=10,
-        active_season_id=None,
-    )
-
-    league = League(
-        id=10,
-        installation_id=1,
-        provider=FantasyProvider.ESPN,
-        provider_league_id="529250970",
-        sport=FantasySport.FOOTBALL,
-        name="Jimmy and Friends",
-    )
-
-    connection = ProviderConnection(
-        id=15,
-        installation_id=1,
-        provider=FantasyProvider.ESPN,
-        display_name="ESPN Fantasy Football",
-        encrypted_credentials=encrypted,
-        credential_version=1,
-        credential_schema_version=1,
-        is_active=True,
-    )
-
-    return key, installation, league, connection
-
-
-def configured_session(
-    *,
-    installation: Installation,
-    league: League,
-    connection: ProviderConnection,
-    duplicate_season_id: int | None = None,
-    previous_active: list[Season] | None = None,
-) -> MagicMock:
-    session = MagicMock()
-
-    session.get.side_effect = lambda model, key, **_: (
-        installation if model is Installation and key == installation.id else None
-    )
-    session.scalars.side_effect = [
-        MagicMock(all=MagicMock(return_value=[league])),
-        MagicMock(all=MagicMock(return_value=[connection])),
-        MagicMock(all=MagicMock(return_value=(previous_active or []))),
-    ]
-
-    session.scalar.return_value = duplicate_season_id
-
-    def add(value) -> None:
-        if isinstance(value, Season):
-            value.id = 25
-
-    session.add.side_effect = add
-
-    return session
-
-
-def test_historical_import_is_completed_without_active_sync() -> None:
-    key, installation, league, connection = objects()
-    session = configured_session(
-        installation=installation,
-        league=league,
-        connection=connection,
-    )
-    captured = {}
-
-    with patch(
-        "app.services.season_import.synchronize_provider",
-        return_value=SimpleNamespace(
-            season_id=25,
-        ),
-    ):
-        result = import_provider_season(
-            session,
-            workspace_id=1,
-            season_year=2025,
-            credential_keyring=credential_keyring(key),
-            registry=registry(
-                returned_year=2025,
-                captured=captured,
-            ),
-            now=NOW,
-        )
 
     assert result.status is SeasonStatus.COMPLETED
     assert result.synchronization_enabled is False
-    assert installation.active_season_id is None
+    assert result.year == 2025
+    assert result.sync_result.teams_upserted == 4
 
-    added = [call.args[0] for call in session.add.call_args_list]
-    season = next(value for value in added if isinstance(value, Season))
+    workspace = load_workspace(graph.workspace_id)
+    assert workspace.active_season_id == graph.season_id
+    assert workspace.active_league_id == graph.league_id
 
-    assert season.status is SeasonStatus.COMPLETED
-    assert season.completed_at == NOW
-    assert season.activated_at is None
+    imported = seasons_of(graph)[2025]
+    assert imported.id == result.season_id
+    assert imported.status is SeasonStatus.COMPLETED
+    assert imported.completed_at == NOW
+    assert imported.activated_at is None
+    assert seasons_of(graph)[2026].status is SeasonStatus.ACTIVE
 
-    assert captured == {
-        "league_id": "529250970",
-        "season": "2025",
-        "espn_s2": "private-cookie",
-        "swid": "{private-swid}",
-    }
+    assert registry.credentials == [
+        {
+            "league_id": graph.provider_league_id,
+            "season": "2025",
+            "espn_s2": graph.espn_s2,
+            "swid": graph.swid,
+        }
+    ]
 
-    session.commit.assert_called_once()
+    with SessionFactory() as session:
+        runs = session.scalars(select(SyncRun).where(SyncRun.season_id == imported.id)).all()
+    assert len(runs) == 1 and runs[0].status.value == "succeeded"
 
 
-def test_current_import_becomes_active() -> None:
-    key, installation, league, connection = objects()
-    previous = Season(
-        id=20,
-        league_id=10,
-        provider_season_id="2025",
-        year=2025,
-        current_week=18,
-        regular_season_weeks=14,
-        status=SeasonStatus.ACTIVE,
+def test_current_import_becomes_active_and_completes_previous_active(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+
+    with SessionFactory() as session:
+        session.execute(update(Season).where(Season.id == graph.season_id).values(year=2025))
+        session.commit()
+
+    registry = registry_for_year(graph, 2026)
+
+    result = import_provider_season(
+        SessionFactory,
+        workspace_id=graph.workspace_id,
+        season_year=2026,
+        credential_keyring=KEYRING,
+        registry=registry.build(),
+        now=NOW,
     )
-    session = configured_session(
-        installation=installation,
-        league=league,
-        connection=connection,
-        previous_active=[previous],
-    )
-
-    with patch(
-        "app.services.season_import.synchronize_provider",
-        return_value=SimpleNamespace(
-            season_id=25,
-        ),
-    ):
-        result = import_provider_season(
-            session,
-            workspace_id=1,
-            season_year=2026,
-            credential_keyring=credential_keyring(key),
-            registry=registry(
-                returned_year=2026,
-                captured={},
-            ),
-            now=NOW,
-        )
 
     assert result.status is SeasonStatus.ACTIVE
     assert result.synchronization_enabled is True
-    assert installation.active_season_id == 25
-    assert previous.status is SeasonStatus.COMPLETED
-    assert previous.completed_at == NOW
+
+    workspace = load_workspace(graph.workspace_id)
+    assert workspace.active_season_id == result.season_id
+
+    seasons = seasons_of(graph)
+    assert seasons[2026].status is SeasonStatus.ACTIVE
+    assert seasons[2026].activated_at == NOW
+    assert seasons[2025].status is SeasonStatus.COMPLETED
+    assert seasons[2025].completed_at == NOW
 
 
-def test_duplicate_year_is_rejected_before_provider_creation() -> None:
-    key, installation, league, connection = objects()
-    session = configured_session(
-        installation=installation,
-        league=league,
-        connection=connection,
-        duplicate_season_id=20,
-    )
+def test_duplicate_year_is_rejected_before_provider_creation(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+    registry = registry_for_year(graph, 2026)
+    before = canonical_state(graph)
 
-    with pytest.raises(
-        SeasonImportConflictError,
-        match="already imported",
-    ):
+    with pytest.raises(SeasonImportConflictError, match="already imported"):
         import_provider_season(
-            session,
-            workspace_id=1,
-            season_year=2025,
-            credential_keyring=credential_keyring(key),
-            registry=registry(
-                returned_year=2025,
-                captured={},
-            ),
+            SessionFactory,
+            workspace_id=graph.workspace_id,
+            season_year=2026,
+            credential_keyring=KEYRING,
+            registry=registry.build(),
             now=NOW,
         )
 
-    session.add.assert_not_called()
-    session.commit.assert_not_called()
+    assert registry.adapters == []
+    assert season_count(graph) == 1
+    assert canonical_state(graph) == before
 
 
 def test_future_year_is_rejected_before_database_access() -> None:
-    session = MagicMock()
+    session_factory = MagicMock()
 
     with pytest.raises(
         SeasonImportValidationError,
-        match=("Season 2027 cannot be imported before the 2027 calendar year"),
+        match="Season 2027 cannot be imported before the 2027 calendar year",
     ):
         import_provider_season(
-            session,
+            session_factory,
             workspace_id=1,
             season_year=2027,
-            credential_keyring=credential_keyring(Fernet.generate_key().decode("ascii")),
+            credential_keyring=KEYRING,
             now=NOW,
         )
 
-    session.execute.assert_not_called()
-    session.add.assert_not_called()
-    session.commit.assert_not_called()
+    session_factory.assert_not_called()
 
 
-def test_provider_returning_different_year_is_rejected() -> None:
-    key, installation, league, connection = objects()
-    session = configured_session(
-        installation=installation,
-        league=league,
-        connection=connection,
+def test_provider_returning_different_year_is_rejected_and_nothing_persists(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+    before = canonical_state(graph)
+
+    class WrongYearAdapter(SyntheticSeasonAdapter):
+        def fetch_league(self, *, provider_league_id, provider_season_id):
+            return SyntheticSeasonAdapter(
+                provider_league_id=self.provider_league_id, dataset="imp", season_year=2024
+            ).fetch_league(provider_league_id=provider_league_id, provider_season_id="2024")
+
+    registry = Registry(
+        lambda: WrongYearAdapter(
+            provider_league_id=graph.provider_league_id, dataset="imp", season_year=2025
+        )
     )
 
-    with pytest.raises(
-        AssertionError,
-    ):
+    with pytest.raises(SeasonImportValidationError, match="different season"):
         import_provider_season(
-            session,
-            workspace_id=1,
+            SessionFactory,
+            workspace_id=graph.workspace_id,
             season_year=2025,
-            credential_keyring=credential_keyring(key),
-            registry=registry(
-                returned_year=2024,
-                captured={},
-            ),
+            credential_keyring=KEYRING,
+            registry=registry.build(),
             now=NOW,
         )
 
-    session.commit.assert_not_called()
+    assert set(seasons_of(graph)) == {2026}
+    assert canonical_state(graph) == before
 
 
-def test_import_uses_transaction_advisory_lock() -> None:
-    key, installation, league, connection = objects()
-    session = configured_session(
-        installation=installation,
-        league=league,
-        connection=connection,
+def test_import_lock_is_taken_only_in_persistence_transaction(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+    events: list[str] = []
+    lock_parameters: list[object] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany) -> None:
+        if "pg_advisory_xact_lock" in statement:
+            events.append("import_lock")
+            lock_parameters.append(parameters)
+
+    registry = Registry(
+        lambda: SyntheticSeasonAdapter(
+            provider_league_id=graph.provider_league_id,
+            dataset="imp",
+            season_year=2025,
+            before_call=lambda name: events.append(f"provider:{name}"),
+        )
     )
 
-    with patch(
-        "app.services.season_import.synchronize_provider",
-        return_value=SimpleNamespace(
-            season_id=25,
-        ),
-    ):
+    event.listen(default_engine, "before_cursor_execute", record)
+
+    try:
         import_provider_season(
-            session,
-            workspace_id=1,
+            SessionFactory,
+            workspace_id=graph.workspace_id,
             season_year=2025,
-            credential_keyring=credential_keyring(key),
-            registry=registry(
-                returned_year=2025,
-                captured={},
-            ),
+            credential_keyring=KEYRING,
+            registry=registry.build(),
             now=NOW,
         )
+    finally:
+        event.remove(default_engine, "before_cursor_execute", record)
 
-    statement = str(session.execute.call_args_list[0].args[0])
+    assert events.count("import_lock") == 1
+    provider_events = [index for index, name in enumerate(events) if name.startswith("provider:")]
+    assert provider_events
+    assert events.index("import_lock") > max(provider_events)
+    assert lock_parameters == [
+        {"lock_key": SEASON_IMPORT_LOCK_KEY, "workspace_id": graph.workspace_id}
+    ]
 
-    assert "pg_advisory_xact_lock" in statement
-    assert session.execute.call_args_list[0].args[1] == {
-        "lock_key": SEASON_IMPORT_LOCK_KEY,
-        "workspace_id": 1,
-    }
-    session.get.assert_any_call(Installation, 1, with_for_update=True)
 
+def test_import_never_reads_another_workspace(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+    other = make_graph()
+    other_before = canonical_state(other)
+    other_seasons = {year: season.id for year, season in seasons_of(other).items()}
 
-def test_import_never_reads_another_workspace() -> None:
-    key, installation, league, connection = objects()
-    session = configured_session(
-        installation=installation,
-        league=league,
-        connection=connection,
-    )
+    with SessionFactory() as session:
+        missing_id = int(session.scalar(select(func.max(Installation.id))) or 0) + 1000
+
+    registry = registry_for_year(graph, 2025)
 
     with pytest.raises(SeasonImportUnavailableError, match="active workspace"):
         import_provider_season(
-            session,
-            workspace_id=2,
+            SessionFactory,
+            workspace_id=missing_id,
             season_year=2025,
-            credential_keyring=credential_keyring(key),
-            registry=registry(returned_year=2025, captured={}),
+            credential_keyring=KEYRING,
+            registry=registry.build(),
             now=NOW,
         )
 
-    session.get.assert_called_once_with(Installation, 2, with_for_update=True)
-    session.scalars.assert_not_called()
-    session.add.assert_not_called()
-    session.commit.assert_not_called()
+    assert registry.adapters == []
 
-
-def test_provisional_workspace_cannot_import() -> None:
-    key, installation, league, connection = objects()
-    installation.registration_status = WorkspaceRegistrationStatus.PROVISIONAL
-    session = configured_session(
-        installation=installation,
-        league=league,
-        connection=connection,
+    import_provider_season(
+        SessionFactory,
+        workspace_id=graph.workspace_id,
+        season_year=2025,
+        credential_keyring=KEYRING,
+        registry=registry.build(),
+        now=NOW,
     )
+
+    assert {year: season.id for year, season in seasons_of(other).items()} == other_seasons
+    assert canonical_state(other) == other_before
+    assert registry.credentials[0]["league_id"] == graph.provider_league_id
+
+
+def test_provisional_workspace_cannot_import(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+
+    with SessionFactory() as session:
+        session.execute(
+            update(Installation)
+            .where(Installation.id == graph.workspace_id)
+            .values(registration_status=WorkspaceRegistrationStatus.PROVISIONAL)
+        )
+        session.commit()
+
+    registry = registry_for_year(graph, 2025)
 
     with pytest.raises(SeasonImportUnavailableError, match="active workspace"):
         import_provider_season(
-            session,
-            workspace_id=1,
+            SessionFactory,
+            workspace_id=graph.workspace_id,
             season_year=2025,
-            credential_keyring=credential_keyring(key),
-            registry=registry(returned_year=2025, captured={}),
+            credential_keyring=KEYRING,
+            registry=registry.build(),
             now=NOW,
         )
 
-    session.add.assert_not_called()
-    session.commit.assert_not_called()
+    assert registry.adapters == []
+    assert set(seasons_of(graph)) == {2026}

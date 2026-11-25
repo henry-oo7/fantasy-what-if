@@ -70,6 +70,8 @@ Move provider fetches out of open database transactions in the existing synchron
 
 Exit: tests prove no provider call occurs inside an open transaction and existing behavior is preserved.
 
+Status: implemented on this branch without a migration for scheduled, manual, initial, and season-import synchronization, provider credential replacement, and the `verify_provider` operator script. Until Branch 4 adds data-version comparison, the SyncRun id allocated during preparation acts as the stale-write marker.
+
 ### Branch 2: `feature/canonical-league-access-schema`
 
 Additive migration: user-owned provider connection reference, `user_league_season_access` (unique on user and season), canonical uniqueness on provider and normalized league ID, `orphaned_at`, season sync lifecycle fields, and `user_preferences`. Migration rehearsal per the validation standard.

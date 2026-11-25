@@ -12,7 +12,7 @@ from app.db.platform_models import Installation
 from app.notifications.recipient_encryption import TransactionalEmailRecipientCipher
 from app.providers.registry import ProviderRegistry
 from app.services.active_provider_sync import (
-    synchronize_active_season,
+    prepare_active_season_sync,
 )
 from app.services.background_job_worker import (
     BackgroundJobExecutionError,
@@ -20,6 +20,7 @@ from app.services.background_job_worker import (
     BackgroundJobSnapshot,
 )
 from app.services.onboarding_initial_sync import InitialWorkspaceSyncHandler
+from app.services.provider_sync import SyncJobAuthority, execute_provider_sync
 from app.services.synchronization_job_contract import (
     SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
     synchronization_payload_contains_prohibited_names,
@@ -53,6 +54,8 @@ class SynchronizationBackgroundJobHandler:
             expected_full_sync=self.full_sync,
         )
 
+        # Phase 1: one short preparation transaction, committed and closed
+        # before any provider network call.
         with self.session_factory() as session:
             validate_sync_job_ownership(
                 session,
@@ -60,13 +63,25 @@ class SynchronizationBackgroundJobHandler:
                 season_id=season_id,
             )
 
-            synchronize_active_season(
+            plan, provider = prepare_active_season_sync(
                 session=session,
                 workspace_id=job.workspace_id,
                 settings=self.settings,
                 full_sync=self.full_sync,
                 registry=self.registry,
+                job_authority=SyncJobAuthority(
+                    job_id=job.id,
+                    attempt_count=job.attempt_count,
+                ),
             )
+            session.commit()
+
+        # Phases 2 and 3: fetch with no session, then persist under rechecks.
+        execute_provider_sync(
+            session_factory=self.session_factory,
+            plan=plan,
+            provider=provider,
+        )
 
 
 def build_background_job_handlers(

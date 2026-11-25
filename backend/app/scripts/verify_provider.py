@@ -37,6 +37,9 @@ def main() -> None:
     print("Provider credentials intentionally hidden.")
 
     try:
+        # Short read-only session: resolve the adapter (credentials stay in
+        # process memory) and detach the target values, then close it so
+        # the provider is called with no transaction or pooled connection.
         with SessionFactory() as session:
             context, provider = resolve_active_provider_adapter(
                 session=session,
@@ -52,25 +55,28 @@ def main() -> None:
             if season is None:
                 raise ProviderAdapterResolutionError("The active season does not exist.")
 
-            league = season.league
+            provider_league_id = season.league.provider_league_id
+            provider_season_id = season.provider_season_id
 
-            if league.provider_league_id is None:
+            if provider_league_id is None:
                 raise ProviderAdapterResolutionError(
                     "The active league does not have a provider league identifier."
                 )
 
-            validation = provider.validate_configuration()
+            session.rollback()
 
-            if not validation.is_valid:
-                print()
-                print("=== VALIDATION FAILED ===")
-                print(validation.safe_message)
-                raise SystemExit(1)
+        validation = provider.validate_configuration()
 
-            provider_league = provider.fetch_league(
-                provider_league_id=(league.provider_league_id),
-                provider_season_id=(season.provider_season_id),
-            )
+        if not validation.is_valid:
+            print()
+            print("=== VALIDATION FAILED ===")
+            print(validation.safe_message)
+            raise SystemExit(1)
+
+        provider_league = provider.fetch_league(
+            provider_league_id=provider_league_id,
+            provider_season_id=provider_season_id,
+        )
 
     except (
         ProviderAdapterResolutionError,

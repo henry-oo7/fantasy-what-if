@@ -1,5 +1,7 @@
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 
+import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
@@ -12,13 +14,17 @@ from app.api.auth_dependencies import (
 )
 from app.db import model_registry  # noqa: F401
 from app.db.auth_models import User, UserRole
+from app.db.models import SyncRun, SyncStatus
 from app.db.platform_enums import (
     BackgroundJobStatus,
+    FantasyProvider,
 )
+from app.db.session import SessionFactory
 from app.main import app
 from app.services.admin_synchronization_jobs import (
     AdministratorSynchronizationJob,
 )
+from tests.support.provider_sync_fixtures import SyncGraph, graph_factory
 
 client = TestClient(app)
 
@@ -102,6 +108,116 @@ def test_admin_can_read_sync_status() -> None:
     assert payload["provider_season_id"] == "2026"
     assert payload["latest_run"] is not None
     assert payload["latest_run"]["status"] == "succeeded"
+
+
+SYNC_RUN_RESPONSE_FIELDS = {
+    "id",
+    "status",
+    "is_full_sync",
+    "started_at",
+    "completed_at",
+    "requested_from_week",
+    "requested_through_week",
+    "teams_upserted",
+    "matchups_upserted",
+    "player_week_scores_upserted",
+    "safe_error_message",
+}
+
+
+@pytest.fixture
+def make_graph() -> Iterator[Callable[[], SyncGraph]]:
+    with graph_factory() as create:
+        yield create
+
+
+def read_sync_status_for(graph: SyncGraph) -> dict:
+    def override() -> User:
+        user = create_user(role=UserRole.ADMIN)
+        user.workspace_id = graph.workspace_id
+
+        return user
+
+    app.dependency_overrides[get_current_user] = override
+
+    try:
+        response = client.get("/api/admin/sync-status")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert response.status_code == status.HTTP_200_OK
+
+    return response.json()
+
+
+def add_latest_run(graph: SyncGraph, **values: object) -> int:
+    with SessionFactory() as session:
+        run = SyncRun(
+            season_id=graph.season_id,
+            provider_connection_id=graph.connection_id,
+            provider=FantasyProvider.ESPN,
+            is_full_sync=False,
+            teams_upserted=0,
+            matchups_upserted=0,
+            player_week_scores_upserted=0,
+            analytics_rebuilt=False,
+            **values,
+        )
+        session.add(run)
+        session.commit()
+
+        return run.id
+
+
+def test_sync_status_reports_failed_latest_run_with_safe_message(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+    message = "The provider returned invalid synchronization data."
+    run_id = add_latest_run(
+        graph,
+        status=SyncStatus.FAILED,
+        completed_at=datetime.now(UTC),
+        safe_error_message=message,
+    )
+
+    payload = read_sync_status_for(graph)
+
+    assert payload["provider"] == "espn"
+    assert payload["season_id"] == graph.season_id
+    assert payload["provider_league_id"] == graph.provider_league_id
+    assert payload["provider_season_id"] == "2026"
+
+    latest = payload["latest_run"]
+    assert set(latest) == SYNC_RUN_RESPONSE_FIELDS
+    assert latest["id"] == run_id
+    assert latest["status"] == "failed"
+    assert latest["safe_error_message"] == message
+    assert latest["completed_at"] is not None
+    assert latest["is_full_sync"] is False
+    assert latest["teams_upserted"] == 0
+    assert latest["matchups_upserted"] == 0
+    assert latest["player_week_scores_upserted"] == 0
+
+
+def test_sync_status_reports_running_latest_run(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+    run_id = add_latest_run(graph, status=SyncStatus.RUNNING)
+
+    payload = read_sync_status_for(graph)
+
+    latest = payload["latest_run"]
+    assert set(latest) == SYNC_RUN_RESPONSE_FIELDS
+    assert latest["id"] == run_id
+    assert latest["status"] == "running"
+    assert latest["completed_at"] is None
+    assert latest["safe_error_message"] is None
+    assert latest["started_at"] is not None
+    assert latest["teams_upserted"] == 0
+    assert latest["matchups_upserted"] == 0
+    assert latest["player_week_scores_upserted"] == 0
 
 
 def test_admin_can_enqueue_incremental_sync() -> None:

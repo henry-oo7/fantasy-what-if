@@ -1,8 +1,7 @@
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
-from sqlalchemy.orm import Session
 
 from app.db.platform_enums import FantasyProvider
 from app.services.active_provider_sync import (
@@ -13,6 +12,13 @@ from app.services.provider_adapter_resolver import (
     ProviderAdapterResolutionError,
 )
 from app.services.provider_sync import ProviderSyncResult
+
+
+def make_session_factory(session: MagicMock) -> MagicMock:
+    context = MagicMock()
+    context.__enter__.return_value = session
+
+    return MagicMock(return_value=context)
 
 
 def test_active_sync_returns_provider_result(
@@ -45,7 +51,8 @@ def test_active_sync_returns_provider_result(
     fake_provider = SimpleNamespace(
         provider=FantasyProvider.ESPN,
     )
-    session = Mock(spec=Session)
+    session = MagicMock()
+    session_factory = make_session_factory(session)
     settings = SimpleNamespace()
 
     resolver = Mock(
@@ -54,7 +61,9 @@ def test_active_sync_returns_provider_result(
             fake_provider,
         )
     )
-    canonical_sync = Mock(return_value=canonical_result)
+    plan = object()
+    prepare = Mock(return_value=plan)
+    execute = Mock(return_value=canonical_result)
     reconcile = Mock()
 
     monkeypatch.setattr(
@@ -66,14 +75,18 @@ def test_active_sync_returns_provider_result(
         resolver,
     )
     monkeypatch.setattr(
-        ("app.services.active_provider_sync.synchronize_provider"),
-        canonical_sync,
+        ("app.services.active_provider_sync.prepare_provider_sync"),
+        prepare,
+    )
+    monkeypatch.setattr(
+        ("app.services.active_provider_sync.execute_provider_sync"),
+        execute,
     )
 
     registry = object()
 
     result = synchronize_active_season(
-        session=session,
+        session_factory=session_factory,
         workspace_id=1,
         settings=settings,
         full_sync=False,
@@ -108,21 +121,33 @@ def test_active_sync_returns_provider_result(
         registry=registry,
     )
 
-    canonical_sync.assert_called_once_with(
-        session=session,
-        season_id=1,
+    prepare.assert_called_once()
+    assert prepare.call_args.args == (session,)
+    assert prepare.call_args.kwargs["season_id"] == 1
+    assert prepare.call_args.kwargs["provider"] is fake_provider
+    assert prepare.call_args.kwargs["full_sync"] is False
+    assert prepare.call_args.kwargs["job_authority"] is None
+
+    session.commit.assert_called_once_with()
+    execute.assert_called_once_with(
+        session_factory=session_factory,
+        plan=plan,
         provider=fake_provider,
-        full_sync=False,
     )
 
 
 def test_active_sync_propagates_resolution_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = Mock(spec=Session)
+    session = MagicMock()
+    session_factory = make_session_factory(session)
     settings = SimpleNamespace()
 
     reconcile = Mock()
+    prepare = Mock()
+    execute = Mock()
+    monkeypatch.setattr("app.services.active_provider_sync.prepare_provider_sync", prepare)
+    monkeypatch.setattr("app.services.active_provider_sync.execute_provider_sync", execute)
 
     monkeypatch.setattr(
         ("app.services.active_provider_sync.reconcile_stale_active_season"),
@@ -144,7 +169,7 @@ def test_active_sync_propagates_resolution_failure(
         match="not implemented",
     ):
         synchronize_active_season(
-            session=session,
+            session_factory=session_factory,
             workspace_id=1,
             settings=settings,
             full_sync=False,
@@ -155,3 +180,6 @@ def test_active_sync_propagates_resolution_failure(
         session,
         workspace_id=1,
     )
+    prepare.assert_not_called()
+    execute.assert_not_called()
+    session.commit.assert_not_called()
