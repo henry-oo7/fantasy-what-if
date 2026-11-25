@@ -18,6 +18,7 @@ from app.providers.credential_vault import (
     ProviderCredentialConfigurationError,
 )
 from app.services.provider_credential_replacement import (
+    CHANGED_DURING_VALIDATION_MESSAGE,
     ProviderCredentialReplacementResult,
     ProviderCredentialReplacementUnavailableError,
     ProviderCredentialReplacementValidationError,
@@ -211,6 +212,29 @@ def test_unavailable_context_returns_conflict() -> None:
 
     assert response.status_code == status.HTTP_409_CONFLICT
     assert response.json() == {"detail": "The workspace provider claim is unavailable."}
+
+
+def test_change_during_validation_returns_conflict_without_credentials() -> None:
+    def changed(**_):
+        raise ProviderCredentialReplacementUnavailableError(CHANGED_DURING_VALIDATION_MESSAGE)
+
+    apply_overrides(changed)
+
+    try:
+        response = client.patch(
+            "/api/admin/provider-credentials",
+            headers={
+                "Origin": "http://localhost:5173",
+            },
+            json=request_payload(),
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json() == {"detail": CHANGED_DURING_VALIDATION_MESSAGE}
+    assert "replacement-cookie" not in response.text
+    assert "replacement-swid" not in response.text
 
 
 def test_missing_encryption_configuration_is_safe() -> None:

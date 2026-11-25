@@ -231,47 +231,140 @@ def test_inactive_season_is_rejected() -> None:
         )
 
 
+class RecordingSession:
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+        self.closed = False
+
+    def commit(self) -> None:
+        self.events.append("commit")
+
+    def close(self) -> None:
+        self.closed = True
+        self.events.append("close")
+
+    def __enter__(self) -> RecordingSession:
+        self.events.append("open")
+
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+
 def test_handler_validates_before_synchronizing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    database_session = MagicMock()
-    session_context = MagicMock()
-    session_context.__enter__.return_value = database_session
-    session_factory = MagicMock(return_value=session_context)
-    settings = SimpleNamespace()
-    ownership_validator = MagicMock()
-    synchronize = MagicMock()
+    events: list[str] = []
+    session_factory = MagicMock(side_effect=lambda: RecordingSession(events))
+    ownership_validator = MagicMock(
+        side_effect=BackgroundJobExecutionError(
+            safe_error_code="inactive_season_job",
+            safe_error_message="The background job season is not the workspace's active season.",
+        )
+    )
+    prepare = MagicMock()
+    execute = MagicMock()
 
     monkeypatch.setattr(
-        ("app.services.background_job_handlers.validate_sync_job_ownership"),
+        "app.services.background_job_handlers.validate_sync_job_ownership",
         ownership_validator,
     )
     monkeypatch.setattr(
-        ("app.services.background_job_handlers.synchronize_active_season"),
-        synchronize,
+        "app.services.background_job_handlers.prepare_active_season_sync",
+        prepare,
+    )
+    monkeypatch.setattr(
+        "app.services.background_job_handlers.execute_provider_sync",
+        execute,
     )
 
-    registry = MagicMock()
+    handler = SynchronizationBackgroundJobHandler(
+        session_factory=session_factory,
+        settings=SimpleNamespace(),
+        full_sync=False,
+        registry=MagicMock(),
+    )
 
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        handler(snapshot())
+
+    assert raised.value.safe_error_code == "inactive_season_job"
+    prepare.assert_not_called()
+    execute.assert_not_called()
+    assert "commit" not in events
+
+
+def test_handler_executes_after_preparation_session_is_committed_and_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    sessions: list[RecordingSession] = []
+
+    def make_session() -> RecordingSession:
+        session = RecordingSession(events)
+        sessions.append(session)
+
+        return session
+
+    session_factory = MagicMock(side_effect=make_session)
+    settings = SimpleNamespace()
+    registry = MagicMock()
+    plan = object()
+    provider = object()
+    ownership_validator = MagicMock()
+
+    def prepare(**kwargs: object) -> tuple[object, object]:
+        events.append("prepare")
+        assert kwargs["session"] is sessions[0]
+
+        return plan, provider
+
+    prepare_mock = MagicMock(side_effect=prepare)
+
+    def execute(**kwargs: object) -> None:
+        events.append("execute")
+        assert sessions[0].closed is True
+
+    execute_mock = MagicMock(side_effect=execute)
+
+    monkeypatch.setattr(
+        "app.services.background_job_handlers.validate_sync_job_ownership",
+        ownership_validator,
+    )
+    monkeypatch.setattr(
+        "app.services.background_job_handlers.prepare_active_season_sync",
+        prepare_mock,
+    )
+    monkeypatch.setattr(
+        "app.services.background_job_handlers.execute_provider_sync",
+        execute_mock,
+    )
+
+    job = snapshot()
     handler = SynchronizationBackgroundJobHandler(
         session_factory=session_factory,
         settings=settings,
         full_sync=False,
         registry=registry,
     )
-    handler(snapshot())
+    handler(job)
 
-    ownership_validator.assert_called_once_with(
-        database_session,
-        workspace_id=7,
-        season_id=31,
-    )
-    synchronize.assert_called_once_with(
-        session=database_session,
-        workspace_id=7,
-        settings=settings,
-        full_sync=False,
-        registry=registry,
+    assert events == ["open", "prepare", "commit", "close", "execute"]
+    ownership_validator.assert_called_once_with(sessions[0], workspace_id=7, season_id=31)
+
+    prepare_kwargs = prepare_mock.call_args.kwargs
+    assert prepare_kwargs["workspace_id"] == 7
+    assert prepare_kwargs["settings"] is settings
+    assert prepare_kwargs["full_sync"] is False
+    assert prepare_kwargs["registry"] is registry
+    authority = prepare_kwargs["job_authority"]
+    assert (authority.job_id, authority.attempt_count) == (job.id, job.attempt_count)
+
+    execute_mock.assert_called_once_with(
+        session_factory=session_factory,
+        plan=plan,
+        provider=provider,
     )
 
 

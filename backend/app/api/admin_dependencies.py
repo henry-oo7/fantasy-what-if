@@ -75,13 +75,13 @@ def import_season(
             "Provider credential encryption is not configured."
         )
 
-    with SessionFactory() as session:
-        return import_provider_season(
-            session,
-            workspace_id=workspace_id,
-            season_year=season_year,
-            credential_keyring=keyring,
-        )
+    # The importer opens its own short transactions around provider I/O.
+    return import_provider_season(
+        SessionFactory,
+        workspace_id=workspace_id,
+        season_year=season_year,
+        credential_keyring=keyring,
+    )
 
 
 def get_season_importer() -> SeasonImporter:
@@ -156,15 +156,13 @@ def replace_workspace_provider_credentials(
             "Provider credential encryption is not configured."
         )
 
-    with SessionFactory() as session:
-        result = replace_provider_credentials(
-            session,
-            workspace_id=workspace_id,
-            submitted_credentials=credentials,
-            credential_keyring=keyring,
-        )
-        session.commit()
-        return result
+    # The replacer opens its own short transactions around provider I/O.
+    return replace_provider_credentials(
+        SessionFactory,
+        workspace_id=workspace_id,
+        submitted_credentials=credentials,
+        credential_keyring=keyring,
+    )
 
 
 def get_provider_credential_replacer() -> ProviderCredentialReplacer:

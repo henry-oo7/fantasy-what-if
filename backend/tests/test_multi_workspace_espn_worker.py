@@ -520,7 +520,11 @@ def test_provider_authentication_failure_is_isolated(
 
         assert first_run is not None
         assert first_run.status is (SyncStatus.SUCCEEDED)
-        assert second_run is None
+        # The provider failure is recorded safely; no data was written.
+        assert second_run is not None
+        assert second_run.status is SyncStatus.FAILED
+        assert second_run.safe_error_message == ("The fantasy provider credentials were rejected.")
+        assert second_run.teams_upserted == 0
 
         assert (
             BackgroundJobRepository(session).get_for_workspace(

@@ -24,7 +24,7 @@ from app.api.auth_dependencies import get_current_user
 from app.auth.cookies import csrf_cookie_name
 from app.core.settings import get_settings
 from app.db.auth_models import User, UserRole
-from app.db.models import League, Matchup, Season, Team
+from app.db.models import League, Matchup, Season, SyncRun, SyncStatus, Team
 from app.db.platform_enums import (
     BackgroundJobStatus,
     BackgroundJobType,
@@ -63,6 +63,7 @@ from app.providers.errors import (
 from app.providers.registry import ProviderRegistry
 from app.repositories.auth_repository import AuthenticationRepository
 from app.repositories.background_job_repository import BackgroundJobRepository
+from app.repositories.provider_sync_repository import ProviderSyncRepository
 from app.repositories.session_repository import SessionRepository
 from app.services.background_job_lease_recovery import recover_expired_background_jobs_committed
 from app.services.background_job_worker import execute_one_background_job
@@ -96,6 +97,7 @@ class FakeEspn:
     returned_league_id: str | None = None
     built_with: list[dict[str, str]] = field(default_factory=list)
     open_connections_at_first_fetch: list[int] = field(default_factory=list)
+    open_connections_at_every_call: list[int] = field(default_factory=list)
 
     def registry(self) -> ProviderRegistry:
         registry = ProviderRegistry()
@@ -128,6 +130,8 @@ class FakeAdapter:
     def fetch_league(self, *, provider_league_id: str, provider_season_id: str) -> ProviderLeague:
         if self.fetches == 0:
             self.fake.open_connections_at_first_fetch.append(engine.pool.checkedout())
+
+        self.fake.open_connections_at_every_call.append(engine.pool.checkedout())
 
         self.fetches += 1
 
@@ -177,6 +181,8 @@ class FakeAdapter:
     def fetch_matchups(
         self, *, provider_league_id: str, provider_season_id: str, weeks: tuple[int, ...]
     ) -> tuple[ProviderMatchup, ...]:
+        self.fake.open_connections_at_every_call.append(engine.pool.checkedout())
+
         if self.fake.fail_matchups is not None:
             raise self.fake.fail_matchups
 
@@ -760,6 +766,46 @@ def test_public_worker_creates_real_identity_and_advances(
     body = progress(seeded.administrator).json()
     assert body["onboarding_stage"] == "spectator_setup_pending"
     assert body["job"]["status"] == "succeeded"
+
+
+def test_persistence_failure_does_not_advance_onboarding(
+    seed: Callable[..., Seeded], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Onboarding advances only after the persistence transaction commits."""
+
+    seeded = seed()
+    fake = FakeEspn()
+    start(seeded.administrator)
+
+    def fail_matchup_persistence(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("synthetic persistence failure")
+
+    monkeypatch.setattr(ProviderSyncRepository, "replace_matchups", fail_matchup_persistence)
+
+    result = run_worker(fake, seeded.workspace_id)
+
+    assert result.failed is True
+    assert stage_of(seeded.workspace_id) is OnboardingStage.INITIAL_SYNC_FAILED
+    # Every provider call (snapshot and full synchronization) ran with no
+    # pooled database connection checked out.
+    assert fake.open_connections_at_every_call
+    assert set(fake.open_connections_at_every_call) == {0}
+
+    _, seasons, _ = identity(seeded.workspace_id)
+    [season] = seasons
+    # The rolled-back persistence transaction left no teams or matchups.
+    assert count_for_season(Team, season.id) == 0
+    assert count_for_season(Matchup, season.id) == 0
+
+    with SessionFactory() as session:
+        runs = list(session.scalars(select(SyncRun).where(SyncRun.season_id == season.id)))
+        assert [run.status for run in runs] == [SyncStatus.FAILED]
+        assert runs[0].safe_error_message == "Provider synchronization failed."
+
+    body = progress(seeded.administrator).json()
+    assert body["onboarding_stage"] == "initial_sync_failed"
+    assert body["job"]["retryable"] is True
+    assert_safe(str(body))
 
 
 def test_private_worker_decrypts_only_in_the_worker(
