@@ -229,6 +229,10 @@ class ProviderConnection(TimestampMixin, Base):
             "provider_season_year IS NULL OR provider_season_year BETWEEN 2000 AND 2100",
             name="ck_provider_connections_season_year_range",
         ),
+        CheckConstraint(
+            "installation_id IS NOT NULL OR user_id IS NOT NULL",
+            name="ck_provider_connections_owner_boundary",
+        ),
         # One current connection per workspace, regardless of provider.
         Index(
             "uq_provider_connections_active_installation",
@@ -243,12 +247,24 @@ class ProviderConnection(TimestampMixin, Base):
         primary_key=True,
     )
 
-    installation_id: Mapped[int] = mapped_column(
+    # Legacy workspace owner; NULL for user-owned connections.
+    installation_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "installations.id",
             ondelete="CASCADE",
         ),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+
+    # Personal owner; NULL for legacy workspace connections.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "users.id",
+            name="fk_provider_connections_user_id_users",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
         index=True,
     )
 
@@ -323,7 +339,7 @@ class ProviderConnection(TimestampMixin, Base):
         nullable=True,
     )
 
-    installation: Mapped[Installation] = relationship(
+    installation: Mapped[Installation | None] = relationship(
         back_populates="provider_connections",
     )
 

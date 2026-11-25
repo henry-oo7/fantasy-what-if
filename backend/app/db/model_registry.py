@@ -5,11 +5,13 @@ should import this module before reading ``Base.metadata``.
 """
 
 from app.db import auth_models as auth_models
+from app.db import league_access_models as league_access_models
 from app.db import models as models
 from app.db import platform_models as platform_models
 
 __all__ = [
     "auth_models",
+    "league_access_models",
     "models",
     "platform_models",
 ]

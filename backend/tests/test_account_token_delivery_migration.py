@@ -18,6 +18,7 @@ from app.db.session import engine
 
 REVISION = "a3c9e5f1b7d2"
 PREVIOUS_REVISION = "d7f2b9a4c6e1"
+HEAD_REVISION = "f1b6d2c8a9e4"  # canonical League access schema; later than REVISION
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ID = 990_301
 USER_ID = 990_301
@@ -107,6 +108,8 @@ def at_head() -> Iterator[None]:
 
     upgrade = alembic("upgrade", "head")
     assert upgrade.returncode == 0, upgrade.stderr
+    stepped_back = alembic("downgrade", REVISION)
+    assert stepped_back.returncode == 0, stepped_back.stderr
     assert current_revisions() == [REVISION]
 
     cleanup()
@@ -207,7 +210,7 @@ def test_safe_downgrade_preserves_legacy_tokens_and_round_trips(at_head: None) -
 
     upgrade = alembic("upgrade", "head")
     assert upgrade.returncode == 0, upgrade.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
 
     for table in TABLES:
         assert (
@@ -225,4 +228,4 @@ def test_safe_downgrade_preserves_legacy_tokens_and_round_trips(at_head: None) -
     heads = alembic("heads")
     head_lines = [line for line in heads.stdout.splitlines() if "(head)" in line]
     assert len(head_lines) == 1
-    assert head_lines[0].startswith(REVISION)
+    assert head_lines[0].startswith(HEAD_REVISION)

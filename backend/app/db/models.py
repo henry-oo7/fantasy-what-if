@@ -28,6 +28,7 @@ from app.db.platform_enums import (
     FantasyProvider,
     FantasySport,
     SeasonStatus,
+    SeasonSyncState,
 )
 
 if TYPE_CHECKING:
@@ -45,6 +46,22 @@ class SyncStatus(StrEnum):
 
 class League(TimestampMixin, Base):
     __tablename__ = "leagues"
+    __table_args__ = (
+        # Canonical identity; the database is the concurrency control.
+        sa.Index(
+            "uq_leagues_provider_identity",
+            "provider",
+            "provider_league_id",
+            unique=True,
+            postgresql_where=sa.text("provider IS NOT NULL AND provider_league_id IS NOT NULL"),
+        ),
+        # Serves the future due-orphan purge query.
+        sa.Index(
+            "ix_leagues_orphaned_at",
+            "orphaned_at",
+            postgresql_where=sa.text("orphaned_at IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -79,6 +96,11 @@ class League(TimestampMixin, Base):
     )
     logo_url: Mapped[str | None] = mapped_column(
         String(1000),
+        nullable=True,
+    )
+    # Set when the last active access disappears; retained 30 days (ADR 0010).
+    orphaned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
 
@@ -148,6 +170,11 @@ class Season(TimestampMixin, Base):
             unique=True,
             postgresql_where=sa.text("status = 'active'::season_status"),
         ),
+        sa.CheckConstraint("data_version >= 0", name="ck_seasons_data_version_nonnegative"),
+        sa.CheckConstraint(
+            "last_sync_failure_code IS NULL OR last_sync_failure_code ~ '^[a-z][a-z0-9_]{0,63}$'",
+            name="ck_seasons_sync_failure_code_safe",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -165,6 +192,35 @@ class Season(TimestampMixin, Base):
     last_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+    # NULL = legacy row never described by the target lifecycle.
+    sync_state: Mapped[SeasonSyncState | None] = mapped_column(
+        Enum(
+            SeasonSyncState,
+            name="season_sync_state",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+        ),
+        nullable=True,
+    )
+    last_successful_sync_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    last_sync_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    # Bounded safe code only; never provider text.
+    last_sync_failure_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    data_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
     )
 
     provider_connection_id: Mapped[int | None] = mapped_column(
