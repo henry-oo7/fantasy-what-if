@@ -10,6 +10,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.db.auth_models import User
+from app.db.league_access_models import UserLeagueSeasonAccess
 from app.db.models import (
     League,
     LineupSlotDefinition,
@@ -22,7 +24,11 @@ from app.db.models import (
     SyncStatus,
     Team,
 )
-from app.db.platform_enums import FantasyProvider
+from app.db.platform_enums import (
+    FantasyProvider,
+    UserSeasonAccessStatus,
+    UserSeasonProofMode,
+)
 from app.db.platform_models import (
     ProviderConnection,
 )
@@ -46,11 +52,14 @@ class ProviderSyncContextError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ProviderSyncContext:
-    """Canonical database context required for one synchronization."""
+    """Canonical database context required for one synchronization.
+
+    Season-owned: the provider and target come from the League and Season,
+    never from a workspace or a provider connection.
+    """
 
     season: Season
     league: League
-    provider_connection: ProviderConnection
 
     @property
     def season_id(self) -> int:
@@ -61,12 +70,13 @@ class ProviderSyncContext:
         return self.league.id
 
     @property
-    def provider_connection_id(self) -> int:
-        return self.provider_connection.id
-
-    @property
     def provider(self) -> FantasyProvider:
-        return self.provider_connection.provider
+        provider = self.league.provider
+
+        if provider is None:
+            raise ProviderSyncContextError("The league does not have a canonical provider.")
+
+        return provider
 
     @property
     def provider_league_id(self) -> str:
@@ -100,72 +110,121 @@ class ProviderSyncRepository:
         self,
         *,
         season_id: int,
+        lock: bool = False,
     ) -> ProviderSyncContext:
-        """Load one season and validate its provider configuration."""
+        """Load one Season and its League and validate canonical identity.
+
+        ``lock`` takes the Season row lock and refreshes it from the database.
+        """
 
         if season_id < 1:
             raise ValueError("season_id must be positive.")
 
-        season = self.session.get(
-            Season,
-            season_id,
-        )
+        statement = select(Season).where(Season.id == season_id)
+
+        if lock:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
+
+        season = self.session.scalar(statement)
 
         if season is None:
             raise ProviderSyncContextNotFoundError(f"Season {season_id} was not found.")
 
-        league = self.session.get(
-            League,
-            season.league_id,
+        league = self.session.scalar(
+            select(League)
+            .where(League.id == season.league_id)
+            .execution_options(populate_existing=True)
         )
 
         if league is None:
             raise ProviderSyncContextError("The season references an unavailable league.")
 
-        if season.provider_connection_id is None:
-            raise ProviderSyncContextError("The season does not have a provider connection.")
-
-        provider_connection = self.session.get(
-            ProviderConnection,
-            season.provider_connection_id,
-        )
-
-        if provider_connection is None:
-            raise ProviderSyncContextError(
-                "The season references an unavailable provider connection."
-            )
-
-        if not provider_connection.is_active:
-            raise ProviderSyncContextError("The season provider connection is inactive.")
-
-        if league.provider is None:
-            raise ProviderSyncContextError("The league does not have a canonical provider.")
-
-        if league.provider is not provider_connection.provider:
-            raise ProviderSyncContextError(
-                "The league and provider connection do not use the same provider."
-            )
-
-        if league.installation_id is None:
-            raise ProviderSyncContextError("The league does not belong to an installation.")
-
-        if provider_connection.installation_id != league.installation_id:
-            raise ProviderSyncContextError(
-                "The provider connection and league belong to different installations."
-            )
-
-        context = ProviderSyncContext(
-            season=season,
-            league=league,
-            provider_connection=provider_connection,
-        )
+        context = ProviderSyncContext(season=season, league=league)
 
         _ = (
+            context.provider,
             context.provider_league_id,
             context.provider_season_id,
         )
 
         return context
+
+    # ----------------------------------------------------------------------
+    # Credential-source eligibility (ADR 0010). Owner identity never leaves
+    # these queries: callers receive only a connection row or a boolean.
+    # ----------------------------------------------------------------------
+
+    def _active_access(self, season_id: int):  # noqa: ANN202 - internal select
+        return (
+            select(UserLeagueSeasonAccess.id)
+            .join(User, User.id == UserLeagueSeasonAccess.user_id)
+            .where(
+                UserLeagueSeasonAccess.season_id == season_id,
+                UserLeagueSeasonAccess.status == UserSeasonAccessStatus.ACTIVE,
+                User.is_active.is_(True),
+            )
+        )
+
+    def has_active_access(self, *, season_id: int) -> bool:
+        """Any user currently holds active access to the Season."""
+
+        return bool(self.session.scalar(select(self._active_access(season_id).exists())))
+
+    def has_active_public_access(self, *, season_id: int) -> bool:
+        """Some active access was proven anonymously: the Season is public."""
+
+        return bool(
+            self.session.scalar(
+                select(
+                    self._active_access(season_id)
+                    .where(UserLeagueSeasonAccess.proof_mode == UserSeasonProofMode.PUBLIC)
+                    .exists()
+                )
+            )
+        )
+
+    def eligible_private_connections(
+        self,
+        *,
+        season_id: int,
+        provider: FantasyProvider,
+        connection_id: int | None = None,
+    ) -> list[ProviderConnection]:
+        """User-owned connections whose owner holds active private access.
+
+        Deterministic: most recently validated first, then lowest ID. Restricting
+        ``connection_id`` rechecks one previously selected connection.
+        """
+
+        statement = (
+            select(ProviderConnection)
+            .join(
+                UserLeagueSeasonAccess,
+                UserLeagueSeasonAccess.provider_connection_id == ProviderConnection.id,
+            )
+            .join(User, User.id == UserLeagueSeasonAccess.user_id)
+            .where(
+                UserLeagueSeasonAccess.season_id == season_id,
+                UserLeagueSeasonAccess.status == UserSeasonAccessStatus.ACTIVE,
+                UserLeagueSeasonAccess.proof_mode == UserSeasonProofMode.PRIVATE_CREDENTIALS,
+                ProviderConnection.user_id == UserLeagueSeasonAccess.user_id,
+                ProviderConnection.provider == provider,
+                ProviderConnection.is_active.is_(True),
+                ProviderConnection.encrypted_credentials.is_not(None),
+                ProviderConnection.credential_version.is_not(None),
+                User.is_active.is_(True),
+            )
+            .order_by(
+                ProviderConnection.last_validated_at.desc().nulls_last(),
+                ProviderConnection.id,
+            )
+            .execution_options(populate_existing=True)
+        )
+
+        if connection_id is not None:
+            statement = statement.where(ProviderConnection.id == connection_id)
+
+        return list(self.session.scalars(statement).unique())
 
     def update_season_configuration(
         self,
@@ -676,6 +735,7 @@ class ProviderSyncRepository:
         context: ProviderSyncContext,
         is_full_sync: bool,
         requested_weeks: tuple[int, ...],
+        provider_connection_id: int | None = None,
         provider_request_metadata: dict[
             str,
             Any,
@@ -689,7 +749,9 @@ class ProviderSyncRepository:
 
         sync_run = SyncRun(
             season_id=context.season_id,
-            provider_connection_id=(context.provider_connection_id),
+            # Recorded only for legacy workspace connections; NULL for anonymous
+            # and personal credentials so runs never identify a credential owner.
+            provider_connection_id=provider_connection_id,
             provider=context.provider,
             provider_request_metadata=(
                 dict(provider_request_metadata) if provider_request_metadata is not None else None
@@ -733,9 +795,6 @@ class ProviderSyncRepository:
         sync_run.matchups_upserted = matchups_upserted
         sync_run.player_week_scores_upserted = player_week_scores_upserted
         sync_run.analytics_rebuilt = analytics_rebuilt
-
-        if sync_run.season is not None:
-            sync_run.season.last_synced_at = completed_at
 
     def fail_sync_run(
         self,

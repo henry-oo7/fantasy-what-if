@@ -10,10 +10,10 @@ from app.db.platform_enums import (
 from app.db.platform_models import BackgroundJob
 from app.db.session import engine
 from app.services.admin_synchronization_jobs import (
-    ADMIN_SYNC_MAXIMUM_ATTEMPTS,
     ADMIN_SYNC_PRIORITY,
     enqueue_administrator_synchronization,
 )
+from app.services.season_sync_jobs import SEASON_SYNC_MAXIMUM_ATTEMPTS
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def database_session() -> Iterator[Session]:
         connection.close()
 
 
-def test_incremental_admin_sync_creates_pending_job(
+def test_incremental_admin_sync_creates_pending_season_job(
     database_session: Session,
 ) -> None:
     accepted = enqueue_administrator_synchronization(
@@ -54,22 +54,18 @@ def test_incremental_admin_sync_creates_pending_job(
 
     assert job is not None
     assert accepted.existing is False
-    assert accepted.status is (BackgroundJobStatus.PENDING)
+    assert accepted.status is BackgroundJobStatus.PENDING
     assert job.workspace_id == 1
-    assert job.job_type is (BackgroundJobType.INCREMENTAL_SEASON_SYNC)
+    assert job.job_type is BackgroundJobType.LEAGUE_SEASON_SYNC
     assert job.status is BackgroundJobStatus.PENDING
     assert job.payload_version == 1
-    assert job.payload == {
-        "season_id": 1,
-        "full_sync": False,
-        "trigger": "administrator",
-    }
-    assert job.idempotency_key == ("admin-sync:1:1:incremental")
-    assert job.priority == ADMIN_SYNC_PRIORITY
-    assert job.maximum_attempts == ADMIN_SYNC_MAXIMUM_ATTEMPTS
+    assert job.payload == {"version": 1, "season_id": 1}
+    assert job.idempotency_key == "league-season-sync:1"
+    assert job.priority == ADMIN_SYNC_PRIORITY == 100
+    assert job.maximum_attempts == SEASON_SYNC_MAXIMUM_ATTEMPTS == 5
 
 
-def test_full_admin_sync_uses_separate_job_scope(
+def test_full_and_incremental_admin_sync_share_one_job(
     database_session: Session,
 ) -> None:
     incremental = enqueue_administrator_synchronization(
@@ -83,25 +79,16 @@ def test_full_admin_sync_uses_separate_job_scope(
         full_sync=True,
     )
 
-    incremental_job = database_session.get(
-        BackgroundJob,
-        incremental.job_id,
-    )
-    full_job = database_session.get(
-        BackgroundJob,
-        full.job_id,
-    )
+    assert incremental.existing is False
+    assert full.existing is True
+    assert full.job_id == incremental.job_id
 
-    assert incremental_job is not None
-    assert full_job is not None
-    assert full.job_id != incremental.job_id
-    assert full_job.job_type is (BackgroundJobType.FULL_SEASON_SYNC)
-    assert full_job.payload == {
-        "season_id": 1,
-        "full_sync": True,
-        "trigger": "administrator",
-    }
-    assert full_job.idempotency_key == ("admin-sync:1:1:full")
+    job = database_session.get(BackgroundJob, full.job_id)
+
+    assert job is not None
+    assert job.job_type is BackgroundJobType.LEAGUE_SEASON_SYNC
+    assert job.payload == {"version": 1, "season_id": 1}
+    assert job.idempotency_key == "league-season-sync:1"
 
 
 def test_equivalent_active_job_is_reused(

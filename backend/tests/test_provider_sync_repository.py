@@ -75,6 +75,20 @@ class FakeSession:
 
         raise AssertionError(f"Unexpected model lookup: {model}")
 
+    def scalar(
+        self,
+        statement: Any,
+    ) -> Any:
+        entity = statement.column_descriptions[0]["entity"]
+
+        if entity is Season:
+            return self.season
+
+        if entity is League:
+            return self.league
+
+        raise AssertionError(f"Unexpected model query: {entity}")
+
     def scalars(
         self,
         statement: Any,
@@ -101,6 +115,8 @@ def make_context_objects() -> tuple[
     League,
     ProviderConnection,
 ]:
+    """A workspace-era league and season (legacy connection retained)."""
+
     league = League(
         id=1,
         installation_id=1,
@@ -161,7 +177,6 @@ def test_load_context_uses_internal_season_id() -> None:
 
     assert context.season_id == 2
     assert context.league_id == 1
-    assert context.provider_connection_id == 3
     assert context.provider is FantasyProvider.ESPN
     assert context.provider_league_id == "529250970"
     assert context.provider_season_id == "2026"
@@ -177,99 +192,72 @@ def test_missing_season_is_reported() -> None:
         )
 
 
-def test_context_requires_provider_connection() -> None:
+def test_load_context_needs_no_installation_or_connection() -> None:
     season, league, _ = make_context_objects()
+    league.installation_id = None
     season.provider_connection_id = None
 
-    repository = ProviderSyncRepository(
-        FakeSession(
-            season=season,
-            league=league,
-        )
+    context = ProviderSyncRepository(FakeSession(season=season, league=league)).load_context(
+        season_id=2
     )
 
-    with pytest.raises(
-        ProviderSyncContextError,
-        match="provider connection",
-    ):
-        repository.load_context(
-            season_id=2,
-        )
+    assert context.season is season
+    assert context.league is league
+    assert context.provider is FantasyProvider.ESPN
+    assert context.provider_league_id == "529250970"
+    assert context.provider_season_id == "2026"
 
 
-def test_context_rejects_inactive_connection() -> None:
+def test_context_provider_comes_from_league() -> None:
     season, league, connection = make_context_objects()
-    connection.is_active = False
+    league.provider = FantasyProvider.SLEEPER
+    connection.provider = FantasyProvider.ESPN
 
-    repository = ProviderSyncRepository(
-        FakeSession(
-            season=season,
-            league=league,
-            provider_connection=connection,
-        )
-    )
+    context = ProviderSyncRepository(
+        FakeSession(season=season, league=league, provider_connection=connection)
+    ).load_context(season_id=2)
 
-    with pytest.raises(
-        ProviderSyncContextError,
-        match="inactive",
-    ):
-        repository.load_context(
-            season_id=2,
-        )
+    assert context.provider is FantasyProvider.SLEEPER
 
 
-def test_context_rejects_provider_mismatch() -> None:
-    season, league, connection = make_context_objects()
-    connection.provider = FantasyProvider.SLEEPER
+def test_context_has_no_provider_connection_attribute() -> None:
+    repository, _ = make_repository()
 
-    repository = ProviderSyncRepository(
-        FakeSession(
-            season=season,
-            league=league,
-            provider_connection=connection,
-        )
-    )
+    context = repository.load_context(season_id=2)
 
-    with pytest.raises(
-        ProviderSyncContextError,
-        match="same provider",
-    ):
-        repository.load_context(
-            season_id=2,
-        )
+    assert not hasattr(context, "provider_connection")
+    assert not hasattr(context, "provider_connection_id")
 
 
-def test_context_rejects_installation_mismatch() -> None:
-    season, league, connection = make_context_objects()
-    connection.installation_id = 9
+@pytest.mark.parametrize(
+    ("field", "owner"),
+    [
+        ("provider", "league"),
+        ("provider_league_id", "league"),
+        ("provider_season_id", "season"),
+    ],
+)
+def test_context_requires_canonical_identity(field: str, owner: str) -> None:
+    season, league, _ = make_context_objects()
+    setattr(league if owner == "league" else season, field, None)
 
-    repository = ProviderSyncRepository(
-        FakeSession(
-            season=season,
-            league=league,
-            provider_connection=connection,
-        )
-    )
+    with pytest.raises(ProviderSyncContextError, match="canonical provider"):
+        ProviderSyncRepository(FakeSession(season=season, league=league)).load_context(season_id=2)
 
-    with pytest.raises(
-        ProviderSyncContextError,
-        match="different installations",
-    ):
-        repository.load_context(
-            season_id=2,
-        )
+
+def test_context_rejects_non_positive_season_id() -> None:
+    repository, _ = make_repository()
+
+    with pytest.raises(ValueError, match="positive"):
+        repository.load_context(season_id=0)
 
 
 def test_provider_context_properties_require_ids() -> None:
-    season, league, connection = make_context_objects()
+    season, league, _ = make_context_objects()
 
     league.provider_league_id = None
 
-    context = ProviderSyncContext(
-        season=season,
-        league=league,
-        provider_connection=connection,
-    )
+    context = ProviderSyncContext(season=season, league=league)
 
     with pytest.raises(ProviderSyncContextError):
         _ = context.provider_league_id
@@ -357,7 +345,7 @@ def test_create_provider_aware_sync_run() -> None:
 
     assert sync_run.id == 99
     assert sync_run.season_id == 2
-    assert sync_run.provider_connection_id == 3
+    assert sync_run.provider_connection_id is None
     assert sync_run.provider is FantasyProvider.ESPN
     assert sync_run.status is SyncStatus.RUNNING
     assert sync_run.is_full_sync is False
@@ -370,6 +358,23 @@ def test_create_provider_aware_sync_run() -> None:
 
     assert session.added == [sync_run]
     assert session.flush_count == 1
+
+
+def test_sync_run_records_connection_only_when_passed() -> None:
+    repository, session = make_repository()
+    context = repository.load_context(season_id=2)
+
+    sync_run = repository.create_sync_run(
+        context=context,
+        is_full_sync=True,
+        requested_weeks=(),
+        provider_connection_id=3,
+    )
+
+    assert sync_run.provider_connection_id == 3
+    assert sync_run.requested_from_week is None
+    assert sync_run.requested_through_week is None
+    assert session.added == [sync_run]
 
 
 def test_complete_sync_run_records_counts() -> None:
@@ -386,6 +391,7 @@ def test_complete_sync_run_records_counts() -> None:
         is_full_sync=True,
     )
     sync_run.season = season
+    assert season.last_synced_at is None
 
     repository.complete_sync_run(
         sync_run,
@@ -401,7 +407,7 @@ def test_complete_sync_run_records_counts() -> None:
     assert sync_run.matchups_upserted == 72
     assert sync_run.player_week_scores_upserted == 1579
     assert sync_run.analytics_rebuilt is True
-    assert season.last_synced_at is not None
+    assert season.last_synced_at is None
 
 
 def test_fail_sync_run_truncates_safe_message() -> None:

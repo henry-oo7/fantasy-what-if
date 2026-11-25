@@ -80,7 +80,7 @@ def forbid_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(requests.sessions.Session, "request", refuse)
     monkeypatch.setattr(ProviderCredentialVault, "decrypt", refuse)
     monkeypatch.setattr(BackgroundJobRepository, "enqueue", refuse)
-    monkeypatch.setattr("app.services.provider_sync.synchronize_provider", refuse)
+    monkeypatch.setattr("app.services.provider_sync.synchronize_season", refuse)
 
 
 @dataclass(frozen=True)

@@ -324,7 +324,7 @@ describe("admin API", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         job_id: 84,
-        job_type: "full_season_sync",
+        job_type: "league_season_sync",
         status: "running",
         attempt_count: 1,
         maximum_attempts: 5,
@@ -346,6 +346,7 @@ describe("admin API", () => {
 
     const job = await getBackgroundJob(84);
 
+    expect(job.job_type).toBe("league_season_sync");
     expect(job.status).toBe("running");
     expect(job.progress?.stage).toBe(
       "fetching_matchups",

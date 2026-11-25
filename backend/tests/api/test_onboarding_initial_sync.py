@@ -747,8 +747,9 @@ def test_public_worker_creates_real_identity_and_advances(
     assert decrypt_calls == []
     assert all("swid" not in values and "espn_s2" not in values for values in fake.built_with)
     assert fake.built_with[0]["league_id"] == seeded.league_id
-    # The authoritative snapshot is fetched with no database connection open.
-    assert fake.open_connections_at_first_fetch == [0]
+    # The authoritative snapshot and the Season-owned synchronization each
+    # build an adapter and fetch with no database connection open.
+    assert fake.open_connections_at_first_fetch == [0, 0]
 
     with SessionFactory() as session:
         workspace = session.get(Installation, seeded.workspace_id)
@@ -818,7 +819,8 @@ def test_private_worker_decrypts_only_in_the_worker(
     assert decrypt_calls == []
 
     assert run_worker(fake, seeded.workspace_id).succeeded is True
-    assert decrypt_calls == [1]
+    # Once for the identity snapshot, once by the Season-owned preparation.
+    assert decrypt_calls == [1, 1]
     assert fake.built_with[0]["swid"] == SYNTHETIC_SWID
     assert fake.built_with[0]["espn_s2"] == SYNTHETIC_S2
     assert stage_of(seeded.workspace_id) is OnboardingStage.SPECTATOR_SETUP_PENDING

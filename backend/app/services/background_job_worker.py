@@ -401,7 +401,7 @@ def _execute_and_persist_outcome(
                 job_id=snapshot.id,
                 worker_id=worker_id,
                 available_at=retry_at,
-                safe_error_code=(_provider_error_code(exc)),
+                safe_error_code=(provider_error_code(exc)),
                 safe_error_message=exc.safe_message,
             )
 
@@ -417,7 +417,7 @@ def _execute_and_persist_outcome(
             session_factory=session_factory,
             job_id=snapshot.id,
             worker_id=worker_id,
-            safe_error_code=_provider_error_code(exc),
+            safe_error_code=provider_error_code(exc),
             safe_error_message=exc.safe_message,
             retryable=exc.retryable,
             now=now(),
@@ -682,7 +682,7 @@ def _persist_terminal_failure(
         session.commit()
 
 
-def _provider_error_code(
+def provider_error_code(
     error: ProviderError,
 ) -> str:
     error_name = type(error).__name__

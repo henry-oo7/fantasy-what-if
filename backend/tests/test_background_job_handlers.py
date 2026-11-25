@@ -5,7 +5,8 @@ import pytest
 
 from app.db.platform_enums import BackgroundJobType
 from app.services.background_job_handlers import (
-    SynchronizationBackgroundJobHandler,
+    LegacySynchronizationJobAdapter,
+    SeasonSynchronizationJobHandler,
     build_background_job_handlers,
     reject_secret_payload_fields,
     validate_sync_job_ownership,
@@ -16,6 +17,7 @@ from app.services.background_job_worker import (
     BackgroundJobSnapshot,
 )
 from app.services.onboarding_initial_sync import InitialWorkspaceSyncHandler
+from app.services.provider_sync import SyncJobAuthority
 from app.services.transactional_email_delivery import TransactionalEmailDeliveryHandler
 from app.services.workspace_deletion_execution import WorkspaceDeletionJobHandler
 
@@ -252,50 +254,83 @@ class RecordingSession:
         self.close()
 
 
-def test_handler_validates_before_synchronizing(
+def season_snapshot(
+    *,
+    payload: dict | None = None,
+    payload_version: int = 1,
+    workspace_id: int | None = None,
+) -> BackgroundJobSnapshot:
+    return BackgroundJobSnapshot(
+        id=42,
+        workspace_id=workspace_id,
+        job_type=BackgroundJobType.LEAGUE_SEASON_SYNC,
+        payload_version=payload_version,
+        payload=payload if payload is not None else {"version": 1, "season_id": 31},
+        attempt_count=2,
+        maximum_attempts=5,
+    )
+
+
+def test_season_handler_passes_season_and_job_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    events: list[str] = []
-    session_factory = MagicMock(side_effect=lambda: RecordingSession(events))
-    ownership_validator = MagicMock(
-        side_effect=BackgroundJobExecutionError(
-            safe_error_code="inactive_season_job",
-            safe_error_message="The background job season is not the workspace's active season.",
-        )
-    )
-    prepare = MagicMock()
-    execute = MagicMock()
+    synchronize = MagicMock()
+    monkeypatch.setattr("app.services.background_job_handlers.synchronize_season", synchronize)
+    session_factory = MagicMock()
+    settings = SimpleNamespace()
+    registry = MagicMock()
 
-    monkeypatch.setattr(
-        "app.services.background_job_handlers.validate_sync_job_ownership",
-        ownership_validator,
-    )
-    monkeypatch.setattr(
-        "app.services.background_job_handlers.prepare_active_season_sync",
-        prepare,
-    )
-    monkeypatch.setattr(
-        "app.services.background_job_handlers.execute_provider_sync",
-        execute,
-    )
-
-    handler = SynchronizationBackgroundJobHandler(
+    handler = SeasonSynchronizationJobHandler(
         session_factory=session_factory,
+        settings=settings,
+        registry=registry,
+    )
+    handler(season_snapshot())
+
+    synchronize.assert_called_once_with(
+        session_factory=session_factory,
+        season_id=31,
+        settings=settings,
+        registry=registry,
+        job_authority=SyncJobAuthority(job_id=42, attempt_count=2),
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "payload_version"),
+    [
+        ({}, 1),
+        ({"version": 1}, 1),
+        ({"version": 1, "season_id": 0}, 1),
+        ({"version": 1, "season_id": True}, 1),
+        ({"version": 1, "season_id": "31"}, 1),
+        ({"version": 2, "season_id": 31}, 1),
+        ({"version": 1, "season_id": 31, "workspace_id": 7}, 1),
+        ({"version": 1, "season_id": 31, "full_sync": True}, 1),
+        ({"version": 1, "season_id": 31}, 2),
+    ],
+)
+def test_season_handler_rejects_invalid_payload_without_synchronizing(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict,
+    payload_version: int,
+) -> None:
+    synchronize = MagicMock()
+    monkeypatch.setattr("app.services.background_job_handlers.synchronize_season", synchronize)
+
+    handler = SeasonSynchronizationJobHandler(
+        session_factory=MagicMock(),
         settings=SimpleNamespace(),
-        full_sync=False,
-        registry=MagicMock(),
     )
 
     with pytest.raises(BackgroundJobExecutionError) as raised:
-        handler(snapshot())
+        handler(season_snapshot(payload=payload, payload_version=payload_version))
 
-    assert raised.value.safe_error_code == "inactive_season_job"
-    prepare.assert_not_called()
-    execute.assert_not_called()
-    assert "commit" not in events
+    assert raised.value.safe_error_code == "invalid_job_payload"
+    synchronize.assert_not_called()
 
 
-def test_handler_executes_after_preparation_session_is_committed_and_closed(
+def test_legacy_adapter_enqueues_season_job_and_never_synchronizes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
@@ -307,65 +342,123 @@ def test_handler_executes_after_preparation_session_is_committed_and_closed(
 
         return session
 
-    session_factory = MagicMock(side_effect=make_session)
-    settings = SimpleNamespace()
-    registry = MagicMock()
-    plan = object()
-    provider = object()
-    ownership_validator = MagicMock()
-
-    def prepare(**kwargs: object) -> tuple[object, object]:
-        events.append("prepare")
-        assert kwargs["session"] is sessions[0]
-
-        return plan, provider
-
-    prepare_mock = MagicMock(side_effect=prepare)
-
-    def execute(**kwargs: object) -> None:
-        events.append("execute")
-        assert sessions[0].closed is True
-
-    execute_mock = MagicMock(side_effect=execute)
-
+    ownership_validator = MagicMock(side_effect=lambda *a, **k: events.append("validate"))
+    enqueue = MagicMock(side_effect=lambda *a, **k: events.append("enqueue"))
+    synchronize = MagicMock()
     monkeypatch.setattr(
-        "app.services.background_job_handlers.validate_sync_job_ownership",
-        ownership_validator,
+        "app.services.background_job_handlers.validate_sync_job_ownership", ownership_validator
     )
-    monkeypatch.setattr(
-        "app.services.background_job_handlers.prepare_active_season_sync",
-        prepare_mock,
-    )
-    monkeypatch.setattr(
-        "app.services.background_job_handlers.execute_provider_sync",
-        execute_mock,
-    )
+    monkeypatch.setattr("app.services.background_job_handlers.enqueue_season_sync", enqueue)
+    monkeypatch.setattr("app.services.background_job_handlers.synchronize_season", synchronize)
 
-    job = snapshot()
-    handler = SynchronizationBackgroundJobHandler(
-        session_factory=session_factory,
-        settings=settings,
+    adapter = LegacySynchronizationJobAdapter(
+        session_factory=MagicMock(side_effect=make_session),
         full_sync=False,
-        registry=registry,
     )
-    handler(job)
+    adapter(snapshot())
 
-    assert events == ["open", "prepare", "commit", "close", "execute"]
+    assert events == ["open", "validate", "enqueue", "commit", "close"]
     ownership_validator.assert_called_once_with(sessions[0], workspace_id=7, season_id=31)
+    enqueue.assert_called_once_with(sessions[0], season_id=31)
+    synchronize.assert_not_called()
 
-    prepare_kwargs = prepare_mock.call_args.kwargs
-    assert prepare_kwargs["workspace_id"] == 7
-    assert prepare_kwargs["settings"] is settings
-    assert prepare_kwargs["full_sync"] is False
-    assert prepare_kwargs["registry"] is registry
-    authority = prepare_kwargs["job_authority"]
-    assert (authority.job_id, authority.attempt_count) == (job.id, job.attempt_count)
 
-    execute_mock.assert_called_once_with(
-        session_factory=session_factory,
-        plan=plan,
-        provider=provider,
+def test_legacy_full_adapter_accepts_full_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue = MagicMock()
+    monkeypatch.setattr(
+        "app.services.background_job_handlers.validate_sync_job_ownership", MagicMock()
     )
+    monkeypatch.setattr("app.services.background_job_handlers.enqueue_season_sync", enqueue)
+
+    adapter = LegacySynchronizationJobAdapter(
+        session_factory=MagicMock(side_effect=lambda: RecordingSession([])),
+        full_sync=True,
+    )
+    adapter(
+        snapshot(
+            job_type=BackgroundJobType.FULL_SEASON_SYNC,
+            payload={"season_id": 31, "full_sync": True, "trigger": "administrator"},
+        )
+    )
+
+    assert enqueue.call_args.kwargs == {"season_id": 31}
+
+
+def test_legacy_adapter_rejects_mode_mismatch_before_opening_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue = MagicMock()
+    session_factory = MagicMock()
+    monkeypatch.setattr("app.services.background_job_handlers.enqueue_season_sync", enqueue)
+
+    adapter = LegacySynchronizationJobAdapter(session_factory=session_factory, full_sync=False)
+
+    with pytest.raises(BackgroundJobExecutionError, match="mode is invalid"):
+        adapter(snapshot(payload={"season_id": 31, "full_sync": True}))
+
+    session_factory.assert_not_called()
+    enqueue.assert_not_called()
+
+
+def test_legacy_adapter_rejects_missing_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enqueue = MagicMock()
+    monkeypatch.setattr("app.services.background_job_handlers.enqueue_season_sync", enqueue)
+
+    adapter = LegacySynchronizationJobAdapter(session_factory=MagicMock(), full_sync=False)
+    job = snapshot()
+    object.__setattr__(job, "workspace_id", None)
+
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        adapter(job)
+
+    assert raised.value.safe_error_code == "workspace_unavailable"
+    enqueue.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("workspace", "season", "code"),
+    [
+        (None, None, "workspace_unavailable"),
+        (SimpleNamespace(id=7, active_season_id=31), None, "season_unavailable"),
+        (
+            SimpleNamespace(id=7, active_season_id=31),
+            SimpleNamespace(id=31, league=SimpleNamespace(installation_id=8)),
+            "workspace_ownership_mismatch",
+        ),
+        (
+            SimpleNamespace(id=7, active_season_id=99),
+            SimpleNamespace(id=31, league=SimpleNamespace(installation_id=7)),
+            "inactive_season_job",
+        ),
+    ],
+)
+def test_legacy_adapter_ownership_errors_prevent_enqueue(
+    monkeypatch: pytest.MonkeyPatch,
+    workspace: object,
+    season: object,
+    code: str,
+) -> None:
+    events: list[str] = []
+    session = RecordingSession(events)
+    session.get = MagicMock(side_effect=[workspace, season])  # type: ignore[attr-defined]
+    enqueue = MagicMock()
+    monkeypatch.setattr("app.services.background_job_handlers.enqueue_season_sync", enqueue)
+
+    adapter = LegacySynchronizationJobAdapter(
+        session_factory=MagicMock(return_value=session),
+        full_sync=False,
+    )
+
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        adapter(snapshot())
+
+    assert raised.value.safe_error_code == code
+    enqueue.assert_not_called()
+    assert "commit" not in events
 
 
 def test_handler_registry_contains_sync_deletion_and_email_jobs() -> None:
@@ -378,7 +471,8 @@ def test_handler_registry_contains_sync_deletion_and_email_jobs() -> None:
     )
 
     assert set(handlers) == {
-        (BackgroundJobType.INCREMENTAL_SEASON_SYNC),
+        BackgroundJobType.LEAGUE_SEASON_SYNC,
+        BackgroundJobType.INCREMENTAL_SEASON_SYNC,
         BackgroundJobType.FULL_SEASON_SYNC,
         BackgroundJobType.INITIAL_WORKSPACE_SYNC,
         BackgroundJobType.WORKSPACE_DELETION,
@@ -397,16 +491,13 @@ def test_handler_registry_contains_sync_deletion_and_email_jobs() -> None:
         InitialWorkspaceSyncHandler,
     )
 
+    season_handler = handlers[BackgroundJobType.LEAGUE_SEASON_SYNC]
     incremental_handler = handlers[BackgroundJobType.INCREMENTAL_SEASON_SYNC]
     full_handler = handlers[BackgroundJobType.FULL_SEASON_SYNC]
 
-    assert isinstance(
-        incremental_handler,
-        SynchronizationBackgroundJobHandler,
-    )
-    assert isinstance(
-        full_handler,
-        SynchronizationBackgroundJobHandler,
-    )
-    assert incremental_handler.registry is registry
-    assert full_handler.registry is registry
+    assert isinstance(season_handler, SeasonSynchronizationJobHandler)
+    assert season_handler.registry is registry
+    assert isinstance(incremental_handler, LegacySynchronizationJobAdapter)
+    assert isinstance(full_handler, LegacySynchronizationJobAdapter)
+    assert incremental_handler.full_sync is False
+    assert full_handler.full_sync is True

@@ -14,7 +14,6 @@ from app.db.platform_models import (
 )
 from app.db.session import engine
 from app.services.scheduled_synchronization_jobs import (
-    SCHEDULED_SYNC_MAXIMUM_ATTEMPTS,
     SCHEDULED_SYNC_PRIORITY,
     ScheduledSynchronizationTarget,
     enqueue_scheduled_synchronization,
@@ -22,6 +21,7 @@ from app.services.scheduled_synchronization_jobs import (
     list_scheduled_synchronization_targets,
     schedule_window_key,
 )
+from app.services.season_sync_jobs import SEASON_SYNC_MAXIMUM_ATTEMPTS
 
 
 @pytest.fixture
@@ -151,16 +151,13 @@ def test_scheduled_sync_creates_secret_free_job(
     assert job is not None
     assert accepted.existing is False
     assert accepted.status is (BackgroundJobStatus.PENDING)
-    assert job.job_type is (BackgroundJobType.INCREMENTAL_SEASON_SYNC)
+    assert job.job_type is BackgroundJobType.LEAGUE_SEASON_SYNC
     assert job.payload_version == 1
-    assert job.payload == {
-        "season_id": 1,
-        "full_sync": False,
-        "trigger": "scheduled",
-    }
-    assert job.idempotency_key == ("scheduled-sync:1:1:20261125T1200Z")
-    assert job.priority == (SCHEDULED_SYNC_PRIORITY)
-    assert job.maximum_attempts == SCHEDULED_SYNC_MAXIMUM_ATTEMPTS
+    assert job.payload == {"version": 1, "season_id": 1}
+    assert job.idempotency_key == "league-season-sync:1"
+    assert job.workspace_id == 1
+    assert job.priority == SCHEDULED_SYNC_PRIORITY == 25
+    assert job.maximum_attempts == SEASON_SYNC_MAXIMUM_ATTEMPTS == 5
 
     payload_names = {str(name).casefold() for name in job.payload}
 
@@ -194,7 +191,7 @@ def test_equivalent_active_scheduled_job_is_reused(
     assert second.job_id == first.job_id
 
 
-def test_next_schedule_window_uses_new_scope(
+def test_next_schedule_window_reuses_active_season_job(
     database_session: Session,
 ) -> None:
     target = ScheduledSynchronizationTarget(
@@ -220,8 +217,9 @@ def test_next_schedule_window_uses_new_scope(
         ),
     )
 
-    assert second.existing is False
-    assert second.job_id != first.job_id
+    assert first.existing is False
+    assert second.existing is True
+    assert second.job_id == first.job_id
 
 
 def test_batch_enqueues_all_eligible_targets(
@@ -329,21 +327,15 @@ def test_multi_workspace_batch_creates_isolated_jobs(
     assert first_job.workspace_id == (fixture.first.workspace_id)
     assert second_job.workspace_id == (fixture.second.workspace_id)
     assert first_job.payload == {
+        "version": 1,
         "season_id": fixture.first.season_id,
-        "full_sync": False,
-        "trigger": "scheduled",
     }
     assert second_job.payload == {
+        "version": 1,
         "season_id": fixture.second.season_id,
-        "full_sync": False,
-        "trigger": "scheduled",
     }
-    assert first_job.idempotency_key == (
-        f"scheduled-sync:{fixture.first.workspace_id}:{fixture.first.season_id}:20261125T1200Z"
-    )
-    assert second_job.idempotency_key == (
-        f"scheduled-sync:{fixture.second.workspace_id}:{fixture.second.season_id}:20261125T1200Z"
-    )
+    assert first_job.idempotency_key == f"league-season-sync:{fixture.first.season_id}"
+    assert second_job.idempotency_key == f"league-season-sync:{fixture.second.season_id}"
 
     prohibited_names = {
         "credentials",

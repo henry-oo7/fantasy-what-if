@@ -11,22 +11,14 @@ from sqlalchemy.orm import Session
 from app.db.models import League, Season
 from app.db.platform_enums import (
     BackgroundJobStatus,
-    BackgroundJobType,
     InstallationStatus,
     SeasonStatus,
     WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import Installation
-from app.repositories.background_job_repository import (
-    BackgroundJobRepository,
-)
-from app.services.synchronization_job_contract import (
-    SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
-    build_synchronization_job_payload,
-)
+from app.services.season_sync_jobs import enqueue_season_sync
 
 SCHEDULED_SYNC_PRIORITY = 25
-SCHEDULED_SYNC_MAXIMUM_ATTEMPTS = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,23 +122,18 @@ def enqueue_scheduled_synchronization(
     target: ScheduledSynchronizationTarget,
     scheduled_for: datetime,
 ) -> ScheduledSynchronizationJob:
-    """Create or reuse one scheduled incremental job."""
+    """Create or reuse the target Season's one synchronization job.
 
-    window_key = schedule_window_key(scheduled_for)
-    idempotency_key = f"scheduled-sync:{target.workspace_id}:{target.season_id}:{window_key}"
+    The Season key replaces the former per-window key, so a window never
+    queues a second job while one is already active for the Season.
+    """
 
-    result = BackgroundJobRepository(session).enqueue(
-        workspace_id=target.workspace_id,
-        job_type=(BackgroundJobType.INCREMENTAL_SEASON_SYNC),
-        payload=build_synchronization_job_payload(
-            season_id=target.season_id,
-            full_sync=False,
-            trigger="scheduled",
-        ),
-        idempotency_key=idempotency_key,
-        payload_version=SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
+    schedule_window_key(scheduled_for)  # Rejects a naive window time.
+
+    result = enqueue_season_sync(
+        session,
+        season_id=target.season_id,
         priority=SCHEDULED_SYNC_PRIORITY,
-        maximum_attempts=(SCHEDULED_SYNC_MAXIMUM_ATTEMPTS),
     )
 
     job_id = result.job.id

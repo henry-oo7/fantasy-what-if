@@ -83,6 +83,7 @@ class BackgroundJobType(StrEnum):
     EXPIRED_TOKEN_CLEANUP = "expired_token_cleanup"
     WORKSPACE_DELETION = "workspace_deletion"
     TRANSACTIONAL_EMAIL_DELIVERY = "transactional_email_delivery"
+    LEAGUE_SEASON_SYNC = "league_season_sync"
 
 
 class BackgroundJobStatus(StrEnum):

@@ -16,6 +16,10 @@ from app.db.platform_models import BackgroundJob
 from app.notifications.delivery_job_contract import (
     validate_transactional_email_job_payload,
 )
+from app.services.synchronization_job_contract import (
+    season_sync_idempotency_key,
+    validate_season_sync_payload,
+)
 
 ACTIVE_JOB_STATUSES = (
     BackgroundJobStatus.PENDING,
@@ -24,6 +28,12 @@ ACTIVE_JOB_STATUSES = (
 )
 
 ACTIVE_IDEMPOTENCY_CONSTRAINT = "uq_background_jobs_active_idempotency_key"
+
+# Job types that may have no workspace (ADR 0009 email, ADR 0010 Season sync).
+UNSCOPED_JOB_TYPES = (
+    BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY,
+    BackgroundJobType.LEAGUE_SEASON_SYNC,
+)
 
 QUEUED_JOB_STATUSES = (
     BackgroundJobStatus.PENDING,
@@ -50,8 +60,9 @@ class EnqueueBackgroundJobResult:
 class BackgroundJobRepository:
     """Persist and atomically claim durable jobs.
 
-    Jobs are workspace-owned; only unscoped transactional-email jobs have no
-    workspace, and workspace-keyed reads never match them.
+    Jobs are workspace-owned except unscoped transactional-email jobs and
+    Season-sync jobs whose League has no workspace; workspace-keyed reads
+    never match a job without a workspace.
     """
 
     def __init__(
@@ -73,13 +84,21 @@ class BackgroundJobRepository:
         available_at: datetime | None = None,
     ) -> EnqueueBackgroundJobResult:
         if workspace_id is None:
-            if job_type is not BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY:
-                raise ValueError("Only transactional-email jobs may omit workspace_id.")
+            if job_type not in UNSCOPED_JOB_TYPES:
+                raise ValueError(
+                    "Only transactional-email and Season-sync jobs may omit workspace_id."
+                )
         elif workspace_id < 1:
             raise ValueError("workspace_id must be positive.")
 
         if job_type is BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY:
             validate_transactional_email_job_payload(payload)
+
+        if job_type is BackgroundJobType.LEAGUE_SEASON_SYNC:
+            season_id = validate_season_sync_payload(payload, payload_version=payload_version)
+
+            if idempotency_key != season_sync_idempotency_key(season_id):
+                raise ValueError("Season-sync jobs must use their Season idempotency key.")
 
         if payload_version < 1:
             raise ValueError("payload_version must be positive.")

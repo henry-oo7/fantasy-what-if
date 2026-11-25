@@ -10,8 +10,9 @@ Ownership boundaries:
 - The worker handler loads every input from persisted state, fetches the
   authoritative ESPN league snapshot outside any database transaction,
   creates or reuses the League and Season with the real provider values,
-  attaches the claim, and then runs the shared full-season synchronization,
-  which prepares, fetches with no transaction, and persists separately.
+  attaches the claim, and then runs the Season-owned full synchronization
+  (transitional workspace fallback), which prepares, fetches with no
+  transaction, and persists separately.
 - The job-success or terminal-failure transaction advances onboarding
   (see ``onboarding_sync_outcome``).
 """
@@ -65,7 +66,7 @@ from app.services.provider_sync import (
     SyncJobAuthority,
     SyncWorkspaceRequirement,
     credential_marker,
-    synchronize_provider,
+    synchronize_season,
 )
 from app.services.season_lifecycle import classify_imported_season
 from app.services.synchronization_job_contract import (
@@ -367,13 +368,15 @@ class InitialWorkspaceSyncHandler:
 
         season_id = self._persist_identity(job.workspace_id, context, snapshot)
 
-        # Shared full-season synchronization: short preparation transaction,
-        # provider fetch with no transaction, separate persistence transaction.
-        synchronize_provider(
+        # Season-owned synchronization through the transitional workspace
+        # fallback: short preparation transaction, provider fetch with no
+        # transaction, separate persistence transaction. Onboarding advances
+        # only from the job-success transaction after it persisted.
+        synchronize_season(
             session_factory=self.session_factory,
             season_id=season_id,
-            provider=provider,
-            full_sync=True,
+            settings=self.settings,
+            registry=self.registry,
             requirement=SyncWorkspaceRequirement.INITIAL_ONBOARDING,
             job_authority=SyncJobAuthority(job_id=job.id, attempt_count=job.attempt_count),
             expected_credential_marker=context.credential_marker,

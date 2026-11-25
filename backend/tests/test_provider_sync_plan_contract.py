@@ -21,7 +21,9 @@ from sqlalchemy.orm import DeclarativeBase, Session
 from app.db.models import Season, SyncRun, SyncStatus
 from app.db.platform_enums import (
     FantasyProvider,
+    ProviderAccessMode,
     SeasonStatus,
+    SeasonSyncState,
     WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import Installation, ProviderConnection
@@ -40,8 +42,8 @@ from app.services.provider_sync import (
     ProviderSyncPlan,
     SyncWorkspaceRequirement,
     credential_marker,
-    prepare_provider_sync,
-    record_sync_run_failure,
+    prepare_season_sync,
+    record_sync_failure,
     safe_sync_failure_message,
 )
 from app.services.provider_sync_policy import ProviderSyncValidationError
@@ -50,7 +52,9 @@ from tests.support.provider_sync_fixtures import (
     SyntheticSeasonAdapter,
     forbid_live_network,
     graph_factory,
+    registry_for,
     sync_runs,
+    worker_settings,
 )
 
 
@@ -73,17 +77,23 @@ def prepare(
     graph: SyncGraph,
     **overrides: Any,
 ) -> ProviderSyncPlan:
-    with SessionFactory() as session:
-        plan = prepare_provider_sync(
-            session,
-            season_id=graph.season_id,
-            provider=adapter_for(graph),
-            full_sync=False,
-            **overrides,
-        )
-        session.commit()
+    plan, _ = prepare_season_sync(
+        session_factory=SessionFactory,
+        season_id=graph.season_id,
+        settings=worker_settings(),
+        registry=registry_for(adapter_for(graph)),
+        **overrides,
+    )
 
     return plan
+
+
+def season_of(graph: SyncGraph) -> Season:
+    with SessionFactory() as session:
+        season = session.get(Season, graph.season_id)
+        assert season is not None
+        session.expunge(season)
+        return season
 
 
 def mutate(graph: SyncGraph, *, workspace: dict | None = None, season: dict | None = None) -> None:
@@ -126,18 +136,20 @@ def test_plan_contains_only_detached_plain_values(
 ) -> None:
     graph = make_graph()
 
-    plan = prepare(
-        graph,
-        explicit_from_week=2,
-        explicit_through_week=2,
-    )
+    plan = prepare(graph)
 
     assert isinstance(plan.target, ProviderFetchTarget)
     assert_detached_values(plan)
-    assert plan.workspace_id == graph.workspace_id
+    # Transitional workspace fallback: the workspace's own connection.
+    assert plan.legacy_workspace_id == graph.workspace_id
     assert plan.season_id == graph.season_id
     assert plan.provider_connection_id == graph.connection_id
-    assert plan.target.explicit_from_week == 2
+    assert plan.access_mode is ProviderAccessMode.PRIVATE
+    assert plan.expected_data_version == 0
+    assert plan.target.full_sync is True
+    season = season_of(graph)
+    assert season.sync_state is SeasonSyncState.SYNCING
+    assert season.last_sync_attempt_at is not None
 
 
 def test_plan_and_target_are_frozen(
@@ -317,20 +329,19 @@ def test_prepare_refuses_ineligible_workspace_without_creating_run(
     runs_before = len(sync_runs(graph.season_id))
     mutate(graph, workspace=workspace, season=season)
 
-    with SessionFactory() as session:
-        with pytest.raises(BackgroundJobExecutionError) as raised:
-            prepare_provider_sync(
-                session,
-                season_id=graph.season_id,
-                provider=adapter_for(graph),
-                full_sync=False,
-                requirement=SyncWorkspaceRequirement.ACTIVE_SEASON,
-            )
-
-        session.rollback()
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        prepare(
+            graph,
+            requirement=SyncWorkspaceRequirement.ACTIVE_SEASON,
+        )
 
     assert raised.value.safe_error_code == code
     assert len(sync_runs(graph.season_id)) == runs_before
+    # The attempt never started, but the Season records why, safely.
+    season = season_of(graph)
+    assert season.sync_state is SeasonSyncState.FAILED
+    assert season.last_sync_failure_code == code
+    assert season.data_version == 0
 
 
 def test_prepare_accepts_active_workspace_and_records_running_run(
@@ -353,17 +364,11 @@ def test_initial_onboarding_requirement_refuses_active_workspace(
     graph = make_graph()
     runs_before = len(sync_runs(graph.season_id))
 
-    with SessionFactory() as session:
-        with pytest.raises(BackgroundJobExecutionError) as raised:
-            prepare_provider_sync(
-                session,
-                season_id=graph.season_id,
-                provider=adapter_for(graph),
-                full_sync=True,
-                requirement=SyncWorkspaceRequirement.INITIAL_ONBOARDING,
-            )
-
-        session.rollback()
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        prepare(
+            graph,
+            requirement=SyncWorkspaceRequirement.INITIAL_ONBOARDING,
+        )
 
     assert raised.value.safe_error_code == "onboarding_state_invalid"
     assert len(sync_runs(graph.season_id)) == runs_before
@@ -375,17 +380,11 @@ def test_prepare_refuses_mismatched_credential_marker(
     graph = make_graph()
     runs_before = len(sync_runs(graph.season_id))
 
-    with SessionFactory() as session:
-        with pytest.raises(BackgroundJobExecutionError) as raised:
-            prepare_provider_sync(
-                session,
-                season_id=graph.season_id,
-                provider=adapter_for(graph),
-                full_sync=False,
-                expected_credential_marker="mismatch",
-            )
-
-        session.rollback()
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        prepare(
+            graph,
+            expected_credential_marker="mismatch",
+        )
 
     assert raised.value.safe_error_code == "provider_connection_changed"
     assert raised.value.retryable is True
@@ -409,8 +408,12 @@ def test_record_failure_marks_running_run_failed_and_truncates_message(
     graph = make_graph()
     plan = prepare(graph)
 
-    record_sync_run_failure(
-        SessionFactory, sync_run_id=plan.sync_run_id, safe_error_message="x" * 1500
+    record_sync_failure(
+        SessionFactory,
+        plan=plan,
+        error=BackgroundJobExecutionError(
+            safe_error_code="synthetic_failure", safe_error_message="x" * 1500
+        ),
     )
 
     run = next(run for run in sync_runs(graph.season_id) if run.id == plan.sync_run_id)
@@ -418,6 +421,10 @@ def test_record_failure_marks_running_run_failed_and_truncates_message(
     assert run.completed_at is not None
     assert run.safe_error_message == "x" * 1000
     assert run.analytics_rebuilt is False
+    season = season_of(graph)
+    assert season.sync_state is SeasonSyncState.FAILED
+    assert season.last_sync_failure_code == "synthetic_failure"
+    assert season.data_version == 0
 
 
 def test_record_failure_leaves_succeeded_run_untouched(
@@ -427,9 +434,7 @@ def test_record_failure_leaves_succeeded_run_untouched(
     plan = prepare(graph)
     set_run_status(plan.sync_run_id, SyncStatus.SUCCEEDED)
 
-    record_sync_run_failure(
-        SessionFactory, sync_run_id=plan.sync_run_id, safe_error_message="late failure"
-    )
+    record_sync_failure(SessionFactory, plan=plan, error=RuntimeError("late failure"))
 
     run = next(run for run in sync_runs(graph.season_id) if run.id == plan.sync_run_id)
     assert run.status is SyncStatus.SUCCEEDED
@@ -440,4 +445,21 @@ def test_record_failure_never_raises_when_factory_fails() -> None:
     def broken_factory() -> Session:
         raise RuntimeError("database unavailable")
 
-    record_sync_run_failure(broken_factory, sync_run_id=1, safe_error_message="boom")
+    plan = ProviderSyncPlan(
+        season_id=1,
+        league_id=1,
+        season_year=2026,
+        provider=FantasyProvider.ESPN,
+        access_mode=ProviderAccessMode.PUBLIC,
+        provider_connection_id=None,
+        credential_marker=None,
+        legacy_workspace_id=None,
+        requirement=SyncWorkspaceRequirement.ACTIVE_SEASON,
+        expected_data_version=0,
+        sync_run_id=1,
+        target=ProviderFetchTarget(
+            provider_league_id="1", provider_season_id="2026", full_sync=True
+        ),
+    )
+
+    record_sync_failure(broken_factory, plan=plan, error=RuntimeError("boom"))

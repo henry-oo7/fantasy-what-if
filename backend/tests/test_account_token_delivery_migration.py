@@ -18,7 +18,7 @@ from app.db.session import engine
 
 REVISION = "a3c9e5f1b7d2"
 PREVIOUS_REVISION = "d7f2b9a4c6e1"
-HEAD_REVISION = "f1b6d2c8a9e4"  # canonical League access schema; later than REVISION
+HEAD_REVISION = "b9e4c2d7a1f3"  # League-Season sync job; later than REVISION
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ID = 990_301
 USER_ID = 990_301

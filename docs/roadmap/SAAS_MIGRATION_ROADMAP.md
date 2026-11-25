@@ -92,6 +92,8 @@ Replace workspace synchronization with league-season synchronization: `league-se
 
 Exit: one active job per season, status responses disclose nothing about credential ownership.
 
+Status: implemented on this branch as Alembic revision `b9e4c2d7a1f3` (`league_season_sync` job, payload exactly `{version: 1, season_id}`, NULL workspace allowed). `data_version` replaces the SyncRun-id stale-write marker, and every Season synchronization is a full sync. Manual and scheduled synchronization enqueue the Season job, persisted workspace incremental/full jobs re-enqueue it, onboarding and season import use the same Season-owned fetch/persist boundary, and `last_synced_at` is kept in step for current responses until a later branch retires it. Transitional: a Season with no active personal access whose League still belongs to a workspace synchronizes with that workspace's own connection under the workspace lifecycle rules, and its job carries the League's workspace ID so workspace job-status reads and deletion keep working. Branch 5 removes this fallback.
+
 ### Branch 5: `feature/league-season-authorization`
 
 Per-user, per-season authorization on every league-data endpoint, uniform inaccessible-resource responses, seven-day reverification with the non-revoking outcome rules, and cross-user negative tests.

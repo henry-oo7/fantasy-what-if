@@ -6,23 +6,13 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.db.platform_enums import (
-    BackgroundJobStatus,
-    BackgroundJobType,
-)
-from app.repositories.background_job_repository import (
-    BackgroundJobRepository,
-)
+from app.db.platform_enums import BackgroundJobStatus
 from app.services.active_season_context import (
     resolve_active_season_context,
 )
-from app.services.synchronization_job_contract import (
-    SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
-    build_synchronization_job_payload,
-)
+from app.services.season_sync_jobs import enqueue_season_sync
 
 ADMIN_SYNC_PRIORITY = 100
-ADMIN_SYNC_MAXIMUM_ATTEMPTS = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,33 +30,24 @@ def enqueue_administrator_synchronization(
     workspace_id: int,
     full_sync: bool,
 ) -> AdministratorSynchronizationJob:
-    """Create or reuse one active administrator sync job."""
+    """Create or reuse the active Season's one synchronization job.
+
+    Transitional adapter: the workspace resolves its active Season, then the
+    Season-owned job is enqueued. Every Season sync is full (ADR 0010 payloads
+    carry no mode), so ``full_sync`` is accepted for API compatibility only.
+    """
+
+    del full_sync
 
     context = resolve_active_season_context(
         session=session,
         workspace_id=workspace_id,
     )
 
-    job_type = (
-        BackgroundJobType.FULL_SEASON_SYNC
-        if full_sync
-        else BackgroundJobType.INCREMENTAL_SEASON_SYNC
-    )
-    synchronization_mode = "full" if full_sync else "incremental"
-    idempotency_key = f"admin-sync:{workspace_id}:{context.season_id}:{synchronization_mode}"
-
-    result = BackgroundJobRepository(session).enqueue(
-        workspace_id=workspace_id,
-        job_type=job_type,
-        payload=build_synchronization_job_payload(
-            season_id=context.season_id,
-            full_sync=full_sync,
-            trigger="administrator",
-        ),
-        idempotency_key=idempotency_key,
-        payload_version=SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
+    result = enqueue_season_sync(
+        session,
+        season_id=context.season_id,
         priority=ADMIN_SYNC_PRIORITY,
-        maximum_attempts=(ADMIN_SYNC_MAXIMUM_ATTEMPTS),
     )
 
     job_id = result.job.id
