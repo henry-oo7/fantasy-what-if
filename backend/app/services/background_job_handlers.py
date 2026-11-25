@@ -11,6 +11,7 @@ from app.db.platform_enums import BackgroundJobType
 from app.db.platform_models import Installation
 from app.notifications.recipient_encryption import TransactionalEmailRecipientCipher
 from app.providers.registry import ProviderRegistry
+from app.repositories.provider_league_claim_repository import claimed_workspace_id
 from app.services.background_job_worker import (
     BackgroundJobExecutionError,
     BackgroundJobHandler,
@@ -229,7 +230,7 @@ def validate_sync_job_ownership(
             safe_error_message=("The background job season is unavailable."),
         )
 
-    if season.league.installation_id != workspace_id:
+    if claimed_workspace_id(session, season.league) != workspace_id:
         raise BackgroundJobExecutionError(
             safe_error_code=("workspace_ownership_mismatch"),
             safe_error_message=("The background job does not belong to the requested workspace."),

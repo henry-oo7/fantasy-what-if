@@ -290,6 +290,8 @@ def create_deletion_graph(
 
         session.commit()
 
+        _fixture_league_ids.append(league.id)
+
         return DeletionGraph(
             workspace_id=workspace.id,
             slug=slug,
@@ -443,17 +445,12 @@ def owned_row_counts(graph: DeletionGraph) -> dict[str, int]:
     """Count every row owned by the graph's workspace, by table."""
 
     user_ids = [graph.administrator_id, graph.spectator_id]
-    seasons = graph.season_ids
     workspace_id = graph.workspace_id
 
     def count(statement) -> int:
         return int(session.scalar(statement) or 0)
 
     with SessionFactory() as session:
-        slot_ids = select(LineupSlotDefinition.id).where(
-            LineupSlotDefinition.season_id.in_(seasons)
-        )
-
         return {
             "installations": count(select(func.count()).where(Installation.id == workspace_id)),
             "users": count(select(func.count()).where(User.workspace_id == workspace_id)),
@@ -471,6 +468,28 @@ def owned_row_counts(graph: DeletionGraph) -> dict[str, int]:
                 select(func.count()).where(ProviderLeagueClaim.workspace_id == workspace_id)
             ),
             "leagues": count(select(func.count()).where(League.installation_id == workspace_id)),
+            "sync_runs": count(select(func.count()).where(SyncRun.id.in_(graph.sync_run_ids))),
+            "background_jobs": count(
+                select(func.count()).where(BackgroundJob.workspace_id == workspace_id)
+            ),
+        }
+
+
+def shared_row_counts(graph: DeletionGraph) -> dict[str, int]:
+    """Count shared canonical rows; these survive workspace deletion (ADR 0010)."""
+
+    seasons = graph.season_ids
+
+    def count(statement) -> int:
+        return int(session.scalar(statement) or 0)
+
+    with SessionFactory() as session:
+        slot_ids = select(LineupSlotDefinition.id).where(
+            LineupSlotDefinition.season_id.in_(seasons)
+        )
+
+        return {
+            "canonical_leagues": count(select(func.count()).where(League.id == graph.league_id)),
             "franchises": count(select(func.count()).where(Franchise.league_id == graph.league_id)),
             "seasons": count(select(func.count()).where(Season.id.in_(seasons))),
             "teams": count(select(func.count()).where(Team.season_id.in_(seasons))),
@@ -492,10 +511,6 @@ def owned_row_counts(graph: DeletionGraph) -> dict[str, int]:
             "scoring_rules": count(select(func.count()).where(ScoringRule.season_id.in_(seasons))),
             "schedule_rules": count(
                 select(func.count()).where(ScheduleRule.season_id.in_(seasons))
-            ),
-            "sync_runs": count(select(func.count()).where(SyncRun.id.in_(graph.sync_run_ids))),
-            "background_jobs": count(
-                select(func.count()).where(BackgroundJob.workspace_id == workspace_id)
             ),
         }
 
@@ -533,14 +548,19 @@ def load_job(job_id: int) -> BackgroundJob | None:
         return job
 
 
+# Production deletion retains Leagues (ADR 0010); fixtures hard-delete their own.
+_fixture_league_ids: list[int] = []
+
+
 def cleanup_graphs(workspace_ids: list[int]) -> None:
     """Remove leftover fixture workspaces and their deletion records."""
 
     with SessionFactory() as session:
         repository = WorkspaceDeletionRepository(session)
+        session.execute(delete(League).where(League.id.in_(_fixture_league_ids)))
+        _fixture_league_ids.clear()
         for workspace_id in workspace_ids:
             repository.delete_connection_sync_runs(workspace_id)
-            repository.delete_leagues(workspace_id)
             repository.delete_workspace(workspace_id)
         if workspace_ids:
             session.execute(

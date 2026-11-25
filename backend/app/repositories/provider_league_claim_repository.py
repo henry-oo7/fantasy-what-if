@@ -1,11 +1,45 @@
-from sqlalchemy import select
+from typing import Any
+
+from sqlalchemy import and_, exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.db.models import League
 from app.db.platform_enums import FantasyProvider
 from app.db.platform_models import ProviderLeagueClaim
 
 PROVIDER_IDENTITY_CONSTRAINT = "uq_provider_league_claims_provider_identity"
+
+
+def workspace_league_condition(workspace_id: Any):
+    """``League.installation_id`` equals the workspace AND that workspace's claim matches.
+
+    Temporary workspace authority (ADR 0010 compatibility); never personal
+    access. ``installation_id`` alone is compatibility metadata and never
+    authorizes. ``workspace_id`` is an int or a column; correlates to ``League``.
+    """
+
+    return and_(
+        League.installation_id == workspace_id,
+        exists().where(
+            ProviderLeagueClaim.workspace_id == workspace_id,
+            ProviderLeagueClaim.provider == League.provider,
+            ProviderLeagueClaim.normalized_provider_league_id == League.provider_league_id,
+        ),
+    )
+
+
+def claimed_workspace_id(session: Session, league: League) -> int | None:
+    """The League's ``installation_id`` if that workspace's claim backs it, else None."""
+
+    workspace_id = league.installation_id
+
+    if workspace_id is None or not session.scalar(
+        select(League.id).where(League.id == league.id, workspace_league_condition(workspace_id))
+    ):
+        return None
+
+    return workspace_id
 
 
 class ProviderLeagueAlreadyClaimedError(ValueError):

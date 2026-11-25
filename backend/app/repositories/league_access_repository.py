@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -47,6 +47,33 @@ class LeagueAccessRepository:
                 League.provider_league_id == normalize_provider_league_id(provider_league_id),
             )
         )
+
+    def lock_or_create_league(
+        self, *, provider: FantasyProvider, provider_league_id: str, name: str
+    ) -> League:
+        """Return the locked canonical League, inserting it only if the identity is new.
+
+        The unique identity index decides the race; ``ON CONFLICT DO NOTHING``
+        targets only that index, so any other integrity failure still raises.
+        Never merges, deletes or reassigns an existing League.
+        """
+
+        normalized = normalize_provider_league_id(provider_league_id)
+        self.session.execute(
+            insert(League)
+            .values(provider=provider, provider_league_id=normalized, name=name)
+            .on_conflict_do_nothing(
+                index_elements=[League.provider, League.provider_league_id],
+                index_where=text("provider IS NOT NULL AND provider_league_id IS NOT NULL"),
+            )
+        )
+
+        return self.session.execute(
+            select(League)
+            .where(League.provider == provider, League.provider_league_id == normalized)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one()
 
     def create_or_get_access(
         self,

@@ -353,7 +353,11 @@ class ProviderConnection(TimestampMixin, Base):
 
 
 class ProviderLeagueClaim(TimestampMixin, Base):
-    """Exclusive ownership of one provider league identity."""
+    """Temporary workspace reservation of one provider league identity.
+
+    Workspace compatibility authority only: it owns no canonical League data and
+    never proves personal access (ADR 0010).
+    """
 
     __tablename__ = "provider_league_claims"
     __table_args__ = (

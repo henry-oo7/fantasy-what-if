@@ -24,6 +24,31 @@ def create_test_authenticated_user() -> User:
     )
 
 
+def _ensure_baseline_workspace_claim(connection) -> None:
+    """Give the baseline workspace its temporary claim on the baseline League.
+
+    Workspace authorization requires the claim (ADR 0010 compatibility), not
+    just ``leagues.installation_id``. Idempotent, so already-seeded test
+    databases are topped up.
+    """
+
+    connection.execute(
+        text(
+            """
+            INSERT INTO provider_league_claims (
+                workspace_id, league_id, provider, provider_league_id,
+                normalized_provider_league_id, created_at, updated_at
+            )
+            SELECT 1, id, 'espn', '529250970', '529250970', now(), now()
+            FROM leagues
+            WHERE id = 1 AND installation_id = 1
+              AND provider = 'espn' AND provider_league_id = '529250970'
+            ON CONFLICT DO NOTHING
+            """
+        )
+    )
+
+
 def _seed_canonical_integration_baseline() -> bool:
     """Seed deterministic integration data in an empty test database."""
 
@@ -35,6 +60,8 @@ def _seed_canonical_integration_baseline() -> bool:
 
         if not database_name.endswith("_test"):
             return False
+
+        _ensure_baseline_workspace_claim(connection)
 
         installation_count = int(connection.scalar(text("SELECT count(*) FROM installations")) or 0)
 
@@ -600,6 +627,9 @@ def _seed_canonical_integration_baseline() -> bool:
                     "sequence_name": sequence_name,
                 },
             )
+
+    with engine.begin() as connection:
+        _ensure_baseline_workspace_claim(connection)
 
     return True
 

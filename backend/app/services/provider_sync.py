@@ -71,6 +71,7 @@ from app.repositories.optimal_lineup_repository import (
 from app.repositories.player_week_repository import (
     load_team_week_rosters,
 )
+from app.repositories.provider_league_claim_repository import claimed_workspace_id
 from app.repositories.provider_sync_repository import (
     ProviderSyncContext,
     ProviderSyncContextError,
@@ -341,7 +342,7 @@ def _prepare_in_transaction(
     expected_credential_marker: str | None,
 ) -> tuple[ProviderSyncPlan, ProviderAdapter]:
     repository = ProviderSyncRepository(session)
-    workspace_id = _load_context(repository, season_id).league.installation_id
+    workspace_id = claimed_workspace_id(session, _load_context(repository, season_id).league)
 
     # Transitional: a workspace's prior-year active Season is completed before
     # its fallback sync, exactly as the retired active-season path did.
@@ -429,7 +430,7 @@ def _select_credential_source(
     if connections:
         return _CredentialSource(ProviderAccessMode.PRIVATE, connections[0], None)
 
-    workspace_id = context.league.installation_id
+    workspace_id = claimed_workspace_id(session, context.league)
 
     if workspace_id is not None and not repository.has_active_access(season_id=season_id):
         return _legacy_workspace_source(
@@ -969,7 +970,7 @@ def _require_credential_source_unchanged(
         if repository.has_active_access(season_id=season_id):
             raise _access_mode_changed()
 
-        if context.league.installation_id != plan.legacy_workspace_id:
+        if claimed_workspace_id(session, context.league) != plan.legacy_workspace_id:
             raise _connection_changed()
 
         source = _legacy_workspace_source(

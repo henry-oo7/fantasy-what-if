@@ -4,18 +4,19 @@ Every statement here is bounded by one workspace ID. The ordered deletes
 rely on the existing ``ON DELETE CASCADE`` rules for imported domain data
 and authentication rows; nothing disables or bypasses a constraint.
 
-``seasons.provider_connection_id`` is ``RESTRICT``, so League (and
-therefore Season) rows must be deleted before the workspace row cascades
-its provider connections. ``sync_runs.provider_connection_id`` is
+Leagues are shared canonical data and are never deleted here. They are
+detached (``installation_id`` and Season connection links cleared, which
+also satisfies the ``RESTRICT`` on ``seasons.provider_connection_id``) before
+the workspace row cascades. ``sync_runs.provider_connection_id`` is
 ``SET NULL``, so connection-linked runs that would not disappear with a
 Season are deleted explicitly instead of being orphaned.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.auth_models import User, UserRole
@@ -28,6 +29,7 @@ from app.db.platform_models import (
     ProviderLeagueClaim,
     WorkspaceDeletionRecord,
 )
+from app.repositories.league_access_repository import LeagueAccessRepository
 
 
 class WorkspaceDeletionRepository:
@@ -120,16 +122,52 @@ class WorkspaceDeletionRepository:
 
         return int(result.rowcount or 0)
 
-    def delete_leagues(self, workspace_id: int) -> int:
-        """Delete workspace leagues; seasons and domain data cascade."""
+    def detach_leagues(self, workspace_id: int) -> int:
+        """Release this workspace's hold on its canonical Leagues; never delete them.
 
-        result = self.session.execute(
-            delete(League)
-            .where(League.installation_id == workspace_id)
+        Leagues are shared (ADR 0010). Under each League lock, the Season links to
+        this workspace's connections and ``installation_id`` are cleared so the
+        Installation delete cannot cascade into shared data, and a League with no
+        active personal access enters orphan retention.
+        """
+
+        claimed = select(ProviderLeagueClaim.league_id).where(
+            ProviderLeagueClaim.workspace_id == workspace_id,
+            ProviderLeagueClaim.league_id.is_not(None),
+        )
+        league_ids = list(
+            self.session.scalars(
+                select(League.id)
+                .where(or_(League.installation_id == workspace_id, League.id.in_(claimed)))
+                .order_by(League.id)
+                .with_for_update()
+            )
+        )
+
+        if not league_ids:
+            return 0
+
+        self.session.execute(
+            update(Season)
+            .where(
+                Season.league_id.in_(league_ids),
+                Season.provider_connection_id.in_(self._connection_ids(workspace_id)),
+            )
+            .values(provider_connection_id=None)
+            .execution_options(synchronize_session=False)
+        )
+        self.session.execute(
+            update(League)
+            .where(League.id.in_(league_ids), League.installation_id == workspace_id)
+            .values(installation_id=None)
             .execution_options(synchronize_session=False)
         )
 
-        return int(result.rowcount or 0)
+        access = LeagueAccessRepository(self.session)
+        for league_id in league_ids:
+            access.mark_league_orphaned(league_id=league_id, orphaned_at=datetime.now(UTC))
+
+        return len(league_ids)
 
     def count_seasons_referencing_connections(self, workspace_id: int) -> int:
         return int(

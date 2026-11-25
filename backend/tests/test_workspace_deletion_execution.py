@@ -540,7 +540,7 @@ def test_exhausted_retries_leave_workspace_pending_and_operator_can_reenqueue(
     before = owned_row_counts(graph)
     monkeypatch.setattr(
         WorkspaceDeletionRepository,
-        "delete_leagues",
+        "detach_leagues",
         lambda self, workspace_id: (_ for _ in ()).throw(
             OperationalError("lock timeout", {}, Exception())
         ),
@@ -610,13 +610,13 @@ def test_heartbeat_blocked_by_deletion_is_recognized_as_success(
 ) -> None:
     graph = graphs()
     job_id = enqueue_deletion_job(graph)
-    original = WorkspaceDeletionRepository.delete_leagues
+    original = WorkspaceDeletionRepository.detach_leagues
 
     def slow_delete(self, workspace_id: int) -> int:
         time.sleep(0.5)  # let the heartbeat block on the locked job row
         return original(self, workspace_id)
 
-    monkeypatch.setattr(WorkspaceDeletionRepository, "delete_leagues", slow_delete)
+    monkeypatch.setattr(WorkspaceDeletionRepository, "detach_leagues", slow_delete)
 
     result = run_worker(graph.scheduled_for, heartbeat_interval=timedelta(milliseconds=50))
 

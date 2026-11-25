@@ -26,7 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.settings import Settings
-from app.db.models import League, Matchup, Season, Team
+from app.db.models import Matchup, Season, Team
 from app.db.platform_enums import (
     BackgroundJobStatus,
     BackgroundJobType,
@@ -48,6 +48,7 @@ from app.providers.domain import ProviderLeague
 from app.providers.espn.client import credentials_from_values
 from app.providers.registry import ProviderRegistry
 from app.repositories.background_job_repository import BackgroundJobRepository
+from app.repositories.league_access_repository import LeagueAccessRepository
 from app.repositories.provider_league_claim_repository import (
     ProviderLeagueClaimRepository,
     normalize_provider_league_id,
@@ -529,22 +530,30 @@ class InitialWorkspaceSyncHandler:
                     "provider_target_unavailable", "The connected league is unavailable."
                 )
 
-            league = session.get(League, claim.league_id) if claim.league_id is not None else None
+            # The claim only reserves the provider identity for this workspace;
+            # the canonical League is resolved through that identity and shared.
+            league = LeagueAccessRepository(session).lock_or_create_league(
+                provider=connection.provider,
+                provider_league_id=claim.normalized_provider_league_id,
+                name=snapshot.name,
+            )
 
-            if league is not None and league.installation_id != workspace_id:
+            if claim.league_id not in (None, league.id):
                 raise _job_error(
                     "workspace_ownership_mismatch",
                     "The connected league does not belong to this workspace.",
                 )
 
-            if league is None:
-                league = League(
-                    installation_id=workspace_id,
-                    provider=connection.provider,
-                    provider_league_id=claim.normalized_provider_league_id,
+            # installation_id is compatibility metadata for this claim only:
+            # set when empty, never reassigned from another workspace.
+            if league.installation_id not in (None, workspace_id):
+                raise _job_error(
+                    "workspace_ownership_mismatch",
+                    "The connected league does not belong to this workspace.",
                 )
-                session.add(league)
 
+            league.installation_id = workspace_id
+            league.orphaned_at = None
             league.sport = snapshot.sport
             league.name = snapshot.name
             league.logo_url = snapshot.logo_url
@@ -566,6 +575,22 @@ class InitialWorkspaceSyncHandler:
                     status=SeasonStatus.DRAFT,
                 )
                 session.add(season)
+
+            current_connection = (
+                session.get(ProviderConnection, season.provider_connection_id)
+                if season.provider_connection_id is not None
+                else None
+            )
+
+            # Never take over a Season's credential link from another owner.
+            if (
+                current_connection is not None
+                and current_connection.installation_id != workspace_id
+            ):
+                raise _job_error(
+                    "workspace_ownership_mismatch",
+                    "The connected league does not belong to this workspace.",
+                )
 
             season.provider_connection_id = connection.id
             season.provider_season_id = snapshot.provider_season_id

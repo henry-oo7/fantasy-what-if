@@ -35,7 +35,12 @@ from app.db.platform_enums import (
     UserSeasonAccessStatus,
     UserSeasonProofMode,
 )
-from app.db.platform_models import BackgroundJob, Installation, ProviderConnection
+from app.db.platform_models import (
+    BackgroundJob,
+    Installation,
+    ProviderConnection,
+    ProviderLeagueClaim,
+)
 from app.db.session import SessionFactory
 from app.providers.domain import ProviderCredentials
 from app.providers.registry import ProviderRegistry
@@ -693,6 +698,31 @@ def test_workspace_gaining_personal_access_during_fetch_blocks_fallback_persiste
     assert canonical_state(graph) == before
 
 
+def test_workspace_claim_removed_during_fetch_blocks_fallback_persistence(
+    make_graph: Callable[[], SyncGraph],
+) -> None:
+    graph = make_graph()
+    before = canonical_state(graph)
+
+    def remove_claim(call: str) -> None:
+        if call == "fetch_matchups":
+            with SessionFactory() as session:
+                session.execute(
+                    delete(ProviderLeagueClaim).where(
+                        ProviderLeagueClaim.workspace_id == graph.workspace_id
+                    )
+                )
+                session.commit()
+
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        sync(graph, RecordingProvider(adapter(graph, before_call=remove_claim)))
+
+    # installation_id is unchanged, but without the claim the workspace
+    # credential no longer authorizes persistence.
+    assert raised.value.safe_error_code == "provider_connection_changed"
+    assert canonical_state(graph) == before
+
+
 # --------------------------------------------------------------------------
 # Transaction boundaries on the personal path
 # --------------------------------------------------------------------------
@@ -1161,3 +1191,143 @@ def test_installation_workspace_is_derived_not_supplied(
 
     with SessionFactory() as session:
         assert session.get(Installation, graph.workspace_id) is not None
+
+
+# --------------------------------------------------------------------------
+# After final workspace deletion (ADR 0010 compatibility boundary)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def workspace_season(personal: Personal) -> Iterator[Callable[..., PersonalSeason]]:
+    """A workspace-created League/Season, optionally with personal access, then deleted."""
+
+    from tests.support.workspace_deletion_graph import (
+        cleanup_graphs,
+        create_deletion_graph,
+        enqueue_deletion_job,
+    )
+    from tests.test_workspace_deletion_execution import run_worker as run_deletion
+
+    created: list[int] = []
+
+    def create(*, member: dict[str, Any] | None = None, delete: bool = True) -> PersonalSeason:
+        graph = create_deletion_graph(seasons=1)
+        created.append(graph.workspace_id)
+        target = PersonalSeason(graph.league_id, graph.season_ids[0], graph.provider_league_id)
+        personal.leagues.append(graph.league_id)
+        target.graph = graph  # type: ignore[attr-defined]
+
+        if member is not None:
+            target.member = personal.member(target, **member)  # type: ignore[attr-defined]
+
+        if delete:
+            enqueue_deletion_job(graph)
+            assert run_deletion(graph.scheduled_for).succeeded
+
+        return target
+
+    yield create
+    personal.cleanup()
+    cleanup_graphs(created)
+
+
+def assert_workspace_authority_gone(target: PersonalSeason) -> None:
+    graph = target.graph  # type: ignore[attr-defined]
+
+    with SessionFactory() as session:
+        league = session.get(League, target.league_id)
+        assert league is not None and league.installation_id is None
+        assert session.get(Installation, graph.workspace_id) is None
+        assert session.get(ProviderConnection, graph.connection_id) is None
+        assert session.get(Season, target.season_id).provider_connection_id is None
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(ProviderLeagueClaim)
+                .where(ProviderLeagueClaim.id == graph.claim_id)
+            )
+            == 0
+        )
+
+
+def test_deleted_workspace_fallback_cannot_be_selected(
+    workspace_season: Callable[..., PersonalSeason],
+) -> None:
+    target = workspace_season()
+    assert_workspace_authority_gone(target)
+    before = team_ids(target.season_id)
+    blocked = adapter(target, "blocked")
+    recording = RecordingProvider(blocked)
+
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        sync(target, recording)
+
+    assert raised.value.safe_error_code == "provider_reverification_required"
+    assert recording.credentials == [] and blocked.calls == []
+    assert team_ids(target.season_id) == before
+    season = season_row(target.season_id)
+    assert season.sync_state in {SeasonSyncState.STALE, SeasonSyncState.FAILED}
+    assert season.last_sync_failure_code == "provider_reverification_required"
+    assert_workspace_authority_gone(target)  # nothing was revived
+
+
+def test_personal_connection_synchronizes_after_workspace_deletion(
+    workspace_season: Callable[..., PersonalSeason],
+) -> None:
+    target = workspace_season(member={"validated_at": datetime.now(UTC)})
+    member: Member = target.member  # type: ignore[attr-defined]
+    assert_workspace_authority_gone(target)
+    recording = RecordingProvider(adapter(target, "after-deletion"))
+
+    result = sync(target, recording)
+
+    assert recording.credentials[0]["swid"] == member.swid
+    assert str(target.graph.provider_league_id) == recording.credentials[0]["league_id"]  # type: ignore[attr-defined]
+    for private in (member.email, member.display_name, member.swid, member.espn_s2):
+        assert private not in repr(result)
+    # No SyncRun is linked to a (deleted) workspace connection.
+    assert all(run.provider_connection_id is None for run in sync_runs(target.season_id))
+
+
+def test_public_season_synchronizes_anonymously_after_workspace_deletion(
+    workspace_season: Callable[..., PersonalSeason],
+) -> None:
+    target = workspace_season(member={"proof": UserSeasonProofMode.PUBLIC})
+    assert_workspace_authority_gone(target)
+    recording = RecordingProvider(adapter(target, "public"))
+
+    sync(target, recording)
+
+    assert set(recording.credentials[0]) == {"league_id", "season"}
+    with SessionFactory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(UserLeagueSeasonAccess)
+                .where(UserLeagueSeasonAccess.season_id == target.season_id)
+            )
+            == 1
+        )
+
+
+def test_private_season_without_eligible_connection_is_stale_after_workspace_deletion(
+    workspace_season: Callable[..., PersonalSeason],
+) -> None:
+    target = workspace_season(member={"connection_active": False})
+    assert_workspace_authority_gone(target)
+    before = team_ids(target.season_id)
+    blocked = adapter(target, "blocked")
+    recording = RecordingProvider(blocked)
+
+    with pytest.raises(BackgroundJobExecutionError) as raised:
+        sync(target, recording)
+
+    assert raised.value.safe_error_code == "provider_reverification_required"
+    assert recording.credentials == [] and blocked.calls == []
+    assert team_ids(target.season_id) == before
+    season = season_row(target.season_id)
+    assert season.sync_state in {SeasonSyncState.STALE, SeasonSyncState.FAILED}
+    assert season.last_sync_failure_code == "provider_reverification_required"
+    with SessionFactory() as session:
+        assert session.get(League, target.league_id).orphaned_at is None  # access still exists

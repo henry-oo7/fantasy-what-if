@@ -42,6 +42,7 @@ from app.providers.credential_vault import (
 from app.providers.domain import ProviderCredentials
 from app.providers.errors import ProviderNotSupportedError
 from app.providers.registry import ProviderRegistry
+from app.repositories.provider_league_claim_repository import workspace_league_condition
 from app.repositories.provider_sync_repository import ProviderSyncRepository
 from app.services.provider_adapter_resolver import (
     build_provider_registry,
@@ -436,7 +437,7 @@ def _persist_import(
 
 
 def _single_league(session: Session, *, workspace_id: int, lock: bool) -> League:
-    statement = select(League).where(League.installation_id == workspace_id).order_by(League.id)
+    statement = select(League).where(workspace_league_condition(workspace_id)).order_by(League.id)
 
     if lock:
         statement = statement.with_for_update()
