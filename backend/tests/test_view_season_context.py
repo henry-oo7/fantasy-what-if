@@ -78,6 +78,9 @@ def configured_session(
         raise AssertionError(f"Unexpected lookup: {model_type} {model_id}")
 
     session.get.side_effect = get_model
+    session.scalar.side_effect = lambda *_: (
+        league if league is not None and league.installation_id == current_installation.id else None
+    )
     session.execute.return_value.first.return_value = historical_result
 
     return session

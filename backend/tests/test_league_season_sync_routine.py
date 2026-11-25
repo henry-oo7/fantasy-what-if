@@ -28,7 +28,7 @@ from app.db.platform_enums import (
     FantasyProvider,
     SeasonSyncState,
 )
-from app.db.platform_models import BackgroundJob
+from app.db.platform_models import BackgroundJob, ProviderLeagueClaim
 from app.db.session import SessionFactory
 from app.main import app
 from app.repositories.background_job_repository import BackgroundJobRepository
@@ -98,6 +98,22 @@ def make_season(session: Session, *, installation_id: int | None = None) -> Seas
     session.flush()
 
     return season
+
+
+def claim_season_league(session: Session, *, workspace_id: int, season: Season) -> None:
+    """The workspace's temporary claim, which backs League.installation_id."""
+
+    league = session.get(League, season.league_id)
+    session.add(
+        ProviderLeagueClaim(
+            workspace_id=workspace_id,
+            league_id=league.id,
+            provider=league.provider,
+            provider_league_id=league.provider_league_id,
+            normalized_provider_league_id=league.provider_league_id,
+        )
+    )
+    session.flush()
 
 
 _DEFAULT_KEY = object()
@@ -329,9 +345,18 @@ def test_legacy_and_email_jobs_remain_accepted(database_session: Session) -> Non
 # --------------------------------------------------------------------------
 
 
+def test_enqueue_without_a_backing_claim_carries_no_workspace(database_session: Session) -> None:
+    workspace = make_workspace(database_session)
+    season = make_season(database_session, installation_id=workspace.id)
+
+    # installation_id alone is compatibility metadata, not workspace authority.
+    assert enqueue_season_sync(database_session, season_id=season.id).job.workspace_id is None
+
+
 def test_enqueue_creates_job_and_queues_season(database_session: Session) -> None:
     workspace = make_workspace(database_session)
     season = make_season(database_session, installation_id=workspace.id)
+    claim_season_league(database_session, workspace_id=workspace.id, season=season)
 
     result = enqueue_season_sync(database_session, season_id=season.id)
 

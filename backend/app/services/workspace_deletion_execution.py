@@ -174,8 +174,8 @@ def execute_workspace_deletion(
     # 3. Connection-linked sync runs, including nullable-season runs.
     repository.delete_connection_sync_runs(workspace_id)
 
-    # 4. Leagues; seasons and imported domain data cascade.
-    repository.delete_leagues(workspace_id)
+    # 4. Shared Leagues are detached, never deleted; unaccessed ones are orphaned.
+    repository.detach_leagues(workspace_id)
 
     # 5. The RESTRICT reference must be gone before connections cascade.
     if repository.count_seasons_referencing_connections(workspace_id):

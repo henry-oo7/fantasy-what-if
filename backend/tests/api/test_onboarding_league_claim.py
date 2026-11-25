@@ -616,12 +616,8 @@ def test_duplicate_claim_returns_safe_conflict_and_removes_loser(
         assert me.json() == {"detail": "Authentication is required."}
 
 
-def test_concurrent_claims_from_two_workspaces_have_one_winner(
-    seed: Callable[..., Seeded],
-) -> None:
-    first = seed(league_id="888888")
-    second = seed(league_id="888888")
-    counts_before = data_counts()
+def claim_race(first: Seeded, second: Seeded) -> list[Any]:
+    """Run both claims concurrently, deterministically (table lock + pg_locks wait)."""
 
     # A separate PostgreSQL connection blocks claim inserts until both
     # claim transactions have locked their workspaces and are waiting.
@@ -670,6 +666,18 @@ def test_concurrent_claims_from_two_workspaces_have_one_winner(
     for thread in threads:
         thread.join(timeout=30)
 
+    return results
+
+
+def test_concurrent_claims_from_two_workspaces_have_one_winner(
+    seed: Callable[..., Seeded],
+) -> None:
+    first = seed(league_id="888888")
+    second = seed(league_id="888888")
+    counts_before = data_counts()
+
+    results = claim_race(first, second)
+
     statuses = sorted(response.status_code for response in results)
     assert statuses == [200, 409]
 
@@ -682,6 +690,99 @@ def test_concurrent_claims_from_two_workspaces_have_one_winner(
     assert stage_of(winner.workspace_id) is OnboardingStage.INITIAL_SYNC_PENDING
     assert residual_rows(loser) == NOTHING_LEFT
     assert data_counts() == counts_before
+
+
+def test_claim_race_preserves_canonical_and_personal_data(
+    seed: Callable[..., Seeded],
+) -> None:
+    from app.db.league_access_models import UserLeagueSeasonAccess
+    from app.db.platform_enums import UserSeasonProofMode
+    from app.repositories.league_access_repository import LeagueAccessRepository
+
+    identity = "555556"
+    first, second = seed(league_id=identity), seed(league_id=identity)
+
+    # Canonical League, Season, personal user, personal connection and access
+    # exist first (as a future personal import would leave them).
+    with SessionFactory() as session:
+        repository = LeagueAccessRepository(session)
+        league = repository.lock_or_create_league(
+            provider=FantasyProvider.ESPN, provider_league_id=identity, name="Canonical"
+        )
+        season = Season(league_id=league.id, year=2024, current_week=1, regular_season_weeks=14)
+        user = User(
+            username=f"personal-{uuid4().hex[:10]}",
+            display_name="Personal",
+            password_hash="$argon2id$synthetic",
+            role=UserRole.SPECTATOR,
+        )
+        session.add_all([season, user])
+        session.flush()
+        connection = ProviderConnection(
+            user_id=user.id, provider=FantasyProvider.ESPN, display_name="Personal"
+        )
+        session.add(connection)
+        session.flush()
+        repository.create_or_get_access(
+            user_id=user.id,
+            season_id=season.id,
+            proof_mode=UserSeasonProofMode.PRIVATE_CREDENTIALS,
+            provider_connection_id=connection.id,
+            verified_at=datetime.now(UTC),
+        )
+        session.commit()
+        league_id, season_id, user_id, connection_id = league.id, season.id, user.id, connection.id
+
+    def shared_state() -> tuple[int, ...]:
+        with SessionFactory() as session:
+            return tuple(
+                int(session.scalar(statement) or 0)
+                for statement in (
+                    select(func.count())
+                    .select_from(League)
+                    .where(League.provider_league_id == identity),
+                    select(func.count()).select_from(Season).where(Season.league_id == league_id),
+                    select(func.count())
+                    .select_from(UserLeagueSeasonAccess)
+                    .where(
+                        UserLeagueSeasonAccess.user_id == user_id,
+                        UserLeagueSeasonAccess.season_id == season_id,
+                        UserLeagueSeasonAccess.provider_connection_id == connection_id,
+                    ),
+                    select(func.count())
+                    .select_from(ProviderConnection)
+                    .where(ProviderConnection.id == connection_id),
+                )
+            )
+
+    try:
+        assert shared_state() == (1, 1, 1, 1)
+
+        results = claim_race(first, second)
+
+        assert sorted(response.status_code for response in results) == [200, 409]
+        winner, loser = (first, second) if results[0].status_code == 200 else (second, first)
+        losing_response = results[1] if winner is first else results[0]
+        assert losing_response.json() == CONFLICT
+        assert_discloses_nothing(losing_response.text, winner)
+
+        assert claims_for_league(identity) == 1
+        assert stage_of(winner.workspace_id) is OnboardingStage.INITIAL_SYNC_PENDING
+        assert residual_rows(loser) == NOTHING_LEFT
+        assert shared_state() == (1, 1, 1, 1)
+        with SessionFactory() as session:
+            assert session.get(League, league_id).installation_id is None
+    finally:
+        with SessionFactory() as session:
+            session.execute(
+                text("DELETE FROM user_league_season_access WHERE user_id = :id"), {"id": user_id}
+            )
+            session.execute(text("DELETE FROM leagues WHERE id = :id"), {"id": league_id})
+            session.execute(
+                text("DELETE FROM provider_connections WHERE id = :id"), {"id": connection_id}
+            )
+            session.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+            session.commit()
 
 
 def test_season_is_not_part_of_claim_identity(seed: Callable[..., Seeded]) -> None:

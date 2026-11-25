@@ -233,6 +233,16 @@ def test_inactive_season_is_rejected() -> None:
         )
 
 
+@pytest.fixture(autouse=True)
+def claim_backed_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These fakes model the object graph; the claim query is proven on PostgreSQL elsewhere."""
+
+    monkeypatch.setattr(
+        "app.services.background_job_handlers.claimed_workspace_id",
+        lambda session, league: league.installation_id,
+    )
+
+
 class RecordingSession:
     def __init__(self, events: list[str]) -> None:
         self.events = events

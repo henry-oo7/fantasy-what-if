@@ -27,6 +27,7 @@ from tests.support.workspace_deletion_graph import (
     deletion_records,
     enqueue_deletion_job,
     owned_row_counts,
+    shared_row_counts,
 )
 
 SEASONS = 8
@@ -53,7 +54,8 @@ def test_large_workspace_deletes_in_one_practical_transaction(
     record_property,
 ) -> None:
     job_id = enqueue_deletion_job(large_graph)
-    before = owned_row_counts(large_graph)
+    owned = owned_row_counts(large_graph)
+    before = shared_row_counts(large_graph)
     assert before["player_week_scores"] == SEASONS * TEAMS * WEEKS * PLAYERS_PER_TEAM
 
     now = large_graph.scheduled_for + timedelta(seconds=1)
@@ -74,7 +76,7 @@ def test_large_workspace_deletes_in_one_practical_transaction(
     handler(snapshot)
     duration = time.perf_counter() - started
 
-    total_rows = sum(before.values())
+    total_rows = sum(owned.values()) + sum(before.values())
     record_property("deletion_seconds", round(duration, 3))
     record_property("fixture_rows", total_rows)
     print(
@@ -87,5 +89,6 @@ def test_large_workspace_deletes_in_one_practical_transaction(
     )
 
     assert all(count == 0 for count in owned_row_counts(large_graph).values())
+    assert shared_row_counts(large_graph) == before  # shared canonical data survives
     assert len(deletion_records(large_graph.workspace_id)) == 1
     assert duration < GENEROUS_THRESHOLD_SECONDS

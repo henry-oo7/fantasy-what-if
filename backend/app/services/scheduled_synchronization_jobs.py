@@ -16,6 +16,7 @@ from app.db.platform_enums import (
     WorkspaceRegistrationStatus,
 )
 from app.db.platform_models import Installation
+from app.repositories.provider_league_claim_repository import workspace_league_condition
 from app.services.season_sync_jobs import enqueue_season_sync
 
 SCHEDULED_SYNC_PRIORITY = 25
@@ -83,7 +84,7 @@ def list_scheduled_synchronization_targets(
                 Installation.registration_status == WorkspaceRegistrationStatus.ACTIVE,
             ),
             Installation.active_league_id == League.id,
-            League.installation_id == Installation.id,
+            workspace_league_condition(Installation.id),
             Season.status == SeasonStatus.ACTIVE,
         )
         .order_by(

@@ -11,6 +11,7 @@ from app.db.models import (
     Team,
 )
 from app.domain.league import LeagueSnapshot, MatchupSnapshot, TeamSnapshot
+from app.repositories.provider_league_claim_repository import workspace_league_condition
 
 
 def load_league_snapshot(
@@ -134,7 +135,7 @@ def list_imported_seasons(
             League,
             League.id == Season.league_id,
         )
-        .where(League.installation_id == installation_id)
+        .where(workspace_league_condition(installation_id))
         .order_by(
             Season.year.desc(),
             Season.id.desc(),

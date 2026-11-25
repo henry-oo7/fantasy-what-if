@@ -138,7 +138,7 @@ def render_transactional_email(
         case Event.WORKSPACE_DELETION_COMPLETED:
             return _compose(
                 subject=f"Your {PRODUCT_NAME} workspace was deleted",
-                paragraphs=("Your league workspace and its data were permanently deleted.",),
+                paragraphs=("Your league workspace and its accounts were permanently deleted.",),
                 closing="No further action is needed.",
             )
         case Event.WORKSPACE_DELETION_CANCELED:

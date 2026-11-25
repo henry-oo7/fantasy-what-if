@@ -26,6 +26,7 @@ from app.repositories.background_job_repository import (
     BackgroundJobRepository,
     EnqueueBackgroundJobResult,
 )
+from app.repositories.provider_league_claim_repository import workspace_league_condition
 from app.services.season_sync_state import mark_failed, mark_queued, mark_requeued
 from app.services.synchronization_job_contract import (
     SEASON_SYNC_PAYLOAD_VERSION,
@@ -58,10 +59,12 @@ def enqueue_season_sync(
     applies when a new job is created.
     """
 
+    # The column is passed as the workspace: NULL, or a workspace without a
+    # backing claim, yields no row, so the job carries no workspace.
     workspace_id = session.scalar(
         select(League.installation_id)
         .join(Season, Season.league_id == League.id)
-        .where(Season.id == season_id)
+        .where(Season.id == season_id, workspace_league_condition(League.installation_id))
     )
 
     if workspace_id is not None:

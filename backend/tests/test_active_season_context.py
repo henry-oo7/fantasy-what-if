@@ -58,6 +58,13 @@ def configured_session(
         raise AssertionError(f"Unexpected model lookup: {model_type} {model_id}")
 
     session.get.side_effect = get_model
+    # Claim-based workspace lookup is proven against PostgreSQL elsewhere; here it
+    # only models the League/installation match.
+    session.scalar.side_effect = lambda *_: (
+        league
+        if league is not None and league.installation_id in {i.id for i in installations}
+        else None
+    )
 
     return session
 
