@@ -58,8 +58,19 @@ class EspnPrivateAccess:
 
 
 @dataclass(frozen=True, slots=True)
+class EspnLeagueMetadata:
+    """Provider-verified fields needed to create a canonical League and Season."""
+
+    name: str
+    current_week: int
+    regular_season_weeks: int
+
+
+@dataclass(frozen=True, slots=True)
 class EspnLeagueAccessResult:
     outcome: EspnLeagueAccessOutcome
+    # Present only when accessible and every required field was returned.
+    metadata: EspnLeagueMetadata | None = None
 
     @property
     def accessible(self) -> bool:
@@ -131,8 +142,13 @@ def check_espn_league_access(
         is_last_attempt = index == len(attempts) - 1
 
         if status == 200:
-            if _is_expected_league(response, expected_id, season_year):
-                return _result(EspnLeagueAccessOutcome.ACCESSIBLE)
+            body = _expected_league_body(response, expected_id, season_year)
+
+            if body is not None:
+                return EspnLeagueAccessResult(
+                    outcome=EspnLeagueAccessOutcome.ACCESSIBLE,
+                    metadata=_league_metadata(body, season_year),
+                )
 
             return _result(EspnLeagueAccessOutcome.TARGET_UNAVAILABLE)
 
@@ -173,17 +189,17 @@ def _result(outcome: EspnLeagueAccessOutcome) -> EspnLeagueAccessResult:
     return EspnLeagueAccessResult(outcome=outcome)
 
 
-def _is_expected_league(
+def _expected_league_body(
     response: EspnResponse,
     expected_id: int,
     season_year: int,
-) -> bool:
-    """Require the exact league and season plus a settings object."""
+) -> dict[str, Any] | None:
+    """Return the season document when it is the exact league and season with settings."""
 
     try:
         body = response.json()
     except Exception:
-        return False
+        return None
 
     # The league-history endpoint returns a list of season documents.
     if isinstance(body, list):
@@ -192,22 +208,70 @@ def _is_expected_league(
         ]
 
         if len(matches) != 1:
-            return False
+            return None
 
         body = matches[0]
 
     if not isinstance(body, dict):
-        return False
+        return None
 
     league_id = body.get("id")
     returned_season = body.get("seasonId")
     settings = body.get("settings")
 
-    return (
-        isinstance(league_id, int)
-        and not isinstance(league_id, bool)
+    if (
+        _is_int(league_id)
         and league_id == expected_id
         and returned_season == season_year
         and isinstance(settings, dict)
         and isinstance(settings.get("name"), str)
+    ):
+        return body
+
+    return None
+
+
+def _league_metadata(body: dict[str, Any], season_year: int) -> EspnLeagueMetadata | None:
+    """Read name, current week and regular-season length as the espn-api library does.
+
+    Returns None rather than guessing when any field is missing or malformed.
+    """
+
+    settings = body["settings"]
+    name = settings["name"].strip()
+    schedule = settings.get("scheduleSettings")
+    status = body.get("status")
+    scoring_period = body.get("scoringPeriodId")
+    regular_season_weeks = (
+        schedule.get("matchupPeriodCount") if isinstance(schedule, dict) else None
     )
+
+    if (
+        not name
+        or len(name) > 255
+        or not _is_int(scoring_period)
+        or scoring_period < 0
+        or not _is_int(regular_season_weeks)
+        or regular_season_weeks < 1
+    ):
+        return None
+
+    current_week = scoring_period
+
+    if season_year >= FIRST_SEASON_ENDPOINT_YEAR:
+        final_period = status.get("finalScoringPeriod") if isinstance(status, dict) else None
+
+        if not _is_int(final_period):
+            return None
+
+        current_week = min(scoring_period, final_period)
+
+    return EspnLeagueMetadata(
+        name=name,
+        current_week=current_week,
+        regular_season_weeks=regular_season_weeks,
+    )
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)

@@ -8,6 +8,27 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from app.db.platform_enums import BackgroundJobStatus, OnboardingStage, ProviderAccessMode
 
 MINIMUM_SEASON_YEAR = 2000
+MAXIMUM_SEASON_YEAR = 2100
+ESPN_LEAGUE_ID_PATTERN = r"^[0-9]+$"
+ESPN_LEAGUE_ID_MAX_LENGTH = 15
+
+
+def normalize_espn_league_id(value: str) -> str:
+    """Established ESPN identity: decimal digits, leading zeroes stripped (ADR 0010)."""
+
+    normalized = value.lstrip("0")
+
+    if not normalized:
+        raise ValueError("League ID must be a positive number.")
+
+    return normalized
+
+
+def reject_future_season_year(value: int) -> int:
+    if value > datetime.now(UTC).year:
+        raise ValueError("Season year cannot be in the future.")
+
+    return value
 
 
 class EspnPrivateCredentials(BaseModel):
@@ -39,27 +60,14 @@ class ProviderValidationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: str = Field(min_length=1, max_length=32)
-    league_id: str = Field(min_length=1, max_length=15, pattern=r"^[0-9]+$")
-    season_year: int = Field(ge=MINIMUM_SEASON_YEAR, le=2100)
+    league_id: str = Field(
+        min_length=1, max_length=ESPN_LEAGUE_ID_MAX_LENGTH, pattern=ESPN_LEAGUE_ID_PATTERN
+    )
+    season_year: int = Field(ge=MINIMUM_SEASON_YEAR, le=MAXIMUM_SEASON_YEAR)
     credentials: EspnPrivateCredentials | None = None
 
-    @field_validator("league_id")
-    @classmethod
-    def normalize_league_id(cls, value: str) -> str:
-        normalized = value.lstrip("0")
-
-        if not normalized:
-            raise ValueError("League ID must be a positive number.")
-
-        return normalized
-
-    @field_validator("season_year")
-    @classmethod
-    def reject_future_season(cls, value: int) -> int:
-        if value > datetime.now(UTC).year:
-            raise ValueError("Season year cannot be in the future.")
-
-        return value
+    _normalize_league_id = field_validator("league_id")(normalize_espn_league_id)
+    _reject_future_season = field_validator("season_year")(reject_future_season_year)
 
 
 class ProviderValidationResponse(BaseModel):
