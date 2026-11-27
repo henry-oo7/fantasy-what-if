@@ -1,7 +1,7 @@
 """Per-user League Season access and personal preferences (ADR 0010).
 
-Schema foundation only. No route or service reads these tables as
-authorization yet; the workspace model remains the active authority.
+Personal League and Season routes authorize through these rows. Workspace
+routes keep their temporary claim-backed authority and never read them.
 """
 
 from __future__ import annotations

@@ -153,7 +153,7 @@ When the last active access relation disappears the canonical league is marked o
 
 ### FR-19: Analytics Isolation
 
-Analytics, caches, exports, and derived results are keyed by season and returned only to users with active access to that season.
+Analytics, caches, exports, and derived results are keyed by season and returned only to users with readable access (`active` or `reverification_required`, under AR-1) to that season.
 
 ## Provider Requirements
 
@@ -193,7 +193,7 @@ Later work introduces canonical NFL player identity, provider player mappings, g
 
 ### AR-1: League-Season Context
 
-Every league-data request resolves an active access row for the authenticated user and season before reading data. Authorization never relies on selecting the first or only row, or on a client-supplied ID alone.
+Every league-data request resolves a readable access row (`active` or `reverification_required`) for the authenticated user and season before reading data. A `reverification_required` row serves prior successful data with a bounded indicator, or only the season summary when none exists. `revoked` is never readable. Synchronization eligibility, orphan retention, and destructive lifecycle decisions count only active access (`status = active`). Authorization never relies on selecting the first or only row, or on a client-supplied ID alone.
 
 ### AR-2: No Roles
 
@@ -211,7 +211,7 @@ Tests must prove, for every league-data endpoint, that:
 2. A guessed or known internal League or Season ID grants nothing.
 3. Another user's connection or access never authorizes a new user.
 4. Revoked and `reverification_required` access follow the documented behavior.
-5. User A cannot trigger or observe synchronization for a season without active access.
+5. User A cannot observe synchronization for a season without readable access, and no user's access counts toward synchronization credential eligibility unless it is active.
 6. Responses for inaccessible and nonexistent resources are indistinguishable.
 
 ## Session Requirements

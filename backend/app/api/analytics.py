@@ -66,17 +66,7 @@ def read_schedule_swap(
         Query(gt=0),
     ],
 ) -> ScheduleSwapResult:
-    try:
-        return calculate_schedule_swap(
-            snapshot,
-            first_team_id=first_team_id,
-            second_team_id=second_team_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        ) from exc
+    return schedule_swap_or_422(snapshot, first_team_id, second_team_id)
 
 
 @router.get("/league-average")
@@ -110,6 +100,33 @@ def read_team_optimal_lineup_summary(
         LeagueSnapshot,
         Depends(get_current_league_snapshot),
     ],
+) -> TeamOptimalLineupBreakdown:
+    return team_optimal_lineup_breakdown(team_id, summaries, snapshot)
+
+
+# Shared with the personal Season routes; callers authorize and load first.
+
+
+def schedule_swap_or_422(
+    snapshot: LeagueSnapshot, first_team_id: int, second_team_id: int
+) -> ScheduleSwapResult:
+    try:
+        return calculate_schedule_swap(
+            snapshot,
+            first_team_id=first_team_id,
+            second_team_id=second_team_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+
+def team_optimal_lineup_breakdown(
+    team_id: int,
+    summaries: tuple[TeamOptimalLineupSummary, ...],
+    snapshot: LeagueSnapshot,
 ) -> TeamOptimalLineupBreakdown:
     summary = next(
         (current_summary for current_summary in summaries if current_summary.team_id == team_id),

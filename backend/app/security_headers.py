@@ -42,13 +42,19 @@ NO_STORE_PREFIXES = (
     "/api/registration",
     "/api/onboarding",
     "/api/admin",
+    "/api/seasons",
+    "/api/preferences",
 )
+# Exact paths only: the personal League list (``/api/leagues/*`` stays workspace).
+NO_STORE_PATHS = frozenset({"/api/leagues"})
 
 
 def requires_no_store(path: str) -> bool:
     """Return whether a response may contain sensitive state."""
 
-    return any(path == prefix or path.startswith(prefix + "/") for prefix in NO_STORE_PREFIXES)
+    return path in NO_STORE_PATHS or any(
+        path == prefix or path.startswith(prefix + "/") for prefix in NO_STORE_PREFIXES
+    )
 
 
 def apply_security_headers(

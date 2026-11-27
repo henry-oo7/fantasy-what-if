@@ -159,6 +159,28 @@ def build_authentication_context(
     )
 
 
+def get_personal_authentication_context(
+    context: Annotated[
+        AuthenticationContext,
+        Depends(get_authentication_context),
+    ],
+) -> AuthenticationContext:
+    """Standard session of an active, email-verified user, for personal League routes.
+
+    Role and workspace are not consulted: per-Season access rows authorize
+    personal reads. Unverified accounts (every spectator) are refused before
+    any League Season is looked up, so the refusal reveals nothing about one.
+    """
+
+    if context.user.email_verified_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification is required.",
+        )
+
+    return context
+
+
 def get_current_user(
     context: Annotated[
         AuthenticationContext,

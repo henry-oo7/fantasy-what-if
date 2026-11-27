@@ -106,6 +106,8 @@ Per-user, per-season authorization on every league-data endpoint, uniform inacce
 
 Exit: cross-user suite passes for every league-data endpoint.
 
+Status: implemented on this branch without a migration as additive personal routes: `GET /api/leagues`, `GET /api/seasons/{season_id}` (safe access and sync state), Season-explicit snapshot, playoff-predictor and analytics reads under `/api/seasons/{season_id}/`, and `PUT /api/preferences/default-season`. `require_league_season_access` is the only authority: the user's own readable access row, `active` or `reverification_required` (the status is the bounded indicator), while synchronization eligibility and orphan retention still count only `active`; share-locked for the read's transaction so a concurrent revocation or deletion is authoritative. Missing, inaccessible and revoked Seasons return one identical 404. Data is served only after a recorded successful synchronization; otherwise the Season reports its `sync_state` and a 409. Transitional eligibility: a standard session of an active, email-verified user, role and workspace not consulted (spectators are never verified). A stale default preference is ignored on read and replaced only by explicit selection. Workspace routes, claims, `installation_id` and the sync fallback are unchanged. Deferred: periodic reverification, removal of workspace authority, and preference clearing on access removal (Branch 8).
+
 ### Branch 6: `feature/account-only-identity-cutover`
 
 Personal-account registration (display name, email, password, confirm), email-only login, concurrent sessions, all-session revocation on reset. Retire administrator and spectator login, workspace slug login, claim onboarding, spectator setup, and activation.
