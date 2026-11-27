@@ -1,41 +1,39 @@
 """Rehearsal of migration a3c9e5f1b7d2 (account-token delivery link, ADR 0009).
 
-Runs Alembic in a subprocess against the guarded ``_test`` database and always
+Runs Alembic in a subprocess against a disposable rehearsal database and always
 restores it to head, even on failure.
 """
 
-import os
 import subprocess
-import sys
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
-from app.db.session import engine
+from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "a3c9e5f1b7d2"
 PREVIOUS_REVISION = "d7f2b9a4c6e1"
 HEAD_REVISION = "b9e4c2d7a1f3"  # League-Season sync job; later than REVISION
-BACKEND_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ID = 990_301
 USER_ID = 990_301
 TABLES = ("email_verification_tokens", "password_reset_tokens")
 
 
+DB: RehearsalDatabase
+engine: Engine  # both bound to this module's disposable database by _bind_database
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _bind_database(migration_database: RehearsalDatabase) -> None:
+    global DB, engine
+    DB, engine = migration_database, migration_database.engine
+
+
 def alembic(*args: str) -> subprocess.CompletedProcess[str]:
-    engine.dispose()
-    return subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=BACKEND_DIR,
-        env=os.environ.copy(),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
+    return DB.alembic(*args)
 
 
 def current_revisions() -> list[str]:

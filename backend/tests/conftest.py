@@ -9,6 +9,7 @@ from app.api.auth_dependencies import get_current_user
 from app.db.auth_models import User, UserRole
 from app.db.session import engine
 from app.main import app
+from tests.support.migration_database import RehearsalDatabase, rehearsal_database
 
 
 def create_test_authenticated_user() -> User:
@@ -657,3 +658,11 @@ def authenticated_fantasy_routes() -> Iterator[None]:
             get_current_user,
             None,
         )
+
+
+@pytest.fixture(scope="module")
+def migration_database() -> Iterator[RehearsalDatabase]:
+    """A fresh disposable database at head for one migration-rehearsal module."""
+
+    with rehearsal_database() as database:
+        yield database

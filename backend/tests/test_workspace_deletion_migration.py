@@ -12,21 +12,18 @@ for every valid row, and are covered together by one case. The constraint is
 deliberately not bypassed to isolate them.
 """
 
-import os
 import subprocess
-import sys
 from collections.abc import Callable, Iterator
-from pathlib import Path
 
 import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 
-from app.db.session import engine
+from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "c4e8a1f7d3b9"
 PREVIOUS_REVISION = "b7d41e9c2a10"
 HEAD_REVISION = "b9e4c2d7a1f3"  # League-Season sync job; later than REVISION
-BACKEND_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ID = 990_101
 USER_ID = 990_101
 ORIGINAL_REVOCATION_REASONS = [
@@ -38,17 +35,18 @@ ORIGINAL_REVOCATION_REASONS = [
 ]
 
 
+DB: RehearsalDatabase
+engine: Engine  # both bound to this module's disposable database by _bind_database
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _bind_database(migration_database: RehearsalDatabase) -> None:
+    global DB, engine
+    DB, engine = migration_database, migration_database.engine
+
+
 def alembic(*args: str) -> subprocess.CompletedProcess[str]:
-    engine.dispose()
-    return subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=BACKEND_DIR,
-        env=os.environ.copy(),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
+    return DB.alembic(*args)
 
 
 def current_revisions() -> list[str]:
