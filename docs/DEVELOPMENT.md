@@ -441,6 +441,12 @@ Tests should:
 - Verify generic authentication failures
 - Verify authorization independently from response headers
 - Verify migration and schema assumptions
+- Run destructive migration rehearsals only through the `migration_database` fixture
+  (`backend/tests/support/migration_database.py`). It creates a disposable
+  `fwi_rehearsal_<12 hex>_test` database per module, drops it afterwards, and sweeps
+  databases left by killed runs. It needs a role with `CREATEDB` (the Compose and CI
+  `POSTGRES_USER` has it). Rehearsals must never downgrade `fantasy_what_if_test`:
+  dropped-column slots accumulate there until PostgreSQL's 1,600-slot limit is reached
 - Cover provider-specific mappings at provider boundaries
 - Cover canonical analytics behavior independently
 

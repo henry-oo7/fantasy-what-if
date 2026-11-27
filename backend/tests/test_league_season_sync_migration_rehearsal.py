@@ -5,21 +5,18 @@ Every test restores the database to head and removes its synthetic rows.
 
 # ruff: noqa: E501  (parameter table rows are kept on one line each)
 
-import os
 import subprocess
-import sys
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
-from app.db.session import engine
+from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "b9e4c2d7a1f3"
 PREVIOUS_REVISION = "f1b6d2c8a9e4"
-BACKEND_DIR = Path(__file__).resolve().parents[1]
 ID = 990_601
 SEASON_KEY = f"league-season-sync:{ID}"
 NEW_CHECKS = {
@@ -29,17 +26,18 @@ NEW_CHECKS = {
 WORKSPACE_CHECK = "ck_background_jobs_workspace_required_except_email"
 
 
+DB: RehearsalDatabase
+engine: Engine  # both bound to this module's disposable database by _bind_database
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _bind_database(migration_database: RehearsalDatabase) -> None:
+    global DB, engine
+    DB, engine = migration_database, migration_database.engine
+
+
 def alembic(*args: str) -> subprocess.CompletedProcess[str]:
-    engine.dispose()
-    return subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=BACKEND_DIR,
-        env=os.environ.copy(),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
+    return DB.alembic(*args)
 
 
 def execute(sql: str) -> None:

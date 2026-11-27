@@ -4,21 +4,18 @@ Runs Alembic in a subprocess against the guarded ``_test`` database and always
 restores it to head, even on failure.
 """
 
-import os
 import subprocess
-import sys
 from collections.abc import Callable, Iterator
-from pathlib import Path
 
 import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
 
-from app.db.session import engine
+from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "d7f2b9a4c6e1"
 PREVIOUS_REVISION = "c4e8a1f7d3b9"
 HEAD_REVISION = "b9e4c2d7a1f3"  # League-Season sync job; later than REVISION
-BACKEND_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ID = 990_201
 PREVIOUS_JOB_TYPES = [
     "initial_workspace_sync",
@@ -36,17 +33,18 @@ EMAIL_PAYLOAD = '\'{"version": 1, "delivery_id": 1}\'::jsonb'
 WORKSPACE_CHECK = "ck_background_jobs_workspace_required_except_email"
 
 
+DB: RehearsalDatabase
+engine: Engine  # both bound to this module's disposable database by _bind_database
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _bind_database(migration_database: RehearsalDatabase) -> None:
+    global DB, engine
+    DB, engine = migration_database, migration_database.engine
+
+
 def alembic(*args: str) -> subprocess.CompletedProcess[str]:
-    engine.dispose()
-    return subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=BACKEND_DIR,
-        env=os.environ.copy(),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
+    return DB.alembic(*args)
 
 
 def current_revisions() -> list[str]:
