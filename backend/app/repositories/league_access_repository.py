@@ -17,11 +17,16 @@ from app.db.league_access_models import UserLeagueSeasonAccess, UserPreference
 from app.db.models import League, Season
 from app.db.platform_enums import (
     FantasyProvider,
+    SeasonStatus,
+    SeasonSyncState,
     UserSeasonAccessStatus,
     UserSeasonProofMode,
 )
 from app.db.platform_models import ProviderConnection
-from app.repositories.provider_league_claim_repository import normalize_provider_league_id
+from app.repositories.provider_league_claim_repository import (
+    claimed_workspace_id,
+    normalize_provider_league_id,
+)
 
 
 class LeagueAccessRepository:
@@ -55,23 +60,61 @@ class LeagueAccessRepository:
 
         The unique identity index decides the race; ``ON CONFLICT DO NOTHING``
         targets only that index, so any other integrity failure still raises.
-        Never merges, deletes or reassigns an existing League.
+        Never merges, deletes or reassigns an existing League. If an orphan
+        purge deletes the row while this waits for its lock, the identity is
+        inserted again once.
         """
 
         normalized = normalize_provider_league_id(provider_league_id)
-        self.session.execute(
-            insert(League)
-            .values(provider=provider, provider_league_id=normalized, name=name)
-            .on_conflict_do_nothing(
-                index_elements=[League.provider, League.provider_league_id],
-                index_where=text("provider IS NOT NULL AND provider_league_id IS NOT NULL"),
+
+        for _ in range(2):
+            self.session.execute(
+                insert(League)
+                .values(provider=provider, provider_league_id=normalized, name=name)
+                .on_conflict_do_nothing(
+                    index_elements=[League.provider, League.provider_league_id],
+                    index_where=text("provider IS NOT NULL AND provider_league_id IS NOT NULL"),
+                )
             )
+            league = self.session.execute(
+                select(League)
+                .where(League.provider == provider, League.provider_league_id == normalized)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+
+            if league is not None:
+                return league
+
+        raise RuntimeError("The canonical League was deleted repeatedly while being locked.")
+
+    def create_or_get_season(
+        self, *, league_id: int, year: int, current_week: int, regular_season_weeks: int
+    ) -> Season:
+        """Return the League's Season for the year, inserting it only if absent.
+
+        ``ON CONFLICT`` targets only ``uq_seasons_league_year``; any other
+        integrity failure still raises. An existing Season is never modified:
+        synchronization owns its metadata.
+        """
+
+        self.session.execute(
+            insert(Season)
+            .values(
+                league_id=league_id,
+                year=year,
+                current_week=current_week,
+                regular_season_weeks=regular_season_weeks,
+                provider_season_id=str(year),
+                status=SeasonStatus.DRAFT,
+                sync_state=SeasonSyncState.NEVER_SYNCED,
+            )
+            .on_conflict_do_nothing(constraint="uq_seasons_league_year")
         )
 
         return self.session.execute(
-            select(League)
-            .where(League.provider == provider, League.provider_league_id == normalized)
-            .with_for_update()
+            select(Season)
+            .where(Season.league_id == league_id, Season.year == year)
             .execution_options(populate_existing=True)
         ).scalar_one()
 
@@ -149,10 +192,11 @@ class LeagueAccessRepository:
         )
 
     def mark_league_orphaned(self, *, league_id: int, orphaned_at: datetime) -> bool:
-        """Set ``orphaned_at`` only while the League has no active access."""
+        """Set ``orphaned_at`` only while the League has no active access and no
+        temporary workspace dependency (a matching claim). Keeps an earlier mark."""
 
         league = self.session.scalar(select(League).where(League.id == league_id).with_for_update())
-        if league is None:
+        if league is None or claimed_workspace_id(self.session, league) is not None:
             return False
 
         active = self.session.scalar(

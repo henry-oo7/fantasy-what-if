@@ -86,6 +86,8 @@ Proof-first import: T0 throttle, provider proof with no transaction, uniform fai
 
 Exit: concurrency tests yield one league, one season, one access row per user, and at most one active job. Failed proof persists nothing.
 
+Status: implemented on this branch without a migration as additive `POST /api/league-imports` (ESPN only). Transitional caller eligibility until the identity cutover: a verified, active administrator with a standard session in an active workspace. Access and private connections are user-owned; no `ProviderLeagueClaim` is read, created or changed. Workspace onboarding is unchanged. Final workspace deletion now also locks Leagues where its users hold active access and decides orphan state after its users cascade; a League with a matching workspace claim is never orphaned.
+
 ### Branch 4: `feature/league-season-sync-orchestration`
 
 Replace workspace synchronization with league-season synchronization: `league-season-sync:{season_id}` key, credential selection through active access and active user-owned connections, anonymous public synchronization, sync states, data-version comparison, and no secrets or owner identity in payloads or status.

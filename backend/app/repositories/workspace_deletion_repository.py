@@ -14,14 +14,19 @@ Season are deleted explicitly instead of being orphaned.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import delete, exists, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.auth_models import User, UserRole
+from app.db.league_access_models import UserLeagueSeasonAccess
 from app.db.models import League, Season, SyncRun
-from app.db.platform_enums import FantasyProvider, WorkspaceDeletionOutcome
+from app.db.platform_enums import (
+    FantasyProvider,
+    UserSeasonAccessStatus,
+    WorkspaceDeletionOutcome,
+)
 from app.db.platform_models import (
     BackgroundJob,
     Installation,
@@ -122,30 +127,48 @@ class WorkspaceDeletionRepository:
 
         return int(result.rowcount or 0)
 
-    def detach_leagues(self, workspace_id: int) -> int:
-        """Release this workspace's hold on its canonical Leagues; never delete them.
+    def detach_leagues(self, workspace_id: int) -> list[int]:
+        """Lock every canonical League this deletion affects and release this workspace's hold.
 
-        Leagues are shared (ADR 0010). Under each League lock, the Season links to
-        this workspace's connections and ``installation_id`` are cleared so the
-        Installation delete cannot cascade into shared data, and a League with no
-        active personal access enters orphan retention.
+        Affected Leagues are the ones this workspace owns or claims, plus the
+        ones where this workspace's users hold active personal access, which
+        disappears when those users cascade. Under the League locks (ID order)
+        the Season links to this workspace's connections and ``installation_id``
+        are cleared so the Installation delete cannot cascade into shared data.
+        Leagues are never deleted. Returns the locked IDs for
+        :meth:`mark_orphaned_leagues`, which must run after the cascade.
         """
 
         claimed = select(ProviderLeagueClaim.league_id).where(
             ProviderLeagueClaim.workspace_id == workspace_id,
             ProviderLeagueClaim.league_id.is_not(None),
         )
+        member_access = (
+            select(Season.league_id)
+            .join(UserLeagueSeasonAccess, UserLeagueSeasonAccess.season_id == Season.id)
+            .join(User, User.id == UserLeagueSeasonAccess.user_id)
+            .where(
+                User.workspace_id == workspace_id,
+                UserLeagueSeasonAccess.status == UserSeasonAccessStatus.ACTIVE,
+            )
+        )
         league_ids = list(
             self.session.scalars(
                 select(League.id)
-                .where(or_(League.installation_id == workspace_id, League.id.in_(claimed)))
+                .where(
+                    or_(
+                        League.installation_id == workspace_id,
+                        League.id.in_(claimed),
+                        League.id.in_(member_access),
+                    )
+                )
                 .order_by(League.id)
                 .with_for_update()
             )
         )
 
         if not league_ids:
-            return 0
+            return []
 
         self.session.execute(
             update(Season)
@@ -163,11 +186,18 @@ class WorkspaceDeletionRepository:
             .execution_options(synchronize_session=False)
         )
 
+        return league_ids
+
+    def mark_orphaned_leagues(self, league_ids: list[int], *, orphaned_at: datetime) -> None:
+        """Orphan each affected League left with no active access and no workspace dependency.
+
+        Runs after the workspace row cascaded its users and their access, while
+        the League locks from :meth:`detach_leagues` are still held.
+        """
+
         access = LeagueAccessRepository(self.session)
         for league_id in league_ids:
-            access.mark_league_orphaned(league_id=league_id, orphaned_at=datetime.now(UTC))
-
-        return len(league_ids)
+            access.mark_league_orphaned(league_id=league_id, orphaned_at=orphaned_at)
 
     def count_seasons_referencing_connections(self, workspace_id: int) -> int:
         return int(

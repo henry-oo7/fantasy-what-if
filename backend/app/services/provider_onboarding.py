@@ -46,6 +46,7 @@ from app.providers.credential_vault import (
 from app.providers.domain import ProviderCredentials
 from app.providers.espn.league_access import (
     EspnLeagueAccessOutcome,
+    EspnLeagueAccessResult,
     EspnPrivateAccess,
     HttpGet,
     check_espn_league_access,
@@ -273,7 +274,7 @@ def check_league_access(
     season_year: int,
     private_access: EspnPrivateAccess | None,
     http_get: HttpGet | None,
-) -> tuple[EspnLeagueAccessOutcome, ProviderAccessMode | None]:
+) -> tuple[EspnLeagueAccessResult, ProviderAccessMode | None]:
     """Anonymous first; submitted credentials are used only if ESPN requires them."""
 
     anonymous = check_espn_league_access(
@@ -284,13 +285,13 @@ def check_league_access(
 
     if anonymous.accessible:
         # Public: any submitted credentials are discarded unused.
-        return anonymous.outcome, ProviderAccessMode.PUBLIC
+        return anonymous, ProviderAccessMode.PUBLIC
 
     if (
         anonymous.outcome is not EspnLeagueAccessOutcome.CREDENTIALS_REQUIRED
         or private_access is None
     ):
-        return anonymous.outcome, None
+        return anonymous, None
 
     authenticated = check_espn_league_access(
         league_id=league_id,
@@ -300,9 +301,9 @@ def check_league_access(
     )
 
     if authenticated.accessible:
-        return authenticated.outcome, ProviderAccessMode.PRIVATE
+        return authenticated, ProviderAccessMode.PRIVATE
 
-    return authenticated.outcome, None
+    return authenticated, None
 
 
 def persist_validated_target(
@@ -325,23 +326,11 @@ def persist_validated_target(
     encrypted: str | None = None
     key_version: int | None = None
 
-    if access_mode is not ProviderAccessMode.PRIVATE:
-        private_access = None
-    else:
+    if access_mode is ProviderAccessMode.PRIVATE:
         if private_access is None:
             raise ValueError("Private access requires credentials.")
 
-        if not credential_keyring.configured:
-            raise _from_spec(ENCRYPTION_UNAVAILABLE)
-
-        key_version = credential_keyring.current_version
-        encrypted = ProviderCredentialVault(keys=credential_keyring.keys).encrypt(
-            provider=FantasyProvider.ESPN,
-            credentials=ProviderCredentials(
-                values={"swid": private_access.swid, "espn_s2": private_access.espn_s2}
-            ),
-            key_version=key_version,
-        )
+        encrypted, key_version = encrypt_espn_credentials(private_access, credential_keyring)
 
     connection = session.scalar(
         select(ProviderConnection).where(
@@ -367,6 +356,31 @@ def persist_validated_target(
 
     workspace.onboarding_stage = OnboardingStage.LEAGUE_CLAIM_PENDING
     session.flush()
+
+
+def encrypt_espn_credentials(
+    private_access: EspnPrivateAccess,
+    credential_keyring: ProviderCredentialKeyring,
+) -> tuple[str, int]:
+    """Encrypt ESPN cookies with the current keyring version; return ciphertext and version."""
+
+    if not credential_keyring.configured:
+        raise _from_spec(ENCRYPTION_UNAVAILABLE)
+
+    key_version = credential_keyring.current_version
+
+    try:
+        encrypted = ProviderCredentialVault(keys=credential_keyring.keys).encrypt(
+            provider=FantasyProvider.ESPN,
+            credentials=ProviderCredentials(
+                values={"swid": private_access.swid, "espn_s2": private_access.espn_s2}
+            ),
+            key_version=key_version,
+        )
+    except (ProviderCredentialError, ProviderCredentialKeyringConfigurationError) as exc:
+        raise _from_spec(ENCRYPTION_UNAVAILABLE) from exc
+
+    return encrypted, key_version
 
 
 def private_access_from_values(swid: str, espn_s2: str) -> EspnPrivateAccess:
@@ -434,12 +448,13 @@ def run_provider_validation(
             # Persist the counted attempt even when it is over the limit.
             session.commit()
 
-    outcome, access_mode = check_league_access(
+    result, access_mode = check_league_access(
         league_id=league_id,
         season_year=season_year,
         private_access=private_access,
         http_get=http_get,
     )
+    outcome = result.outcome
 
     if outcome is EspnLeagueAccessOutcome.CREDENTIALS_REQUIRED:
         with session_factory() as session:
