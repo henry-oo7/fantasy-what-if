@@ -1,12 +1,13 @@
 """Persistence primitives for per-user League Season access (ADR 0010).
 
-Schema-proving only: no route or service uses these as authorization yet.
-Every method takes explicit user and/or Season identifiers; none selects a
-"first" or "only" row.
+Personal League and Season reads authorize through these rows (see
+``app.services.league_season_authorization``). Every method takes explicit
+user and/or Season identifiers; none selects a "first" or "only" row.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 
 from sqlalchemy import func, select, text, update
@@ -177,6 +178,61 @@ class LeagueAccessRepository:
                 )
                 .order_by(UserLeagueSeasonAccess.id)
             )
+        )
+
+    def lock_user_season_access(
+        self,
+        *,
+        user_id: int,
+        season_id: int,
+        statuses: Collection[UserSeasonAccessStatus],
+    ) -> tuple[UserLeagueSeasonAccess, Season, League] | None:
+        """This user's access row for the Season, share-locked until the transaction ends.
+
+        The share lock makes a concurrent revocation or deletion of the row wait
+        for this transaction, and a read that waited on one re-checks the
+        committed status. Only the access row is locked.
+        """
+
+        row = self.session.execute(
+            select(UserLeagueSeasonAccess, Season, League)
+            .join(Season, Season.id == UserLeagueSeasonAccess.season_id)
+            .join(League, League.id == Season.league_id)
+            .where(
+                UserLeagueSeasonAccess.user_id == user_id,
+                UserLeagueSeasonAccess.season_id == season_id,
+                UserLeagueSeasonAccess.status.in_(statuses),
+            )
+            .with_for_update(read=True, of=UserLeagueSeasonAccess)
+        ).one_or_none()
+
+        return None if row is None else tuple(row)
+
+    def list_user_season_access(
+        self,
+        *,
+        user_id: int,
+        statuses: Collection[UserSeasonAccessStatus],
+    ) -> list[tuple[UserLeagueSeasonAccess, Season, League]]:
+        """This user's access rows with their Season and League, grouped by League."""
+
+        return [
+            tuple(row)
+            for row in self.session.execute(
+                select(UserLeagueSeasonAccess, Season, League)
+                .join(Season, Season.id == UserLeagueSeasonAccess.season_id)
+                .join(League, League.id == Season.league_id)
+                .where(
+                    UserLeagueSeasonAccess.user_id == user_id,
+                    UserLeagueSeasonAccess.status.in_(statuses),
+                )
+                .order_by(League.name, League.id, Season.year.desc(), Season.id)
+            )
+        ]
+
+    def get_default_season_id(self, *, user_id: int) -> int | None:
+        return self.session.scalar(
+            select(UserPreference.default_league_season_id).where(UserPreference.user_id == user_id)
         )
 
     def list_eligible_access_for_season(self, *, season_id: int) -> list[UserLeagueSeasonAccess]:

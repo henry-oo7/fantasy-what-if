@@ -166,10 +166,12 @@ Every league-data request:
 
 1. Authenticates the user.
 2. Resolves the requested season.
-3. Requires an `active` access row for that user and season.
+3. Requires readable access for that user and season: an `active` row, or a `reverification_required` row that serves prior successful data with a bounded indicator (only the season summary when no such data exists). A `revoked` row is never readable.
 4. Returns the uniform inaccessible-resource response otherwise.
 
 Authorization never selects a first or only row, never trusts a client-supplied ID alone, and never infers access from existing records, another user's access, or another user's credentials.
+
+Active access means `status = active`. Synchronization credential selection, orphan retention, and purge decisions count only active access; `reverification_required` and `revoked` never count.
 
 ## Safe Resource Lookup
 
@@ -475,7 +477,7 @@ These targets must be measured under representative homelab load.
 
 1. A person registers one personal account and imports multiple leagues across providers.
 2. Several people in one provider league each prove access and share canonical data.
-3. No user can read a season without independent proof and an active access row.
+3. No user can read a season without independent proof and readable (`active` or `reverification_required`) access.
 4. Inaccessible and nonexistent resources are indistinguishable.
 5. Removing a connection or deleting an account never harms another authorized user.
 6. Orphaned leagues are retained 30 days and purged only with zero active access.

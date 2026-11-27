@@ -81,7 +81,8 @@ Development compatibility paths may remain temporarily when explicitly required 
 ### Per-user, per-season authorization
 
 - Authorization is persisted per user and season in `user_league_season_access` with uniqueness on user and season.
-- Every league-season read, mutation, analytic, and job status requires an `active` access row for the requesting user.
+- Every league-season read, analytic, synchronization-status read, and default-season selection requires *readable access* for the requesting user: an `active` or `reverification_required` row. `reverification_required` serves prior successful data with a bounded indicator, and without such data shows only the season summary. Every other league-season mutation requires *active access* (`status = active`).
+- *Active access* alone counts for synchronization credential eligibility, orphan retention, and destructive lifecycle decisions. `revoked` is never readable or active.
 - Existing records, another user's access, cached data, or another user's credentials never prove authorization for a new user.
 - Possessing or guessing an internal League or Season ID never grants access.
 - Inaccessible and nonexistent resources return the same uniform response and never reveal that a canonical league exists.

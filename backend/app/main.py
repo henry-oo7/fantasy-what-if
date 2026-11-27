@@ -13,6 +13,7 @@ from app.api.auth_dependencies import SessionReplacedError, WorkspaceAccessError
 from app.api.league_imports import router as league_imports_router
 from app.api.leagues import router as leagues_router
 from app.api.onboarding import router as onboarding_router
+from app.api.personal_leagues import router as personal_leagues_router
 from app.api.registration import router as registration_router
 from app.api.workspace_deletion import router as workspace_deletion_router
 from app.core.settings import get_settings
@@ -125,6 +126,7 @@ app.include_router(workspace_deletion_router)
 app.include_router(leagues_router)
 app.include_router(league_imports_router)
 app.include_router(analytics_router)
+app.include_router(personal_leagues_router)
 
 
 @app.get("/health")

@@ -189,7 +189,9 @@ Private import must:
 6. Return uniform failures that do not reveal whether the canonical league already exists.
 7. Create or reactivate access only after successful proof.
 
-Every read of league-season data requires an `active` access row for the requesting user and season. Missing access, revoked access, and a nonexistent season all return the same response.
+Every read of league-season data requires *readable access* for the requesting user and season: an `active` or `reverification_required` row. A `reverification_required` row keeps the relationship, because that state records an ambiguous provider outcome rather than lost access. It serves prior successful data with a bounded reverification indicator; without such data the user sees only the season summary until synchronization or proof succeeds. It never exposes the credential owner, provider connection, raw provider failure, or another user. Missing access, `revoked` access, and a nonexistent season all return the same response.
+
+*Active access* means `status = active`. Synchronization credential eligibility, orphan retention, purge decisions, and the other lifecycle rules in this ADR count only active access; `reverification_required` and `revoked` never count.
 
 ### Reverification
 
