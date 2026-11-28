@@ -16,7 +16,7 @@ from sqlalchemy import delete, select
 
 from app.auth.authentication import (
     InvalidCredentialsError,
-    log_in_administrator_by_email,
+    log_in_by_email,
     log_in_workspace_spectator,
 )
 from app.db.auth_models import (
@@ -265,7 +265,7 @@ def test_admin_login_racing_request_leaves_no_standard_session(
             return request(seeded, requester_session)
 
         with SessionFactory() as session:
-            result = log_in_administrator_by_email(
+            result = log_in_by_email(
                 session,
                 email=seeded.administrator_email,
                 password=ADMIN_PASSWORD,
@@ -325,7 +325,7 @@ def test_spectator_login_racing_request_leaves_no_spectator_session(
 
 def recovery_session_id(seeded: Seeded) -> int:
     with SessionFactory() as session:
-        result = log_in_administrator_by_email(
+        result = log_in_by_email(
             session,
             email=seeded.administrator_email,
             password=ADMIN_PASSWORD,

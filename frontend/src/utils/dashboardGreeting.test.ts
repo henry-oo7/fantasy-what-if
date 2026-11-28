@@ -13,7 +13,7 @@ describe("dashboard greeting", () => {
   it("personalizes an administrator greeting", () => {
     expect(
       dashboardGreeting({
-        role: "admin",
+        legacy_workspace: { role: "admin" },
         display_name: "Henry Huynh",
       }),
     ).toBe("Welcome back, Henry");
@@ -22,7 +22,7 @@ describe("dashboard greeting", () => {
   it("uses a role-aware spectator greeting", () => {
     expect(
       dashboardGreeting({
-        role: "spectator",
+        legacy_workspace: { role: "spectator" },
         display_name: "League Spectator",
       }),
     ).toBe("Welcome back, Spectator");
@@ -31,7 +31,7 @@ describe("dashboard greeting", () => {
   it("ignores a customized spectator display name", () => {
     expect(
       dashboardGreeting({
-        role: "spectator",
+        legacy_workspace: { role: "spectator" },
         display_name: "Jimmy League Viewer",
       }),
     ).toBe("Welcome back, Spectator");
@@ -40,7 +40,7 @@ describe("dashboard greeting", () => {
   it("handles a missing administrator display name", () => {
     expect(
       dashboardGreeting({
-        role: "admin",
+        legacy_workspace: { role: "admin" },
         display_name: "   ",
       }),
     ).toBe("Welcome back");

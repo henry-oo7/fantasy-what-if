@@ -14,6 +14,7 @@ from app.auth.cookies import (
     get_session_token,
 )
 from app.auth.csrf import CSRF_HEADER_NAME
+from app.auth.identity import IdentityKind, classify_identity
 from app.auth.security import csrf_tokens_match
 from app.core.settings import Settings, get_settings
 from app.db.auth_models import AuthSession, AuthSessionPurpose, User, UserRole
@@ -53,9 +54,17 @@ class SessionReplacedError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class AuthenticationContext:
+    """An authenticated session.
+
+    The personal core (user, session, identity) never needs a workspace,
+    role, or username. ``workspace_id`` and ``role`` are present only for a
+    legacy workspace user and stay None for a personal account.
+    """
+
     user_id: int
-    workspace_id: int
-    role: UserRole
+    identity: IdentityKind
+    workspace_id: int | None
+    role: UserRole | None
     session_id: int
     user: User
     auth_session: AuthSession
@@ -141,9 +150,9 @@ def get_authentication_context(
 def build_authentication_context(
     resolved: ResolvedSession,
 ) -> AuthenticationContext:
-    workspace_id = resolved.user.workspace_id
+    identity = classify_identity(resolved.user)
 
-    if workspace_id is None:
+    if identity is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication is required.",
@@ -151,7 +160,8 @@ def build_authentication_context(
 
     return AuthenticationContext(
         user_id=resolved.user.id,
-        workspace_id=workspace_id,
+        identity=identity,
+        workspace_id=resolved.user.workspace_id,
         role=resolved.user.role,
         session_id=resolved.session.id,
         user=resolved.user,
@@ -199,9 +209,9 @@ def get_current_workspace_id(
     workspace_id = user.workspace_id
 
     if workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication is required.",
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.",
+            code="workspace_inactive",
         )
 
     return workspace_id
@@ -311,9 +321,9 @@ def require_active_workspace(
     workspace_id = user.workspace_id
 
     if workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication is required.",
+        raise WorkspaceAccessError(
+            detail="Workspace access is unavailable.",
+            code="workspace_inactive",
         )
 
     with SessionFactory() as session:

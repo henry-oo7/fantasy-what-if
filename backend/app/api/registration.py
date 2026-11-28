@@ -1,4 +1,4 @@
-"""Public administrator registration endpoints."""
+"""Public personal-account registration endpoints."""
 
 import ipaddress
 from typing import Annotated
@@ -20,12 +20,12 @@ from app.auth.cookies import (
     clear_pre_auth_csrf_cookie,
     set_authentication_cookies,
 )
+from app.auth.identity import can_log_in_by_email, classify_identity
 from app.auth.security import (
     InvalidPasswordError,
 )
 from app.core.client_ip import resolve_client_ip
 from app.core.settings import Settings, get_settings
-from app.db.auth_models import UserRole
 from app.db.platform_enums import (
     OnboardingStage,
     WorkspaceRegistrationStatus,
@@ -43,27 +43,26 @@ from app.repositories.session_repository import (
     SessionRepository,
 )
 from app.schemas.registration import (
-    AdministratorRegistrationRequest,
-    AdministratorRegistrationResponse,
     EmailVerificationRequest,
     EmailVerificationResponse,
+    RegistrationRequest,
+    RegistrationResponse,
     VerificationResendRequest,
     VerificationResendResponse,
 )
-from app.services.administrator_registration import (
-    DuplicateAdministratorEmailError,
-    InvalidAdministratorDisplayNameError,
-    InvalidWorkspaceNameError,
-    InvalidWorkspaceSlugError,
-    RegistrationConflictError,
+from app.services.account_navigation import resolve_navigation_state
+from app.services.account_registration import (
+    DuplicateAccountEmailError,
+    InvalidDisplayNameError,
     RegistrationUnavailableError,
-    normalize_workspace_slug,
-    register_provisional_administrator,
+    register_personal_account,
 )
 from app.services.email_verification import (
     EmailVerificationError,
     EmailVerificationStateError,
-    verify_administrator_email,
+)
+from app.services.email_verification import (
+    verify_email as redeem_email_verification,
 )
 from app.services.identity_email import queue_verification_resend
 
@@ -75,12 +74,9 @@ router = APIRouter(
 
 @router.post(
     "",
-    response_model=AdministratorRegistrationResponse,
+    response_model=RegistrationResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
-        status.HTTP_409_CONFLICT: {
-            "description": "Workspace slug conflict.",
-        },
         status.HTTP_429_TOO_MANY_REQUESTS: {
             "description": "Registration submissions are throttled.",
         },
@@ -89,8 +85,8 @@ router = APIRouter(
         },
     },
 )
-def register_administrator(
-    payload: AdministratorRegistrationRequest,
+def register_account(
+    payload: RegistrationRequest,
     request: Request,
     settings: Annotated[
         Settings,
@@ -104,8 +100,8 @@ def register_administrator(
         None,
         Depends(require_pre_auth_csrf),
     ],
-) -> AdministratorRegistrationResponse | JSONResponse:
-    """Create the provisional identity and queue verification atomically.
+) -> RegistrationResponse | JSONResponse:
+    """Create the personal account and queue verification atomically.
 
     Success means registration was accepted and verification delivery was
     queued. No token is created and no provider is called here.
@@ -138,30 +134,19 @@ def register_administrator(
 
     try:
         with SessionFactory() as session:
-            result = register_provisional_administrator(
+            register_personal_account(
                 session,
                 registration_mode=settings.registration_mode,
-                workspace_name=payload.workspace_name,
-                workspace_slug=payload.workspace_slug,
-                administrator_display_name=(payload.display_name),
-                administrator_email=payload.email,
-                administrator_password=payload.password,
+                display_name=payload.display_name,
+                email=payload.email,
+                password=payload.password,
             )
-
-            workspace_slug = result.workspace.slug
-
-            if result.administrator.email is None or workspace_slug is None:
-                raise RuntimeError("Registration persisted invalid identity state.")
-
-            response = _accepted_registration_response(workspace_slug)
-
             session.commit()
 
-    except DuplicateAdministratorEmailError:
-        # Enumeration protection: an existing administrator email receives
-        # the same external result as a new registration, and no state is
-        # created. Informational email to the owner is deferred.
-        return _accepted_registration_response(normalize_workspace_slug(payload.workspace_slug))
+    except DuplicateAccountEmailError:
+        # Enumeration protection: an existing email receives the same
+        # external result as a new registration, and no state is created.
+        return RegistrationResponse()
     except RegistrationUnavailableError:
         return _application_error(
             status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
@@ -169,17 +154,8 @@ def register_administrator(
             code="registration_unavailable",
             retryable=False,
         )
-    except RegistrationConflictError as exc:
-        return _application_error(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-            code="registration_conflict",
-            retryable=False,
-        )
     except (
-        InvalidWorkspaceNameError,
-        InvalidWorkspaceSlugError,
-        InvalidAdministratorDisplayNameError,
+        InvalidDisplayNameError,
         InvalidPasswordError,
     ) as exc:
         return _application_error(
@@ -189,18 +165,7 @@ def register_administrator(
             retryable=False,
         )
 
-    return response
-
-
-def _accepted_registration_response(
-    workspace_slug: str,
-) -> AdministratorRegistrationResponse:
-    return AdministratorRegistrationResponse(
-        workspace_slug=workspace_slug,
-        registration_status=(WorkspaceRegistrationStatus.PROVISIONAL.value),
-        onboarding_stage=(OnboardingStage.EMAIL_VERIFICATION_PENDING.value),
-        verification_required=True,
-    )
+    return RegistrationResponse()
 
 
 def normalize_request_source(
@@ -238,45 +203,39 @@ def verify_email(
         Depends(require_pre_auth_csrf),
     ],
 ) -> EmailVerificationResponse | JSONResponse:
-    """Verify one administrator and create the onboarding session."""
+    """Verify one account's email and create its session."""
 
     try:
         with SessionFactory() as session:
-            administrator = verify_administrator_email(
+            user = redeem_email_verification(
                 session,
                 raw_token=payload.token,
             )
 
-            if administrator.workspace_id is None or administrator.email is None:
+            if user.email is None:
                 raise EmailVerificationStateError("The verification identity is incomplete.")
 
-            workspace = session.get(
-                Installation,
-                administrator.workspace_id,
-            )
+            identity = classify_identity(user)
 
-            if (
-                workspace is None
-                or workspace.slug is None
-                or workspace.registration_status is None
-                or workspace.onboarding_stage is None
-            ):
-                raise EmailVerificationStateError("The verification workspace is incomplete.")
+            if identity is None:
+                raise EmailVerificationStateError("The verification identity is incomplete.")
 
-            created = SessionRepository(session).replace_user_sessions(
-                user=administrator,
+            created = SessionRepository(session).create_session(
+                user=user,
                 lifetime_hours=settings.session_lifetime_hours,
                 ip_address=_client_ip(request),
                 user_agent=request.headers.get("user-agent"),
             )
 
             result = EmailVerificationResponse(
-                workspace_slug=workspace.slug,
-                display_name=administrator.display_name,
-                email=administrator.email,
-                role="admin",
-                registration_status=(workspace.registration_status.value),
-                onboarding_stage=workspace.onboarding_stage.value,
+                display_name=user.display_name,
+                email=user.email,
+                navigation_state=resolve_navigation_state(
+                    session,
+                    user=user,
+                    identity=identity,
+                    purpose=created.session.purpose,
+                ),
                 csrf_token=created.csrf_token,
             )
 
@@ -339,7 +298,7 @@ def resend_verification(
 
     generic_response = VerificationResendResponse(
         detail=(
-            "If an eligible administrator account exists for "
+            "If an eligible account exists for "
             "that email address, verification instructions "
             "will be sent. Check your email for the next step."
         ),
@@ -374,33 +333,40 @@ def resend_verification(
                 },
             )
 
-        administrator = AuthenticationRepository(session).get_administrator_by_email(
-            normalized_email
-        )
+        user = AuthenticationRepository(session).get_user_by_login_email(normalized_email)
 
         if (
-            administrator is not None
-            and administrator.role is UserRole.ADMIN
-            and administrator.is_active
-            and administrator.email_verified_at is None
-            and administrator.email is not None
-            and administrator.workspace_id is not None
+            user is not None
+            and can_log_in_by_email(user)
+            and user.is_active
+            and user.email_verified_at is None
+            and user.email is not None
+            and _verification_workspace_allows(session, user)
         ):
-            workspace = session.get(
-                Installation,
-                administrator.workspace_id,
-            )
-
-            if (
-                workspace is not None
-                and workspace.registration_status is WorkspaceRegistrationStatus.PROVISIONAL
-                and workspace.onboarding_stage is OnboardingStage.EMAIL_VERIFICATION_PENDING
-            ):
-                queue_verification_resend(session, administrator=administrator)
+            queue_verification_resend(session, user=user)
 
         session.commit()
 
     return generic_response
+
+
+def _verification_workspace_allows(session, user) -> bool:
+    """A personal account has no workspace to gate verification.
+
+    A legacy administrator may resend only while its workspace still awaits
+    email verification.
+    """
+
+    if user.workspace_id is None:
+        return True
+
+    workspace = session.get(Installation, user.workspace_id)
+
+    return (
+        workspace is not None
+        and workspace.registration_status is WorkspaceRegistrationStatus.PROVISIONAL
+        and workspace.onboarding_stage is OnboardingStage.EMAIL_VERIFICATION_PENDING
+    )
 
 
 def _client_ip(

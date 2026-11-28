@@ -12,8 +12,8 @@ from app.db.auth_models import EmailVerificationToken, PasswordResetToken, User
 from app.db.platform_enums import TransactionalEmailEventType
 from app.db.platform_models import TransactionalEmailDelivery
 from app.repositories.account_token_repository import AccountTokenRepository
-from app.services.email_verification import verify_administrator_email
-from app.services.password_recovery import reset_administrator_password
+from app.services.email_verification import verify_email
+from app.services.password_recovery import reset_password
 from tests.support.email_delivery import make_admin, make_workspace
 from tests.support.transactional_email import (
     assert_rejected,
@@ -252,7 +252,7 @@ def test_consuming_one_verification_token_invalidates_all_remaining(
     raw_one, first = linked_verification(database_session, user, row.id, 1)
     _raw_two, second = linked_verification(database_session, user, row.id, 2)
 
-    verify_administrator_email(database_session, raw_token=raw_one)
+    verify_email(database_session, raw_token=raw_one)
 
     assert not is_valid(database_session, legacy)
     assert not is_valid(database_session, first)
@@ -269,9 +269,7 @@ def test_consuming_one_reset_token_invalidates_all_remaining(database_session: S
     _raw_one, first = linked_reset(database_session, user, first_row.id, 1)
     raw_two, second = linked_reset(database_session, user, second_row.id, 1)
 
-    reset_administrator_password(
-        database_session, raw_token=raw_two, new_password="Synthetic-New-Passphrase-42!"
-    )
+    reset_password(database_session, raw_token=raw_two, new_password="Synthetic-New-Passphrase-42!")
 
     assert not is_valid(database_session, first)
     assert not is_valid(database_session, second)

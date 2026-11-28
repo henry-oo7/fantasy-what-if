@@ -23,7 +23,7 @@ from app.auth.authentication import (
     InactiveAccountError,
     InvalidCredentialsError,
     LoginThrottledError,
-    log_in_administrator_by_email,
+    log_in_by_email,
     log_in_workspace_spectator,
 )
 from app.auth.cookies import (
@@ -37,6 +37,7 @@ from app.auth.cookies import (
 from app.auth.csrf import (
     generate_pre_auth_csrf_token,
 )
+from app.auth.identity import IdentityKind, can_log_in_by_email, classify_identity
 from app.auth.security import InvalidPasswordError
 from app.core.client_ip import resolve_client_ip
 from app.core.settings import Settings, get_settings
@@ -51,11 +52,12 @@ from app.repositories.registration_rate_limit_repository import (
     RegistrationRateLimitRepository,
 )
 from app.schemas.auth import (
-    AdministratorAuthenticatedUserResponse,
-    AdministratorAuthenticationResponse,
-    AdministratorLoginRequest,
+    AuthenticatedUserResponse,
+    AuthenticationResponse,
     CsrfTokenResponse,
     CurrentUserResponse,
+    LegacyWorkspaceContext,
+    LoginRequest,
     LogoutResponse,
     PasswordResetCompletionRequest,
     PasswordResetCompletionResponse,
@@ -66,11 +68,12 @@ from app.schemas.auth import (
     SpectatorLoginRequest,
     WorkspaceLifecycleResponse,
 )
+from app.services.account_navigation import resolve_navigation_state
 from app.services.identity_email import queue_password_reset
 from app.services.password_recovery import (
     PasswordRecoveryError,
     PasswordRecoveryStateError,
-    reset_administrator_password,
+    reset_password,
 )
 from app.services.workspace_lifecycle import (
     WorkspaceAccess,
@@ -111,9 +114,11 @@ def issue_pre_auth_csrf_token(
     return CsrfTokenResponse(csrf_token=csrf_token)
 
 
-@router.post("/admin/login")
-def administrator_login(
-    payload: AdministratorLoginRequest,
+# The one email-login route. Its path predates the personal-account model and is
+# renamed with the frontend cutover (feature/frontend-league-switcher).
+@router.post("/admin/login", response_model_exclude_none=True)
+def login(
+    payload: LoginRequest,
     response: Response,
     request: Request,
     settings: Annotated[
@@ -128,12 +133,12 @@ def administrator_login(
         None,
         Depends(require_pre_auth_csrf),
     ],
-) -> AdministratorAuthenticationResponse:
-    """Authenticate an administrator by normalized email."""
+) -> AuthenticationResponse:
+    """Authenticate a personal account or legacy administrator by email."""
 
     with SessionFactory() as session:
         try:
-            result = log_in_administrator_by_email(
+            result = log_in_by_email(
                 session,
                 email=payload.email,
                 password=payload.password,
@@ -164,19 +169,20 @@ def administrator_login(
                 detail="Invalid email or password.",
             ) from exc
 
-        if result.user.workspace_id is None or result.user.email is None:
+        if result.user.email is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password.",
             )
 
-        user_response = AdministratorAuthenticatedUserResponse(
-            id=result.user.id,
-            workspace_id=result.user.workspace_id,
+        legacy = classify_identity(result.user) is IdentityKind.LEGACY_ADMINISTRATOR
+        user_response = AuthenticatedUserResponse(
             display_name=result.user.display_name,
             email=result.user.email,
-            role=result.user.role.value,
+            email_verified=result.user.email_verified_at is not None,
             is_active=result.user.is_active,
+            workspace_id=result.user.workspace_id if legacy else None,
+            role=result.user.role.value if legacy and result.user.role else None,
         )
         session_purpose = result.session_purpose
 
@@ -193,7 +199,7 @@ def administrator_login(
         settings=settings,
     )
 
-    return AdministratorAuthenticationResponse(
+    return AuthenticationResponse(
         user=user_response,
         csrf_token=result.csrf_token,
         session_purpose=session_purpose,
@@ -313,7 +319,7 @@ def spectator_login(
     response_model=PasswordResetRequestResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def request_administrator_password_reset(
+def request_password_reset(
     payload: PasswordResetRequest,
     settings: Annotated[
         Settings,
@@ -336,7 +342,7 @@ def request_administrator_password_reset(
 
     generic_response = PasswordResetRequestResponse(
         detail=(
-            "If an eligible administrator account exists for "
+            "If an eligible account exists for "
             "that email address, password reset instructions "
             "will be sent. Check your email for the next step."
         ),
@@ -371,31 +377,17 @@ def request_administrator_password_reset(
                 },
             )
 
-        administrator = AuthenticationRepository(session).get_administrator_by_email(
-            normalized_email
-        )
+        user = AuthenticationRepository(session).get_user_by_login_email(normalized_email)
 
         if (
-            administrator is not None
-            and administrator.role is UserRole.ADMIN
-            and administrator.is_active
-            and administrator.email is not None
-            and administrator.email_verified_at is not None
-            and administrator.workspace_id is not None
+            user is not None
+            and can_log_in_by_email(user)
+            and user.is_active
+            and user.email is not None
+            and user.email_verified_at is not None
+            and _recovery_workspace_allows(session, user)
         ):
-            workspace = session.get(
-                Installation,
-                administrator.workspace_id,
-            )
-
-            # Reset stays available while deletion is pending (FR-20); it
-            # never cancels deletion or reactivates the workspace.
-            if (
-                is_active_workspace(workspace)
-                or is_resumable_onboarding(workspace)
-                or is_deletion_pending(workspace)
-            ):
-                queue_password_reset(session, administrator=administrator)
+            queue_password_reset(session, user=user)
 
         session.commit()
 
@@ -406,7 +398,7 @@ def request_administrator_password_reset(
     "/password-reset/complete",
     response_model=PasswordResetCompletionResponse,
 )
-def complete_administrator_password_reset(
+def complete_password_reset(
     payload: PasswordResetCompletionRequest,
     settings: Annotated[
         Settings,
@@ -427,7 +419,7 @@ def complete_administrator_password_reset(
 
     try:
         with SessionFactory() as session:
-            completed = reset_administrator_password(
+            completed = reset_password(
                 session,
                 raw_token=payload.token,
                 new_password=payload.new_password,
@@ -463,7 +455,7 @@ def complete_administrator_password_reset(
         )
 
     return PasswordResetCompletionResponse(
-        detail=("Your password has been reset. Sign in again with your administrator email."),
+        detail=("Your password has been reset. Sign in again with your email address."),
         code="password_reset_completed",
         revoked_sessions=revoked_sessions,
     )
@@ -511,35 +503,61 @@ def logout(
     return LogoutResponse(logged_out=True)
 
 
-@router.get("/me")
+@router.get("/me", response_model_exclude_none=False)
 def read_current_user(
     context: Annotated[
         AuthenticationContext,
         Depends(resolve_session_authentication_context),
     ],
 ) -> CurrentUserResponse:
-    """Return identity and the authoritative workspace lifecycle."""
+    """Return the personal account and its navigation state."""
+
+    legacy_workspace = None
 
     with SessionFactory() as session:
-        workspace = session.get(
-            Installation,
-            context.workspace_id,
-        )
+        if context.identity is not IdentityKind.PERSONAL and context.workspace_id is not None:
+            legacy_workspace = LegacyWorkspaceContext(
+                role=context.role,
+                workspace=_build_workspace_lifecycle(
+                    workspace_id=context.workspace_id,
+                    workspace=session.get(Installation, context.workspace_id),
+                    role=context.role,
+                ),
+            )
 
-        workspace_response = _build_workspace_lifecycle(
-            workspace_id=context.workspace_id,
-            workspace=workspace,
-            role=context.role,
+        navigation_state = resolve_navigation_state(
+            session,
+            user=context.user,
+            identity=context.identity,
+            purpose=context.session_purpose,
         )
 
     return CurrentUserResponse(
-        id=context.user.id,
         display_name=context.user.display_name,
         email=context.user.email,
-        role=context.role,
-        is_active=context.user.is_active,
-        workspace=workspace_response,
+        email_verified=context.user.email_verified_at is not None,
+        navigation_state=navigation_state,
+        legacy_workspace=legacy_workspace,
         session_purpose=context.session_purpose,
+    )
+
+
+def _recovery_workspace_allows(session, user) -> bool:
+    """A personal account has no workspace to gate recovery.
+
+    A legacy administrator keeps recovery while the workspace is active,
+    resumable, or deletion-pending (FR-20); it never cancels deletion.
+    """
+
+    if user.workspace_id is None:
+        return True
+
+    workspace = session.get(Installation, user.workspace_id)
+
+    return (
+        is_active_workspace(workspace)
+        or is_resumable_onboarding(workspace)
+        or is_deletion_pending(workspace)
     )
 
 

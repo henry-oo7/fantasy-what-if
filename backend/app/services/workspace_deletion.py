@@ -29,10 +29,6 @@ from app.db.platform_enums import BackgroundJobType, WorkspaceRegistrationStatus
 from app.db.platform_models import Installation
 from app.repositories.background_job_repository import BackgroundJobRepository
 from app.repositories.session_repository import SessionRepository
-from app.services.administrator_registration import (
-    InvalidWorkspaceSlugError,
-    normalize_workspace_slug,
-)
 from app.services.workspace_deletion_email import (
     STALE_ON_DELETION_CANCEL,
     STALE_ON_DELETION_REQUEST,
@@ -41,6 +37,10 @@ from app.services.workspace_deletion_email import (
     suppress_workspace_emails,
 )
 from app.services.workspace_lifecycle import is_active_workspace, is_deletion_pending
+from app.services.workspace_slug import (
+    InvalidWorkspaceSlugError,
+    normalize_workspace_slug,
+)
 
 WORKSPACE_DELETION_GRACE_PERIOD_DAYS = 30
 WORKSPACE_DELETION_GRACE_PERIOD = timedelta(days=WORKSPACE_DELETION_GRACE_PERIOD_DAYS)

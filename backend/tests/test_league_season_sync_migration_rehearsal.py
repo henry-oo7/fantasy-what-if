@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "b9e4c2d7a1f3"
+HEAD_REVISION = "d3a7e5b1c9f2"  # personal account identity; later than REVISION
 PREVIOUS_REVISION = "f1b6d2c8a9e4"
 ID = 990_601
 SEASON_KEY = f"league-season-sync:{ID}"
@@ -146,9 +147,9 @@ def restore_head() -> Iterator[None]:
 
 
 def test_head_schema_shape() -> None:
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     heads = alembic("heads").stdout.strip().splitlines()
-    assert len(heads) == 1 and heads[0].startswith(REVISION)
+    assert len(heads) == 1 and heads[0].startswith(HEAD_REVISION)
     assert alembic("check").returncode == 0
 
     assert job_types()[-1] == "league_season_sync"
@@ -213,7 +214,7 @@ def test_downgrade_refuses_while_a_season_sync_job_exists() -> None:
     assert result.returncode != 0
     assert "Refusing to downgrade" in result.stderr
     assert "league_season_sync background job(s) exist" in result.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     assert "league_season_sync" in job_types()
     assert scalar(f"SELECT count(*) FROM background_jobs WHERE idempotency_key = '{SEASON_KEY}'")
 
@@ -259,8 +260,8 @@ def test_round_trip_restores_prior_constraints_and_keeps_existing_jobs() -> None
 
     upgraded = alembic("upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     assert alembic("check").returncode == 0
     heads = alembic("heads").stdout.strip().splitlines()
-    assert len(heads) == 1 and heads[0].startswith(REVISION)
+    assert len(heads) == 1 and heads[0].startswith(HEAD_REVISION)
     season_job()

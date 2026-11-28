@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.auth.authentication import (
     InvalidCredentialsError,
-    log_in_administrator_by_email,
+    log_in_by_email,
     log_in_workspace_spectator,
 )
 from app.db.auth_models import User, UserRole
@@ -746,7 +746,7 @@ def test_logins_fail_generically_after_final_deletion(
 
     with SessionFactory() as session:
         with pytest.raises(InvalidCredentialsError):
-            log_in_administrator_by_email(
+            log_in_by_email(
                 session,
                 email=graph.administrator_email,
                 password=ADMIN_PASSWORD,

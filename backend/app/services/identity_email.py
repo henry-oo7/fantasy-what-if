@@ -1,6 +1,9 @@
-"""Durable administrator identity-email intents (ADR 0009).
+"""Durable identity-email intents (ADR 0009, ADR 0010).
 
-Public identity routes queue delivery; they never create tokens or call a
+A personal account (no workspace) owns its deliveries directly: scope
+``unscoped``, ``workspace_id`` NULL, ``user_id`` set. A legacy workspace
+administrator keeps workspace-scoped deliveries until the workspace schema
+is retired. Public identity routes queue delivery; they never create tokens or call a
 provider. The transactional-email worker rechecks eligibility, creates the
 token hash, and sends.
 
@@ -48,6 +51,7 @@ from app.repositories.transactional_email_delivery_repository import (
 )
 from app.services.transactional_email_intents import (
     QueuedTransactionalEmail,
+    queue_user_email,
     queue_workspace_email,
 )
 
@@ -95,15 +99,40 @@ def password_changed_key(user_id: int, reset_token_id: int) -> str:
     )
 
 
+def _queue(
+    session: Session,
+    *,
+    workspace_id: int | None,
+    user_id: int,
+    event_type: TransactionalEmailEventType,
+    idempotency_key: str,
+) -> QueuedTransactionalEmail:
+    if workspace_id is None:
+        return queue_user_email(
+            session,
+            user_id=user_id,
+            event_type=event_type,
+            idempotency_key=idempotency_key,
+        )
+
+    return queue_workspace_email(
+        session,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        event_type=event_type,
+        idempotency_key=idempotency_key,
+    )
+
+
 def queue_registration_verification(
     session: Session,
     *,
-    workspace_id: int,
     user_id: int,
+    workspace_id: int | None = None,
 ) -> QueuedTransactionalEmail:
     """Queue the first verification email inside the registration transaction."""
 
-    return queue_workspace_email(
+    return _queue(
         session,
         workspace_id=workspace_id,
         user_id=user_id,
@@ -115,14 +144,14 @@ def queue_registration_verification(
 def queue_verification_resend(
     session: Session,
     *,
-    administrator: User,
+    user: User,
 ) -> QueuedTransactionalEmail:
-    """Create or reuse the active verification delivery for an eligible admin.
+    """Create or reuse the active verification delivery for an eligible user.
 
     The caller has already checked eligibility. No token is created.
     """
 
-    workspace_id, user_id = _lock_administrator(session, administrator)
+    workspace_id, user_id = _lock_user(session, user)
     return _issue_or_reuse(
         session,
         workspace_id=workspace_id,
@@ -135,15 +164,15 @@ def queue_verification_resend(
 def queue_password_reset(
     session: Session,
     *,
-    administrator: User,
+    user: User,
 ) -> QueuedTransactionalEmail:
-    """Create or reuse the active password-reset delivery for an eligible admin.
+    """Create or reuse the active password-reset delivery for an eligible user.
 
     The caller has already checked eligibility. No token is created, and
     earlier reset tokens stay valid until a newer delivery is accepted.
     """
 
-    workspace_id, user_id = _lock_administrator(session, administrator)
+    workspace_id, user_id = _lock_user(session, user)
     return _issue_or_reuse(
         session,
         workspace_id=workspace_id,
@@ -156,13 +185,13 @@ def queue_password_reset(
 def queue_password_changed(
     session: Session,
     *,
-    workspace_id: int,
     user_id: int,
     reset_token_id: int,
+    workspace_id: int | None = None,
 ) -> QueuedTransactionalEmail:
     """Queue the tokenless password-changed notice for one reset completion."""
 
-    return queue_workspace_email(
+    return _queue(
         session,
         workspace_id=workspace_id,
         user_id=user_id,
@@ -174,12 +203,13 @@ def queue_password_changed(
 def lock_open_password_reset_deliveries(
     session: Session,
     *,
-    workspace_id: int,
+    workspace_id: int | None,
     user_id: int,
 ) -> list[TransactionalEmailDelivery]:
-    """Lock this administrator's nonterminal reset deliveries, oldest first.
+    """Lock this user's nonterminal reset deliveries, oldest first.
 
-    Scoped to one user, one workspace, and the reset event only.
+    Scoped to one user, their workspace (NULL for a personal account), and
+    the reset event only.
     """
 
     return list(
@@ -234,11 +264,11 @@ def cancel_password_reset_deliveries(
             jobs.cancel_before_execution(job, now=now)
 
 
-def _lock_administrator(session: Session, administrator: User) -> tuple[int, int]:
-    locked = session.scalar(select(User).where(User.id == administrator.id).with_for_update())
+def _lock_user(session: Session, user: User) -> tuple[int | None, int]:
+    locked = session.scalar(select(User).where(User.id == user.id).with_for_update())
 
-    if locked is None or locked.workspace_id is None:
-        raise RuntimeError("The administrator is unavailable for identity email.")
+    if locked is None:
+        raise RuntimeError("The user is unavailable for identity email.")
 
     return locked.workspace_id, locked.id
 
@@ -246,7 +276,7 @@ def _lock_administrator(session: Session, administrator: User) -> tuple[int, int
 def _issue_or_reuse(
     session: Session,
     *,
-    workspace_id: int,
+    workspace_id: int | None,
     user_id: int,
     event_type: TransactionalEmailEventType,
     key_for: Callable[[int], str],
@@ -267,7 +297,7 @@ def _issue_or_reuse(
     else:
         key = key_for(latest.id if latest is not None else 0)
 
-    return queue_workspace_email(
+    return _queue(
         session,
         workspace_id=workspace_id,
         user_id=user_id,

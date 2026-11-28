@@ -34,7 +34,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.db.auth_models import AuthSession, AuthSessionPurpose, User, UserRole
+from app.auth.identity import IdentityKind, classify_identity
+from app.db.auth_models import AuthSession, AuthSessionPurpose, User
 from app.db.league_access_models import UserLeagueSeasonAccess
 from app.db.models import League
 from app.db.platform_enums import (
@@ -227,7 +228,8 @@ def import_league(
 
 
 def _require_eligible(session: Session, *, user_id: int, session_id: int, lock: bool) -> None:
-    """Transitional caller eligibility; the target is any verified personal account."""
+    """Caller eligibility: a verified personal account, or a legacy administrator
+    whose workspace is still active (transitional)."""
 
     workspace_id = session.scalar(select(User.workspace_id).where(User.id == user_id))
     workspace_query = select(Installation).where(Installation.id == workspace_id)
@@ -248,17 +250,21 @@ def _require_eligible(session: Session, *, user_id: int, session_id: int, lock: 
         .execution_options(populate_existing=True)
     )
 
+    identity = classify_identity(user) if user is not None else None
+    workspace_ok = identity is IdentityKind.PERSONAL or (
+        identity is IdentityKind.LEGACY_ADMINISTRATOR and is_active_workspace(workspace)
+    )
+
     if (
         user is None
         or not user.is_active
         or user.email_verified_at is None
-        or user.role is not UserRole.ADMIN
+        or not workspace_ok
         or auth_session is None
         or auth_session.user_id != user_id
         or auth_session.purpose is not AuthSessionPurpose.STANDARD
         or auth_session.revoked_at is not None
         or auth_session.expires_at <= datetime.now(UTC)
-        or not is_active_workspace(workspace)
     ):
         raise import_forbidden()
 

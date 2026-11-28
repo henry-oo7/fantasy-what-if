@@ -16,9 +16,9 @@ import type {
   SpectatorLoginRequest,
 } from "../types/auth";
 import type {
-  AdministratorRegistrationRequest,
-  AdministratorRegistrationResponse,
   EmailVerificationResponse,
+  RegistrationRequest,
+  RegistrationResponse,
   VerificationResendResponse,
 } from "../types/registration";
 
@@ -77,10 +77,10 @@ export function loginSpectator(
   );
 }
 
-export function registerAdministrator(
-  request: AdministratorRegistrationRequest,
-): Promise<AdministratorRegistrationResponse> {
-  return postPublic<AdministratorRegistrationResponse>(
+export function registerAccount(
+  request: RegistrationRequest,
+): Promise<RegistrationResponse> {
+  return postPublic<RegistrationResponse>(
     "/registration",
     request,
   );

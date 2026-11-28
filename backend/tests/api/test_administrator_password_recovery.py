@@ -48,7 +48,7 @@ TRUSTED_ORIGIN = "http://localhost:5173"
 
 RESET_ACCEPTED_BODY = {
     "detail": (
-        "If an eligible administrator account exists for that email "
+        "If an eligible account exists for that email "
         "address, password reset instructions will be sent. Check your "
         "email for the next step."
     ),
@@ -661,7 +661,7 @@ def test_completed_reset_revokes_sessions_and_requires_login(
 
     assert completion.status_code == status.HTTP_200_OK
     assert completion.json() == {
-        "detail": ("Your password has been reset. Sign in again with your administrator email."),
+        "detail": ("Your password has been reset. Sign in again with your email address."),
         "code": "password_reset_completed",
         "revoked_sessions": 2,
     }

@@ -47,7 +47,7 @@ from app.repositories.transactional_email_delivery_repository import (
 from app.services.background_job_worker import snapshot_background_job
 from app.services.password_recovery import (
     PasswordRecoveryError,
-    reset_administrator_password,
+    reset_password,
 )
 from app.services.transactional_email_delivery import TransactionalEmailDeliveryHandler
 from app.services.transactional_email_intents import queue_workspace_email
@@ -289,9 +289,7 @@ def test_canceled_reset_delivery_job_rerun_is_a_safe_noop(
     seeded = seed_open_resets(workspace_id, user_id)
 
     with SessionFactory() as session:
-        reset_administrator_password(
-            session, raw_token=seeded.legacy_token, new_password=NEW_PASSWORD
-        )
+        reset_password(session, raw_token=seeded.legacy_token, new_password=NEW_PASSWORD)
         session.commit()
 
     tokens_before = {token.id for token in _all_reset_tokens(user_id)}
@@ -395,13 +393,13 @@ def _handler(transport: FakeTransport) -> TransactionalEmailDeliveryHandler:
 
 def _complete(raw_token: str) -> None:
     with SessionFactory() as session:
-        reset_administrator_password(session, raw_token=raw_token, new_password=NEW_PASSWORD)
+        reset_password(session, raw_token=raw_token, new_password=NEW_PASSWORD)
         session.commit()
 
 
 def _assert_token_unusable(raw_token: str) -> None:
     with SessionFactory() as session, pytest.raises(PasswordRecoveryError):
-        reset_administrator_password(
+        reset_password(
             session, raw_token=raw_token, new_password="yet another synthetic passphrase"
         )
 
@@ -466,7 +464,7 @@ def test_worker_blocked_behind_completion_mints_no_token(
     errors: list[BaseException] = []
 
     completion = SessionFactory()
-    reset_administrator_password(completion, raw_token=legacy, new_password=NEW_PASSWORD)
+    reset_password(completion, raw_token=legacy, new_password=NEW_PASSWORD)
 
     def run_worker() -> None:
         try:

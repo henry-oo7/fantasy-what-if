@@ -24,7 +24,7 @@ export function AdminRoute({
     );
   }
 
-  if (auth.user.role !== "admin") {
+  if (auth.user.legacy_workspace?.role !== "admin") {
     return (
       <Navigate
         to="/"

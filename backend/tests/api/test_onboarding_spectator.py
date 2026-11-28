@@ -284,8 +284,8 @@ def test_setup_creates_one_hashed_spectator_and_completes_without_activation(
         client.cookies.set(get_settings().session_cookie_name, seeded.administrator.session_token)
         me = client.get("/api/auth/me").json()
 
-    assert me["workspace"]["workspace_access"] == "provisional"
-    assert me["workspace"]["onboarding_stage"] == "complete"
+    assert me["legacy_workspace"]["workspace"]["workspace_access"] == "provisional"
+    assert me["legacy_workspace"]["workspace"]["onboarding_stage"] == "complete"
 
 
 def test_repeated_setup_never_replaces_the_password(seed: Callable[..., Seeded]) -> None:

@@ -2,20 +2,14 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
+
+from app.services.account_navigation import AccountNavigationState
 
 
-class AdministratorRegistrationRequest(BaseModel):
-    """Public fields required for provisional registration."""
+class RegistrationRequest(BaseModel):
+    """Public fields required to create a personal account."""
 
-    workspace_name: str = Field(
-        min_length=1,
-        max_length=120,
-    )
-    workspace_slug: str = Field(
-        min_length=3,
-        max_length=50,
-    )
     display_name: str = Field(
         min_length=1,
         max_length=100,
@@ -27,14 +21,22 @@ class AdministratorRegistrationRequest(BaseModel):
         min_length=12,
         max_length=128,
     )
+    confirm_password: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+
+    @model_validator(mode="after")
+    def passwords_match(self) -> RegistrationRequest:
+        if self.password != self.confirm_password:
+            raise ValueError("The passwords do not match.")
+
+        return self
 
 
-class AdministratorRegistrationResponse(BaseModel):
-    """Safe result returned after registration and email delivery."""
+class RegistrationResponse(BaseModel):
+    """Generic result: verification was queued, never that mail was delivered."""
 
-    workspace_slug: str
-    registration_status: Literal["provisional"]
-    onboarding_stage: Literal["email_verification_pending"]
     verification_required: Literal[True] = True
 
 
@@ -48,14 +50,12 @@ class EmailVerificationRequest(BaseModel):
 
 
 class EmailVerificationResponse(BaseModel):
-    """Safe authenticated onboarding state after verification."""
+    """Safe authenticated state after verification."""
 
-    workspace_slug: str
     display_name: str
     email: str
-    role: Literal["admin"]
-    registration_status: Literal["provisional"]
-    onboarding_stage: Literal["provider_setup_pending"]
+    email_verified: Literal[True] = True
+    navigation_state: AccountNavigationState
     csrf_token: str
 
 

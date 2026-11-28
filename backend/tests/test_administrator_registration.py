@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+"""Service-level tests for personal-account registration (ADR 0010)."""
+
 from uuid import uuid4
 
 import pytest
@@ -8,26 +9,22 @@ from sqlalchemy.orm import Session
 from app.db.auth_models import (
     EmailVerificationToken,
     User,
-    UserRole,
 )
-from app.db.platform_enums import (
-    InstallationStatus,
-    OnboardingStage,
-    RegistrationMode,
-    WorkspaceRegistrationStatus,
+from app.db.platform_enums import RegistrationMode, TransactionalEmailScope
+from app.db.platform_models import (
+    BackgroundJob,
+    Installation,
+    ProviderConnection,
+    ProviderLeagueClaim,
+    TransactionalEmailDelivery,
 )
-from app.db.platform_models import BackgroundJob, Installation, TransactionalEmailDelivery
 from app.db.session import engine
-from app.services.administrator_registration import (
-    DuplicateAdministratorEmailError,
-    InvalidWorkspaceNameError,
-    InvalidWorkspaceSlugError,
-    RegistrationConflictError,
+from app.services.account_registration import (
+    DuplicateAccountEmailError,
+    InvalidDisplayNameError,
+    RegistrationResult,
     RegistrationUnavailableError,
-    generate_internal_admin_username,
-    normalize_workspace_name,
-    normalize_workspace_slug,
-    register_provisional_administrator,
+    register_personal_account,
 )
 from app.services.identity_email import registration_verification_key
 from tests.support.identity_email import VERIFICATION, email_jobs_for, identity_deliveries
@@ -59,84 +56,78 @@ def unique_registration() -> dict[str, str]:
     suffix = uuid4().hex[:12]
 
     return {
-        "workspace_name": " New Test League ",
-        "workspace_slug": f"new-league-{suffix}",
-        "administrator_display_name": (" New Administrator "),
-        "administrator_email": (f"new-admin-{suffix}@example.com"),
-        "administrator_password": ("correct horse battery staple"),
+        "display_name": " New Account Holder ",
+        "email": f"new-account-{suffix}@example.com",
+        "password": "correct horse battery staple",
     }
 
 
-def registration_counts(
-    session: Session,
-) -> tuple[int, int, int, int, int]:
-    """Return (workspaces, users, tokens, deliveries, email jobs)."""
+def registration_counts(session: Session) -> tuple[int, int, int, int, int, int, int]:
+    """Return (installations, connections, claims, users, tokens, deliveries, jobs)."""
 
-    return (
-        int(session.scalar(select(func.count(Installation.id))) or 0),
-        int(session.scalar(select(func.count(User.id))) or 0),
-        int(session.scalar(select(func.count(EmailVerificationToken.id))) or 0),
-        int(session.scalar(select(func.count(TransactionalEmailDelivery.id))) or 0),
-        int(session.scalar(select(func.count(BackgroundJob.id))) or 0),
+    return tuple(  # type: ignore[return-value]
+        int(session.scalar(select(func.count(model.id))) or 0)
+        for model in (
+            Installation,
+            ProviderConnection,
+            ProviderLeagueClaim,
+            User,
+            EmailVerificationToken,
+            TransactionalEmailDelivery,
+            BackgroundJob,
+        )
     )
 
 
-def test_open_registration_creates_atomic_provisional_identity(
+def test_open_registration_creates_atomic_personal_account(
     database_session: Session,
 ) -> None:
     values = unique_registration()
-    timestamp = datetime(
-        2026,
-        11,
-        20,
-        19,
-        0,
-        tzinfo=UTC,
-    )
+    before = registration_counts(database_session)
 
-    result = register_provisional_administrator(
+    result = register_personal_account(
         database_session,
         registration_mode=RegistrationMode.OPEN,
-        now=timestamp,
         **values,
     )
 
-    assert result.workspace.id is not None
-    assert result.workspace.application_name == ("New Test League")
-    assert result.workspace.slug == (values["workspace_slug"])
-    assert result.workspace.normalized_slug == (values["workspace_slug"])
-    assert result.workspace.status is (InstallationStatus.SETUP_IN_PROGRESS)
-    assert result.workspace.registration_status is (WorkspaceRegistrationStatus.PROVISIONAL)
-    assert result.workspace.onboarding_stage is (OnboardingStage.EMAIL_VERIFICATION_PENDING)
-    assert result.workspace.setup_started_at == timestamp
+    assert isinstance(result, RegistrationResult)
 
-    assert result.administrator.id is not None
-    assert result.administrator.workspace_id == (result.workspace.id)
-    assert result.administrator.role is UserRole.ADMIN
-    assert result.administrator.email == (values["administrator_email"])
-    assert result.administrator.normalized_email == (values["administrator_email"])
-    assert result.administrator.email_verified_at is None
-    assert result.administrator.username.startswith("admin-")
-    assert values["administrator_email"] not in (result.administrator.username)
+    user = result.user
+
+    assert user.id is not None
+    assert user.display_name == "New Account Holder"
+    assert user.email == values["email"]
+    assert user.normalized_email == values["email"]
+    assert user.email_verified_at is None
+    assert user.is_active is True
+    assert user.workspace_id is None
+    assert user.role is None
+    assert user.username is None
+    assert values["password"] not in user.password_hash
 
     assert not hasattr(result, "verification")
+    assert not hasattr(result, "workspace")
 
-    deliveries = identity_deliveries(database_session, result.administrator.id)
+    deliveries = identity_deliveries(database_session, user.id)
 
     assert len(deliveries) == 1
     assert deliveries[0].event_type is VERIFICATION
-    assert deliveries[0].idempotency_key == registration_verification_key(result.administrator.id)
-    assert deliveries[0].workspace_id == result.workspace.id
-    assert deliveries[0].user_id == result.administrator.id
-    assert len(email_jobs_for(database_session, [deliveries[0].id])) == 1
-    assert (
-        database_session.scalar(
-            select(func.count(EmailVerificationToken.id)).where(
-                EmailVerificationToken.user_id == result.administrator.id
-            )
-        )
-        == 0
-    )
+    assert deliveries[0].idempotency_key == registration_verification_key(user.id)
+    assert deliveries[0].scope is TransactionalEmailScope.UNSCOPED
+    assert deliveries[0].workspace_id is None
+    assert deliveries[0].user_id == user.id
+
+    jobs = email_jobs_for(database_session, [deliveries[0].id])
+
+    assert len(jobs) == 1
+    assert jobs[0].payload == {"version": 1, "delivery_id": deliveries[0].id}
+
+    # Exactly one user, one delivery, one job; no installation, claim,
+    # connection, or token.
+    after = registration_counts(database_session)
+
+    assert tuple(a - b for a, b in zip(after, before, strict=True)) == (0, 0, 0, 1, 0, 1, 1)
     assert database_session.in_transaction()
 
 
@@ -157,7 +148,7 @@ def test_unavailable_registration_creates_no_state(
         RegistrationUnavailableError,
         match="unavailable",
     ):
-        register_provisional_administrator(
+        register_personal_account(
             database_session,
             registration_mode=registration_mode,
             **unique_registration(),
@@ -166,124 +157,49 @@ def test_unavailable_registration_creates_no_state(
     assert registration_counts(database_session) == before
 
 
+@pytest.mark.parametrize("display_name", ["", " ", "\t \n"])
+def test_blank_display_name_is_rejected_without_state(
+    database_session: Session,
+    display_name: str,
+) -> None:
+    values = unique_registration() | {"display_name": display_name}
+    before = registration_counts(database_session)
+
+    with pytest.raises(InvalidDisplayNameError):
+        register_personal_account(
+            database_session,
+            registration_mode=RegistrationMode.OPEN,
+            **values,
+        )
+
+    assert registration_counts(database_session) == before
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [str, str.upper, str.title],
+    ids=["same-case", "upper-case", "title-case"],
+)
 def test_duplicate_email_leaves_no_partial_registration(
     database_session: Session,
+    transform,
 ) -> None:
     first = unique_registration()
 
-    register_provisional_administrator(
+    register_personal_account(
         database_session,
         registration_mode=RegistrationMode.OPEN,
         **first,
     )
 
     before = registration_counts(database_session)
-    second = unique_registration()
-    second["administrator_email"] = first["administrator_email"]
+    second = unique_registration() | {"email": transform(first["email"])}
 
-    with pytest.raises(DuplicateAdministratorEmailError):
-        register_provisional_administrator(
+    with pytest.raises(DuplicateAccountEmailError):
+        register_personal_account(
             database_session,
             registration_mode=RegistrationMode.OPEN,
             **second,
         )
 
     assert registration_counts(database_session) == before
-
-
-def test_duplicate_slug_leaves_no_partial_registration(
-    database_session: Session,
-) -> None:
-    first = unique_registration()
-
-    register_provisional_administrator(
-        database_session,
-        registration_mode=RegistrationMode.OPEN,
-        **first,
-    )
-
-    before = registration_counts(database_session)
-    second = unique_registration()
-    second["workspace_slug"] = first["workspace_slug"]
-
-    with pytest.raises(
-        RegistrationConflictError,
-        match="slug is unavailable",
-    ):
-        register_provisional_administrator(
-            database_session,
-            registration_mode=RegistrationMode.OPEN,
-            **second,
-        )
-
-    assert registration_counts(database_session) == before
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "",
-        "ab",
-        "-league",
-        "league-",
-        "league--name",
-        "League Name",
-        "league_name",
-        "x" * 51,
-        "admin",
-        "api",
-        "login",
-        "registration",
-        "setup",
-    ],
-)
-def test_invalid_or_reserved_slugs_are_rejected(
-    value: str,
-) -> None:
-    with pytest.raises(InvalidWorkspaceSlugError):
-        normalize_workspace_slug(value)
-
-
-@pytest.mark.parametrize(
-    ("provided", "expected"),
-    [
-        (" Jimmy-And-Friends ", "jimmy-and-friends"),
-        ("league2026", "league2026"),
-        ("league-2026-east", "league-2026-east"),
-    ],
-)
-def test_workspace_slug_is_normalized(
-    provided: str,
-    expected: str,
-) -> None:
-    assert normalize_workspace_slug(provided) == expected
-
-
-def test_workspace_name_is_normalized() -> None:
-    assert normalize_workspace_name("  Jimmy   and   Friends  ") == "Jimmy and Friends"
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "",
-        " ",
-        "x" * 121,
-    ],
-)
-def test_invalid_workspace_names_are_rejected(
-    value: str,
-) -> None:
-    with pytest.raises(InvalidWorkspaceNameError):
-        normalize_workspace_name(value)
-
-
-def test_internal_admin_username_is_private_compatible_value() -> None:
-    first = generate_internal_admin_username()
-    second = generate_internal_admin_username()
-
-    assert first.startswith("admin-")
-    assert second.startswith("admin-")
-    assert first != second
-    assert len(first) <= 50
-    assert len(second) <= 50

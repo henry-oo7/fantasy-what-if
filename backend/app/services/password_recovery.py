@@ -1,4 +1,4 @@
-"""Redeem administrator password-reset tokens.
+"""Redeem password-reset tokens for personal accounts and legacy administrators.
 
 Reset tokens are created only by the transactional-email worker (ADR 0009).
 """
@@ -9,8 +9,9 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth.identity import can_log_in_by_email
 from app.auth.security import hash_password
-from app.db.auth_models import SessionRevocationReason, User, UserRole
+from app.db.auth_models import SessionRevocationReason, User
 from app.repositories.account_token_repository import (
     AccountTokenRepository,
 )
@@ -27,28 +28,28 @@ class PasswordRecoveryError(ValueError):
 
 
 class PasswordRecoveryStateError(RuntimeError):
-    """The associated administrator state is invalid."""
+    """The associated account state is invalid."""
 
 
 @dataclass(frozen=True, slots=True)
 class CompletedPasswordReset:
-    """Safe result of a completed administrator password reset."""
+    """Safe result of a completed password reset."""
 
     user: User
     revoked_sessions: int
 
 
-def reset_administrator_password(
+def reset_password(
     session: Session,
     *,
     raw_token: str,
     new_password: str,
     now: datetime | None = None,
 ) -> CompletedPasswordReset:
-    """Redeem one reset token, replace the password, and revoke sessions.
+    """Redeem one reset token, replace the password, and revoke every session.
 
     In the same transaction every other open (pending, sending, or
-    retry-scheduled) reset delivery for the administrator is canceled with
+    retry-scheduled) reset delivery for the user is canceled with
     its queued job, every unused reset token is invalidated, and the
     tokenless password-changed notice is queued. Any failure rolls back the
     whole change.
@@ -72,12 +73,8 @@ def reset_administrator_password(
     if user is None:
         raise PasswordRecoveryError("The password reset link is invalid or expired.")
 
-    open_resets = (
-        lock_open_password_reset_deliveries(
-            session, workspace_id=user.workspace_id, user_id=user.id
-        )
-        if user.workspace_id is not None
-        else []
+    open_resets = lock_open_password_reset_deliveries(
+        session, workspace_id=user.workspace_id, user_id=user.id
     )
 
     token = repository.redeem_password_reset_token(
@@ -88,14 +85,11 @@ def reset_administrator_password(
     if token is None or token.user_id != user.id:
         raise PasswordRecoveryError("The password reset link is invalid or expired.")
 
-    if user.role is not UserRole.ADMIN:
-        raise PasswordRecoveryStateError("The password-reset user is not an administrator.")
-
-    if user.workspace_id is None:
-        raise PasswordRecoveryStateError("The password-reset user has no workspace.")
+    if not can_log_in_by_email(user) or not user.is_active:
+        raise PasswordRecoveryStateError("The password-reset user cannot log in by email.")
 
     if user.email_verified_at is None:
-        raise PasswordRecoveryStateError("The administrator email is not verified.")
+        raise PasswordRecoveryStateError("The account email is not verified.")
 
     user.password_hash = hash_password(new_password)
 
@@ -114,9 +108,9 @@ def reset_administrator_password(
     cancel_password_reset_deliveries(session, open_resets, now=current_time)
     queue_password_changed(
         session,
-        workspace_id=user.workspace_id,
         user_id=user.id,
         reset_token_id=token.id,
+        workspace_id=user.workspace_id,
     )
 
     session.flush()

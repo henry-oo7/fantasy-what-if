@@ -4,7 +4,7 @@ import type {
 
 
 interface GreetingUser {
-  role: UserRole;
+  legacy_workspace?: { role: UserRole } | null;
   display_name: string | null | undefined;
 }
 
@@ -12,7 +12,7 @@ interface GreetingUser {
 export function dashboardGreeting(
   user: GreetingUser | null | undefined,
 ): string {
-  if (user?.role === "spectator") {
+  if (user?.legacy_workspace?.role === "spectator") {
     return "Welcome back, Spectator";
   }
 

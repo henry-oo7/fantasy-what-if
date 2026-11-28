@@ -30,12 +30,12 @@ from app.services.workspace_lifecycle import (
 )
 
 USER_KEYS = {
-    "id",
+    "authenticated",
     "display_name",
     "email",
-    "role",
-    "is_active",
-    "workspace",
+    "email_verified",
+    "navigation_state",
+    "legacy_workspace",
     "session_purpose",
 }
 WORKSPACE_KEYS = {
@@ -170,7 +170,9 @@ def read_me(session_token: str) -> dict:
 
     body = response.json()
     assert set(body) == USER_KEYS
-    assert set(body["workspace"]) == WORKSPACE_KEYS
+    assert set(body["legacy_workspace"]) == {"role", "workspace"}
+    assert set(body["legacy_workspace"]["workspace"]) == WORKSPACE_KEYS
+    assert body["authenticated"] is True
     # Sessions issued outside the FR-20 recovery login are standard.
     assert body["session_purpose"] == "standard"
 
@@ -194,9 +196,10 @@ def test_active_legacy_administrator(seed_members: Callable[..., SeededMembers])
 
     body = read_me(seeded.administrator_session)
 
-    assert body["id"] == seeded.administrator_id
-    assert body["role"] == "admin"
-    assert body["workspace"] == {
+    assert "id" not in body and "role" not in body and "is_active" not in body
+    assert body["navigation_state"] == "legacy_workspace"
+    assert body["legacy_workspace"]["role"] == "admin"
+    assert body["legacy_workspace"]["workspace"] == {
         "workspace_id": seeded.workspace_id,
         "workspace_slug": seeded.slug,
         "installation_status": "active",
@@ -213,7 +216,7 @@ def test_active_saas_administrator(seed_members: Callable[..., SeededMembers]) -
         onboarding_stage=OnboardingStage.COMPLETE,
     )
 
-    workspace = read_me(seeded.administrator_session)["workspace"]
+    workspace = read_me(seeded.administrator_session)["legacy_workspace"]["workspace"]
 
     assert workspace["installation_status"] == "active"
     assert workspace["registration_status"] == "active"
@@ -239,7 +242,7 @@ def test_verified_provisional_administrator_returns_exact_stage(
         onboarding_stage=stage,
     )
 
-    workspace = read_me(seeded.administrator_session)["workspace"]
+    workspace = read_me(seeded.administrator_session)["legacy_workspace"]["workspace"]
 
     assert workspace == {
         "workspace_id": seeded.workspace_id,
@@ -260,7 +263,7 @@ def test_unverified_provisional_stage_is_never_resumable(
         onboarding_stage=OnboardingStage.EMAIL_VERIFICATION_PENDING,
     )
 
-    workspace = read_me(seeded.administrator_session)["workspace"]
+    workspace = read_me(seeded.administrator_session)["legacy_workspace"]["workspace"]
 
     assert workspace == {"workspace_id": seeded.workspace_id, "workspace_slug": seeded.slug} | (
         INACTIVE_DETAIL
@@ -278,7 +281,7 @@ def test_suspended_workspace(
         onboarding_stage=OnboardingStage.COMPLETE,
     )
 
-    workspace = read_me(getattr(seeded, f"{member}_session"))["workspace"]
+    workspace = read_me(getattr(seeded, f"{member}_session"))["legacy_workspace"]["workspace"]
 
     assert workspace["registration_status"] == "suspended"
     assert workspace["workspace_access"] == "suspended"
@@ -324,7 +327,7 @@ def test_unusable_workspace_is_inactive_without_detail(
     )
 
     for token in (seeded.administrator_session, seeded.spectator_session):
-        workspace = read_me(token)["workspace"]
+        workspace = read_me(token)["legacy_workspace"]["workspace"]
 
         assert (
             workspace
@@ -345,9 +348,9 @@ def test_active_spectator(seed_members: Callable[..., SeededMembers]) -> None:
 
     body = read_me(seeded.spectator_session)
 
-    assert body["id"] == seeded.spectator_id
-    assert body["role"] == "spectator"
-    assert body["workspace"] == {
+    assert "id" not in body and "role" not in body
+    assert body["legacy_workspace"]["role"] == "spectator"
+    assert body["legacy_workspace"]["workspace"] == {
         "workspace_id": seeded.workspace_id,
         "workspace_slug": seeded.slug,
         "installation_status": "active",
@@ -367,7 +370,7 @@ def test_spectator_in_provisional_workspace_is_inactive_not_provisional(
         onboarding_stage=OnboardingStage.LEAGUE_CLAIM_PENDING,
     )
 
-    workspace = read_me(seeded.spectator_session)["workspace"]
+    workspace = read_me(seeded.spectator_session)["legacy_workspace"]["workspace"]
 
     assert (
         workspace
@@ -440,8 +443,10 @@ def test_each_user_receives_only_their_own_workspace(
 
     assert active.slug in active_raw and suspended.slug not in active_raw
     assert suspended.slug in suspended_raw and active.slug not in suspended_raw
-    assert read_me(active.administrator_session)["workspace"]["workspace_access"] == "active"
-    assert read_me(suspended.spectator_session)["workspace"]["workspace_access"] == "suspended"
+    active_me = read_me(active.administrator_session)
+    suspended_me = read_me(suspended.spectator_session)
+    assert active_me["legacy_workspace"]["workspace"]["workspace_access"] == "active"
+    assert suspended_me["legacy_workspace"]["workspace"]["workspace_access"] == "suspended"
 
 
 def test_missing_workspace_is_inactive() -> None:

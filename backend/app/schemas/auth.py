@@ -10,11 +10,12 @@ from app.db.platform_enums import (
     OnboardingStage,
     WorkspaceRegistrationStatus,
 )
+from app.services.account_navigation import AccountNavigationState
 from app.services.workspace_lifecycle import WorkspaceAccess
 
 
 class WorkspaceLifecycleResponse(BaseModel):
-    """The authenticated user's own workspace lifecycle.
+    """A legacy workspace user's own workspace lifecycle (compatibility).
 
     workspace_access is authoritative for routing. Lifecycle detail is
     null whenever access is inactive, so unusable or inconsistent states
@@ -30,20 +31,31 @@ class WorkspaceLifecycleResponse(BaseModel):
     workspace_access: WorkspaceAccess
 
 
-class CurrentUserResponse(BaseModel):
-    """GET /api/auth/me: identity plus authoritative workspace lifecycle.
+class LegacyWorkspaceContext(BaseModel):
+    """Legacy workspace compatibility, present only for a legacy workspace user.
 
-    The internal compatibility username is intentionally omitted.
+    Removed with the workspace schema. A personal account never has one.
     """
 
-    id: int
+    role: UserRole
+    workspace: WorkspaceLifecycleResponse
+
+
+class CurrentUserResponse(BaseModel):
+    """GET /api/auth/me: the personal account and its navigation state.
+
+    No username, internal ID, role authority, credential, connection,
+    access row, or another user's data is ever returned.
+    """
+
+    authenticated: bool = True
     display_name: str
     email: EmailStr | None
-    role: UserRole
-    is_active: bool
-    workspace: WorkspaceLifecycleResponse
-    # deletion_recovery sessions see workspace_access = inactive and may
-    # use only /auth/me, logout, and deletion status and cancellation.
+    email_verified: bool
+    navigation_state: AccountNavigationState
+    legacy_workspace: LegacyWorkspaceContext | None = None
+    # deletion_recovery sessions (legacy) may use only /auth/me, logout, and
+    # deletion status and cancellation.
     session_purpose: AuthSessionPurpose = AuthSessionPurpose.STANDARD
 
 
@@ -55,8 +67,8 @@ class LogoutResponse(BaseModel):
     logged_out: bool
 
 
-class AdministratorLoginRequest(BaseModel):
-    """Administrator email and password credentials."""
+class LoginRequest(BaseModel):
+    """Email and password: the sole login credentials."""
 
     email: EmailStr
     password: str = Field(
@@ -65,27 +77,28 @@ class AdministratorLoginRequest(BaseModel):
     )
 
 
-class AdministratorAuthenticatedUserResponse(BaseModel):
-    """Public administrator identity without compatibility username."""
+class AuthenticatedUserResponse(BaseModel):
+    """The signed-in account. Legacy fields are omitted for personal accounts."""
 
-    id: int
-    workspace_id: int
     display_name: str
     email: EmailStr
-    role: str
+    email_verified: bool
     is_active: bool
+    # Legacy workspace compatibility only; excluded when None.
+    workspace_id: int | None = None
+    role: str | None = None
 
 
-class AdministratorAuthenticationResponse(BaseModel):
-    """Administrator session created through email login."""
+class AuthenticationResponse(BaseModel):
+    """A session created through email login."""
 
-    user: AdministratorAuthenticatedUserResponse
+    user: AuthenticatedUserResponse
     csrf_token: str
     session_purpose: AuthSessionPurpose = AuthSessionPurpose.STANDARD
 
 
 class PasswordResetRequest(BaseModel):
-    """Enumeration-safe administrator password-reset request."""
+    """Enumeration-safe password-reset request."""
 
     email: EmailStr
 
@@ -111,7 +124,7 @@ class PasswordResetCompletionRequest(BaseModel):
 
 
 class PasswordResetCompletionResponse(BaseModel):
-    """Safe result requiring a new administrator login."""
+    """Safe result requiring a new login."""
 
     detail: str
     code: str

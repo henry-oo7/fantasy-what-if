@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.authentication import log_in_administrator_by_email
+from app.auth.authentication import log_in_by_email
 from app.auth.security import InvalidPasswordError, hash_token, verify_password
 from app.db.auth_models import (
     AuthSession,
@@ -35,13 +35,13 @@ from app.db.session import SessionFactory, engine
 from app.repositories.account_token_repository import AccountTokenRepository
 from app.repositories.auth_repository import AuthenticationRepository
 from app.repositories.session_repository import SessionRepository
-from app.services.administrator_registration import (
-    DuplicateAdministratorEmailError,
-    RegistrationConflictError,
-    register_provisional_administrator,
+from app.services.account_registration import (
+    DuplicateAccountEmailError,
+    register_personal_account,
 )
-from app.services.password_recovery import reset_administrator_password
+from app.services.password_recovery import reset_password
 from tests.support.identity_email import (
+    delete_users,
     email_jobs_for,
     identity_deliveries,
     issue_password_reset_token,
@@ -146,14 +146,14 @@ def active_session_count(user_id: int) -> int:
         )
 
 
-def test_concurrent_administrator_logins_leave_one_active_session(
+def test_concurrent_email_logins_each_keep_their_own_active_session(
     active_administrator: tuple[int, str],
 ) -> None:
     administrator_id, email = active_administrator
 
     def log_in(_: int) -> object:
         with SessionFactory() as session:
-            result = log_in_administrator_by_email(
+            result = log_in_by_email(
                 session,
                 email=email,
                 password=ADMIN_PASSWORD,
@@ -163,11 +163,13 @@ def test_concurrent_administrator_logins_leave_one_active_session(
 
             return result.auth_session.id
 
-    for _ in range(5):
+    for round_index in range(5):
         results = run_concurrently(log_in, 4)
 
         assert all(isinstance(result, int) for result in results), results
-        assert active_session_count(administrator_id) == 1
+        assert len(set(results)) == 4
+        # Email login no longer replaces sessions: every login stays active.
+        assert active_session_count(administrator_id) == 4 * (round_index + 1)
 
 
 def test_concurrent_session_replacement_leaves_one_active_session(
@@ -194,51 +196,35 @@ def test_concurrent_session_replacement_leaves_one_active_session(
         assert active_session_count(administrator_id) == 1
 
 
-def registration_arguments(
-    *,
-    email: str | None = None,
-    slug: str | None = None,
-) -> dict[str, object]:
-    suffix = uuid4().hex[:12]
-
-    return {
-        "registration_mode": RegistrationMode.OPEN,
-        "workspace_name": "Concurrent Registration League",
-        "workspace_slug": slug or f"concurrent-{suffix}",
-        "administrator_display_name": "Concurrent Administrator",
-        "administrator_email": email or f"concurrent-{suffix}@example.com",
-        "administrator_password": ADMIN_PASSWORD,
-    }
-
-
 def test_concurrent_same_email_registration_permits_one_identity() -> None:
     email = f"concurrent-email-{uuid4().hex[:12]}@example.com"
-    attempts = [registration_arguments(email=email) for _ in range(3)]
-    slugs = [str(attempt["workspace_slug"]) for attempt in attempts]
 
-    def register(index: int) -> object:
+    def register(_: int) -> object:
         with SessionFactory() as session:
-            result = register_provisional_administrator(session, **attempts[index])
+            result = register_personal_account(
+                session,
+                registration_mode=RegistrationMode.OPEN,
+                display_name="Concurrent Account",
+                email=email,
+                password=ADMIN_PASSWORD,
+            )
             session.commit()
 
-            return result.workspace.id
+            return result.user.id
 
     try:
-        results = run_concurrently(register, len(attempts))
+        results = run_concurrently(register, 3)
 
         successes = [result for result in results if isinstance(result, int)]
         duplicates = [
-            result for result in results if isinstance(result, DuplicateAdministratorEmailError)
+            result for result in results if isinstance(result, DuplicateAccountEmailError)
         ]
 
         assert len(successes) == 1, results
-        assert len(duplicates) == len(attempts) - 1, results
+        assert len(duplicates) == 2, results
 
         with SessionFactory() as session:
             users = session.scalars(select(User).where(User.normalized_email == email)).all()
-            workspaces = session.scalars(
-                select(Installation).where(Installation.normalized_slug.in_(slugs))
-            ).all()
             tokens = session.scalars(
                 select(EmailVerificationToken).where(
                     EmailVerificationToken.user_id.in_([user.id for user in users])
@@ -248,49 +234,18 @@ def test_concurrent_same_email_registration_permits_one_identity() -> None:
             jobs = email_jobs_for(session, [delivery.id for delivery in deliveries])
 
         assert len(users) == 1
-        assert [workspace.id for workspace in workspaces] == successes
-        # Registration queues one delivery and creates no token.
+        # Registration queues one workspace-free delivery and creates no token.
         assert len(tokens) == 0
         assert len(deliveries) == 1
-        assert deliveries[0].workspace_id == successes[0]
+        assert deliveries[0].workspace_id is None
         assert len(jobs) == 1
     finally:
-        delete_registrations_by_slug(slugs)
-
-
-def test_concurrent_same_slug_registration_permits_one_workspace() -> None:
-    slug = f"concurrent-slug-{uuid4().hex[:12]}"
-    attempts = [registration_arguments(slug=slug) for _ in range(3)]
-    emails = [str(attempt["administrator_email"]) for attempt in attempts]
-
-    def register(index: int) -> object:
         with SessionFactory() as session:
-            result = register_provisional_administrator(session, **attempts[index])
+            delete_users(
+                session,
+                list(session.scalars(select(User.id).where(User.normalized_email == email))),
+            )
             session.commit()
-
-            return result.workspace.id
-
-    try:
-        results = run_concurrently(register, len(attempts))
-
-        successes = [result for result in results if isinstance(result, int)]
-        conflicts = [result for result in results if isinstance(result, RegistrationConflictError)]
-
-        assert len(successes) == 1, results
-        assert len(conflicts) == len(attempts) - 1, results
-        assert all("slug" in str(conflict) for conflict in conflicts)
-
-        with SessionFactory() as session:
-            workspaces = session.scalars(
-                select(Installation).where(Installation.normalized_slug == slug)
-            ).all()
-            users = session.scalars(select(User).where(User.normalized_email.in_(emails))).all()
-
-        assert len(workspaces) == 1
-        assert len(users) == 1
-        assert users[0].workspace_id == workspaces[0].id
-    finally:
-        delete_registrations_by_slug([slug])
 
 
 @pytest.mark.parametrize(
@@ -354,7 +309,7 @@ def test_invalid_replacement_password_does_not_consume_reset_token(
     with SessionFactory() as session, pytest.raises(InvalidPasswordError):
         # The route does not commit on this error; leaving the context
         # rolls the transaction back exactly as the route does.
-        reset_administrator_password(
+        reset_password(
             session,
             raw_token=issued.raw_token,
             new_password="short",
@@ -372,7 +327,7 @@ def test_invalid_replacement_password_does_not_consume_reset_token(
     replacement = "a completely new passphrase"
 
     with SessionFactory() as session:
-        completed = reset_administrator_password(
+        completed = reset_password(
             session,
             raw_token=issued.raw_token,
             new_password=replacement,

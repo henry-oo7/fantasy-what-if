@@ -28,7 +28,7 @@ from app.repositories.session_repository import (
     SessionRepository,
     SessionResolutionFailure,
 )
-from app.services.password_recovery import reset_administrator_password
+from app.services.password_recovery import reset_password
 from tests.support.identity_email import issue_password_reset_token
 
 PASSWORD = "correct horse battery staple"
@@ -339,7 +339,7 @@ def test_password_reset_records_password_reset_reason(
     created = SessionRepository(database_session).create_session(user=user, lifetime_hours=8)
     issued = issue_password_reset_token(database_session, user=user, lifetime_minutes=30)
 
-    completed = reset_administrator_password(
+    completed = reset_password(
         database_session,
         raw_token=issued.raw_token,
         new_password="a completely new passphrase",

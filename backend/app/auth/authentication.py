@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth.identity import IdentityKind, can_log_in_by_email, classify_identity
 from app.auth.login_throttle_policy import (
     SOURCE_SPRAY_MAXIMUM_FAILURES,
     resolve_login_throttle_policy,
@@ -33,14 +35,14 @@ from app.repositories.session_repository import (
     ResolvedSession,
     SessionRepository,
 )
-from app.services.administrator_registration import (
-    InvalidWorkspaceSlugError,
-    normalize_workspace_slug,
-)
 from app.services.workspace_lifecycle import (
     is_active_workspace,
     is_deletion_pending,
     is_resumable_onboarding,
+)
+from app.services.workspace_slug import (
+    InvalidWorkspaceSlugError,
+    normalize_workspace_slug,
 )
 
 # FR-20: a deletion_recovery session lasts 15 minutes and is never renewed.
@@ -68,7 +70,7 @@ class LoginThrottledError(ValueError):
             1,
         )
 
-        super().__init__("Invalid username or password.")
+        super().__init__("Invalid email or password.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +155,7 @@ def _dummy_password_hash() -> str:
     )
 
 
-def log_in_administrator_by_email(
+def log_in_by_email(
     session: Session,
     *,
     email: str,
@@ -167,7 +169,12 @@ def log_in_administrator_by_email(
     attempt_window_minutes: int = 15,
     lockout_minutes: int = 15,
 ) -> LoginResult:
-    """Authenticate one administrator by normalized email."""
+    """Authenticate a personal account or legacy administrator by email.
+
+    Email is the sole login identity. A spectator never matches (it has no
+    email) and an unknown, inactive, unverified, or invalid-shape account
+    fails exactly like a wrong password. Concurrent sessions are allowed.
+    """
 
     try:
         normalized_email = normalize_email(email)
@@ -177,7 +184,7 @@ def log_in_administrator_by_email(
     repository = AuthenticationRepository(session)
 
     try:
-        candidate_user = repository.get_administrator_by_email(normalized_email)
+        candidate_user = repository.get_user_by_login_email(normalized_email)
     except ValueError:
         candidate_user = None
 
@@ -187,10 +194,12 @@ def log_in_administrator_by_email(
     source_policy = None
 
     if throttle_secret is not None:
+        # The account bucket is an HMAC of the normalized email, never the
+        # email itself, and is shared by every identity shape.
         policy = resolve_login_throttle_policy(
             normalized_username=normalized_email,
             user_role=UserRole.ADMIN,
-            browser_id="administrator-email-login",
+            browser_id="email-login",
             source_address=ip_address,
             secret=throttle_secret,
         )
@@ -239,17 +248,7 @@ def log_in_administrator_by_email(
                 retry_after_seconds=retry_after,
             )
 
-    authentication_failed = candidate_user is None or candidate_user.role is not UserRole.ADMIN
-
-    if authentication_failed:
-        _perform_dummy_password_check(password)
-    elif not verify_password(
-        password,
-        candidate_user.password_hash,
-    ):
-        authentication_failed = True
-
-    if authentication_failed:
+    def fail() -> NoReturn:
         retry_after = _record_login_failure(
             throttle=throttle,
             policy=policy,
@@ -265,51 +264,62 @@ def log_in_administrator_by_email(
 
         raise InvalidCredentialsError("Invalid email or password.")
 
-    if candidate_user is None:
-        raise InvalidCredentialsError("Invalid email or password.")
+    if candidate_user is None or not can_log_in_by_email(candidate_user):
+        _perform_dummy_password_check(password)
+        fail()
 
+    verified_hash = candidate_user.password_hash
+
+    if not verify_password(password, verified_hash):
+        fail()
+
+    if not candidate_user.is_active or candidate_user.email_verified_at is None:
+        fail()
+
+    identity = classify_identity(candidate_user)
+    workspace = None
+
+    if identity is IdentityKind.LEGACY_ADMINISTRATOR:
+        # Lock order: workspace, then user (the FR-20 deletion request).
+        workspace = lock_workspace_for_login(session, candidate_user.workspace_id)
+
+    # Serialize with password reset and deactivation: the reset holds this
+    # row until it commits and revokes every session, so a login that
+    # verified the old password cannot mint a session after the reset.
+    session.refresh(candidate_user, with_for_update=True)
+
+    # A changed hash is either a reset (the old password no longer verifies) or
+    # a concurrent login's hash upgrade (the same password still verifies).
     if (
         not candidate_user.is_active
         or candidate_user.email_verified_at is None
-        or candidate_user.workspace_id is None
-    ):
-        _record_login_failure(
-            throttle=throttle,
-            policy=policy,
-            source_throttle=source_throttle,
-            source_policy=source_policy,
-            now=now,
+        or (
+            candidate_user.password_hash != verified_hash
+            and not verify_password(password, candidate_user.password_hash)
         )
-        raise InvalidCredentialsError("Invalid email or password.")
+    ):
+        fail()
 
-    workspace = lock_workspace_for_login(
-        session,
-        candidate_user.workspace_id,
-    )
     current_time = now or datetime.now(UTC)
 
-    # A deletion-pending workspace permits only a restricted recovery
-    # session, and only before the scheduled deletion time (FR-20).
+    # A deletion-pending legacy workspace permits only a restricted recovery
+    # session, and only before the scheduled deletion time (FR-20). A
+    # personal account never has a workspace and never receives one.
     deletion_recovery = (
-        is_deletion_pending(workspace)
+        identity is IdentityKind.LEGACY_ADMINISTRATOR
+        and is_deletion_pending(workspace)
         and workspace is not None
         and workspace.deletion_scheduled_for is not None
         and current_time < workspace.deletion_scheduled_for
     )
 
     if (
-        not deletion_recovery
+        identity is IdentityKind.LEGACY_ADMINISTRATOR
+        and not deletion_recovery
         and not is_active_workspace(workspace)
         and not is_resumable_onboarding(workspace)
     ):
-        _record_login_failure(
-            throttle=throttle,
-            policy=policy,
-            source_throttle=source_throttle,
-            source_policy=source_policy,
-            now=now,
-        )
-        raise InvalidCredentialsError("Invalid email or password.")
+        fail()
 
     if password_hash_needs_update(candidate_user.password_hash):
         candidate_user.password_hash = hash_password(password)
@@ -326,9 +336,9 @@ def log_in_administrator_by_email(
 
     if deletion_recovery:
         # Every earlier session was revoked by the deletion request; this
-        # only replaces an earlier recovery session so at most one
-        # administrator session stays active. It is never a standard
-        # session and never restores a revoked one.
+        # only replaces an earlier recovery session so at most one recovery
+        # session stays active. It is never a standard session and never
+        # restores a revoked one. Legacy-only until account-deletion work.
         created = repository_sessions.replace_user_sessions(
             user=candidate_user,
             lifetime=DELETION_RECOVERY_SESSION_LIFETIME,
@@ -338,7 +348,7 @@ def log_in_administrator_by_email(
             now=current_time,
         )
     else:
-        created = repository_sessions.replace_user_sessions(
+        created = repository_sessions.create_session(
             user=candidate_user,
             lifetime_hours=session_lifetime_hours,
             ip_address=ip_address,

@@ -98,22 +98,44 @@ export function workspaceFor(
 }
 
 export const ADMIN_USER: AuthenticatedUser = {
-  id: 11,
+  authenticated: true,
   display_name: "Example Administrator",
   email: "administrator@example.test",
-  role: "admin",
-  is_active: true,
-  workspace: ACTIVE_WORKSPACE,
+  email_verified: true,
+  navigation_state: "legacy_workspace",
+  legacy_workspace: { role: "admin", workspace: ACTIVE_WORKSPACE },
 };
 
 export const SPECTATOR_USER: AuthenticatedUser = {
-  id: 12,
+  authenticated: true,
   display_name: "League Spectator",
   email: null,
-  role: "spectator",
-  is_active: true,
-  workspace: { ...ACTIVE_WORKSPACE, onboarding_stage: null },
+  email_verified: false,
+  navigation_state: "legacy_workspace",
+  legacy_workspace: {
+    role: "spectator",
+    workspace: { ...ACTIVE_WORKSPACE, onboarding_stage: null },
+  },
 };
+
+/** A personal account: no legacy workspace (ADR 0010). */
+export const PERSONAL_USER: AuthenticatedUser = {
+  authenticated: true,
+  display_name: "Example Person",
+  email: "person@example.test",
+  email_verified: true,
+  navigation_state: "personal_dashboard",
+  legacy_workspace: null,
+};
+
+/** The legacy workspace of a fixture user; throws for a personal account. */
+export function legacyWorkspaceOf(user: AuthenticatedUser): WorkspaceLifecycle {
+  if (user.legacy_workspace === null) {
+    throw new Error("Fixture user has no legacy workspace.");
+  }
+
+  return user.legacy_workspace.workspace;
+}
 
 export const GENERIC_UNAUTHENTICATED = {
   detail: "Authentication is required.",
@@ -232,16 +254,20 @@ export function signInAs(
   access?: ResolvedWorkspaceAccess,
   options?: { onboardingStage?: OnboardingStage },
 ) {
+  const legacy = user.legacy_workspace;
   const body: AuthenticatedUser =
-    access === undefined
+    access === undefined || legacy === null
       ? user
       : {
           ...user,
-          workspace: workspaceFor(access, {
-            ...options,
-            workspaceId: user.workspace.workspace_id,
-            workspaceSlug: user.workspace.workspace_slug,
-          }),
+          legacy_workspace: {
+            ...legacy,
+            workspace: workspaceFor(access, {
+              ...options,
+              workspaceId: legacy.workspace.workspace_id,
+              workspaceSlug: legacy.workspace.workspace_slug,
+            }),
+          },
         };
 
   api.reply("GET /api/auth/me", 200, body);

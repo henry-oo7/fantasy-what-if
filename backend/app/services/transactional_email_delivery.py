@@ -31,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.identity import IdentityKind, classify_identity
 from app.auth.security import generate_account_token
 from app.core.settings import Settings
 from app.db.auth_models import User, UserRole
@@ -473,6 +474,9 @@ class TransactionalEmailDeliveryHandler:
         if event is TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED:
             return self._decrypt_completion_recipient(delivery), {}
 
+        if delivery.scope is TransactionalEmailScope.UNSCOPED and delivery.user_id is not None:
+            return self._resolve_personal_recipient(session, delivery), {}
+
         if delivery.scope is not TransactionalEmailScope.WORKSPACE or delivery.user_id is None:
             raise _RecipientFailure(CODE_CONTEXT_UNSUPPORTED)
 
@@ -522,6 +526,41 @@ class TransactionalEmailDeliveryHandler:
             raise _RecipientIneligible
 
         return user.normalized_email, {}
+
+    def _resolve_personal_recipient(
+        self,
+        session: Session,
+        delivery: TransactionalEmailDelivery,
+    ) -> str:
+        """Current recipient of a workspace-free personal identity delivery.
+
+        Only the delivery's own user is read, and only while that user is
+        still a personal account whose state fits the event.
+        """
+
+        user = session.get(User, delivery.user_id)
+
+        if (
+            user is None
+            or classify_identity(user) is not IdentityKind.PERSONAL
+            or not user.is_active
+            or not user.normalized_email
+        ):
+            raise _RecipientIneligible
+
+        event = delivery.event_type
+
+        if event is TransactionalEmailEventType.ADMINISTRATOR_EMAIL_VERIFICATION and (
+            user.email_verified_at is not None
+        ):
+            raise _RecipientIneligible
+
+        if event is TransactionalEmailEventType.ADMINISTRATOR_PASSWORD_RESET and (
+            user.email_verified_at is None
+        ):
+            raise _RecipientIneligible
+
+        return user.normalized_email
 
     def _decrypt_completion_recipient(self, delivery: TransactionalEmailDelivery) -> str:
         if (

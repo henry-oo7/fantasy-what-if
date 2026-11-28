@@ -66,7 +66,7 @@ def is_resumable_onboarding(workspace: Installation | None) -> bool:
 
 def resolve_workspace_access(
     workspace: Installation | None,
-    role: UserRole,
+    role: UserRole | None,
 ) -> WorkspaceAccess:
     """Map a workspace lifecycle and role to the access a user receives.
 

@@ -150,7 +150,7 @@ export function SeasonMenu({ onNavigate }: SeasonMenuProps) {
     null;
 
   const isAdministrator =
-    auth.status === "authenticated" && auth.user?.role === "admin";
+    auth.status === "authenticated" && auth.user?.legacy_workspace?.role === "admin";
 
   const importProgressStage = importStageForProgress(importProgress);
 

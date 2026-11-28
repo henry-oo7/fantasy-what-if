@@ -31,11 +31,11 @@ from app.repositories.auth_repository import AuthenticationRepository
 from app.repositories.session_repository import SessionRepository
 from app.services.email_verification import (
     EmailVerificationError,
-    verify_administrator_email,
+    verify_email,
 )
 from app.services.password_recovery import (
     PasswordRecoveryError,
-    reset_administrator_password,
+    reset_password,
 )
 from tests.support.identity_email import (
     issue_email_verification_token,
@@ -159,13 +159,13 @@ def test_new_verification_token_invalidates_prior_token(
         EmailVerificationError,
         match="invalid or expired",
     ):
-        verify_administrator_email(
+        verify_email(
             database_session,
             raw_token=first.raw_token,
             now=second_time,
         )
 
-    verified = verify_administrator_email(
+    verified = verify_email(
         database_session,
         raw_token=second.raw_token,
         now=second_time,
@@ -186,7 +186,7 @@ def test_verification_advances_provisional_onboarding(
         now=now,
     )
 
-    result = verify_administrator_email(
+    result = verify_email(
         database_session,
         raw_token=issued.raw_token,
         now=now + timedelta(minutes=1),
@@ -209,7 +209,7 @@ def test_verification_token_is_single_use(
         now=now,
     )
 
-    verify_administrator_email(
+    verify_email(
         database_session,
         raw_token=issued.raw_token,
         now=now,
@@ -219,7 +219,7 @@ def test_verification_token_is_single_use(
         EmailVerificationError,
         match="invalid or expired",
     ):
-        verify_administrator_email(
+        verify_email(
             database_session,
             raw_token=issued.raw_token,
             now=now,
@@ -242,7 +242,7 @@ def test_expired_verification_token_is_rejected(
         EmailVerificationError,
         match="invalid or expired",
     ):
-        verify_administrator_email(
+        verify_email(
             database_session,
             raw_token=issued.raw_token,
             now=now + timedelta(hours=1),
@@ -270,7 +270,7 @@ def test_password_reset_replaces_password_and_revokes_sessions(
         now=now,
     )
 
-    result = reset_administrator_password(
+    result = reset_password(
         database_session,
         raw_token=issued.raw_token,
         new_password="replacement horse battery staple",
@@ -307,7 +307,7 @@ def test_password_reset_token_is_single_use(
         now=now,
     )
 
-    reset_administrator_password(
+    reset_password(
         database_session,
         raw_token=issued.raw_token,
         new_password="replacement horse battery staple",
@@ -318,7 +318,7 @@ def test_password_reset_token_is_single_use(
         PasswordRecoveryError,
         match="invalid or expired",
     ):
-        reset_administrator_password(
+        reset_password(
             database_session,
             raw_token=issued.raw_token,
             new_password="another replacement password",

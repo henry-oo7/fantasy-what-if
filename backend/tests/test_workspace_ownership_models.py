@@ -60,14 +60,14 @@ def test_user_workspace_cardinality_indexes() -> None:
     assert "role = 'spectator'::user_role" in spectator_predicate
 
 
-def test_administrator_normalized_email_is_unique() -> None:
+def test_normalized_email_is_globally_unique() -> None:
     indexes = index_by_name(User)
-    email_index = indexes["uq_users_admin_normalized_email"]
+    email_index = indexes["uq_users_normalized_email"]
 
     assert email_index.unique is True
     assert tuple(column.name for column in email_index.columns) == ("normalized_email",)
 
     predicate = str(email_index.dialect_options["postgresql"]["where"])
 
-    assert "role = 'admin'::user_role" in predicate
+    assert "role" not in predicate
     assert "normalized_email IS NOT NULL" in predicate

@@ -64,11 +64,21 @@ class User(TimestampMixin, Base):
             unique=True,
             postgresql_where=text("workspace_id IS NOT NULL AND role = 'spectator'::user_role"),
         ),
+        # Global login identity: one normalized email maps to one user.
         Index(
-            "uq_users_admin_normalized_email",
+            "uq_users_normalized_email",
             "normalized_email",
             unique=True,
-            postgresql_where=text("role = 'admin'::user_role AND normalized_email IS NOT NULL"),
+            postgresql_where=text("normalized_email IS NOT NULL"),
+        ),
+        # A row is either legacy (role and username present) or a
+        # workspace-free personal account (neither; one email).
+        CheckConstraint(
+            "(role IS NOT NULL AND username IS NOT NULL) OR "
+            "(workspace_id IS NULL AND role IS NULL AND username IS NULL "
+            "AND normalized_email IS NOT NULL AND email = normalized_email "
+            "AND btrim(display_name) <> '')",
+            name="ck_users_identity_shape",
         ),
     )
 
@@ -77,9 +87,10 @@ class User(TimestampMixin, Base):
         primary_key=True,
     )
 
-    username: Mapped[str] = mapped_column(
+    # NULL for personal accounts; legacy rows keep an internal value.
+    username: Mapped[str | None] = mapped_column(
         String(50),
-        nullable=False,
+        nullable=True,
         unique=True,
         index=True,
     )
@@ -121,15 +132,14 @@ class User(TimestampMixin, Base):
         nullable=False,
     )
 
-    role: Mapped[UserRole] = mapped_column(
+    # NULL for personal accounts; legacy workspace rows keep admin/spectator.
+    role: Mapped[UserRole | None] = mapped_column(
         Enum(
             UserRole,
             name="user_role",
             values_callable=lambda enum_type: [member.value for member in enum_type],
         ),
-        nullable=False,
-        default=UserRole.SPECTATOR,
-        server_default=UserRole.SPECTATOR.value,
+        nullable=True,
     )
 
     is_active: Mapped[bool] = mapped_column(

@@ -36,7 +36,10 @@ const SCHEDULED_FOR = new Date(
 
 const RECOVERY_USER: AuthenticatedUser = {
   ...ADMIN_USER,
-  workspace: workspaceFor("inactive", { workspaceSlug: "alpha-league" }),
+  legacy_workspace: {
+    role: "admin",
+    workspace: workspaceFor("inactive", { workspaceSlug: "alpha-league" }),
+  },
   session_purpose: "deletion_recovery",
 };
 
@@ -286,10 +289,10 @@ describe("deletion recovery", () => {
 
       return jsonResponse(200, {
         user: {
-          id: ADMIN_USER.id,
           workspace_id: 7,
           display_name: ADMIN_USER.display_name,
           email: ADMIN_USER.email,
+          email_verified: true,
           role: "admin",
           is_active: true,
         },

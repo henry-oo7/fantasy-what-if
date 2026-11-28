@@ -44,7 +44,7 @@ from app.db.platform_models import (
 from app.db.session import SessionFactory
 from app.main import app
 from app.repositories.auth_repository import AuthenticationRepository
-from app.services.password_recovery import reset_administrator_password
+from app.services.password_recovery import reset_password
 from tests.support.identity_email import (
     PASSWORD_RESET,
     deliver_and_extract_token,
@@ -648,8 +648,9 @@ def test_recovery_login_creates_restricted_fifteen_minute_session(
     me = client.get("/api/auth/me")
     assert me.status_code == status.HTTP_200_OK
     assert me.json()["session_purpose"] == "deletion_recovery"
-    assert me.json()["workspace"]["workspace_access"] == "inactive"
-    assert me.json()["workspace"]["registration_status"] is None
+    assert me.json()["navigation_state"] == "legacy_deletion_recovery"
+    assert me.json()["legacy_workspace"]["workspace"]["workspace_access"] == "inactive"
+    assert me.json()["legacy_workspace"]["workspace"]["registration_status"] is None
     assert_safe(me.json())
 
     # Access never renews or extends the session.
@@ -894,7 +895,7 @@ def test_recovery_session_cannot_reach_other_workspace(
     body = client.get(DELETION_PATH).json()
     me = client.get("/api/auth/me").json()
 
-    assert me["workspace"]["workspace_id"] == seeded.workspace_id
+    assert me["legacy_workspace"]["workspace"]["workspace_id"] == seeded.workspace_id
     assert other_workspace.slug not in str(body) + str(me)
     assert load_workspace(other_workspace.workspace_id).registration_status is (
         WorkspaceRegistrationStatus.ACTIVE
@@ -1149,7 +1150,7 @@ def test_password_reset_service_never_cancels_deletion(
         session.commit()
 
     with SessionFactory() as session:
-        reset_administrator_password(
+        reset_password(
             session,
             raw_token=issued.raw_token,
             new_password="another strong administrator password",
