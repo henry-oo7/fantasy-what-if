@@ -252,6 +252,7 @@ def test_repository_requires_season_idempotency_key(
             EMAIL,
             BackgroundJobType.LEAGUE_SEASON_SYNC,
             BackgroundJobType.ACCESS_REVERIFICATION,
+            BackgroundJobType.ORPHAN_LEAGUE_PURGE,
         )
     ],
 )

@@ -233,9 +233,12 @@ export function PersonalAccountRoute() {
     return <PersonalVerificationPage />;
   }
 
+  // An account with no Leagues can still reach its settings to delete itself.
   if (
     state === "import_required" &&
-    location.pathname.replace(/\/+$/, "") !== "/account/import"
+    !["/account/import", "/account/settings"].includes(
+      location.pathname.replace(/\/+$/, ""),
+    )
   ) {
     return <Navigate to="/account/import" replace />;
   }

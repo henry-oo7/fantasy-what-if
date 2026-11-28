@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "d3a7e5b1c9f2"
-HEAD_REVISION = "e8c3a6d1f4b7"  # access reverification; later than REVISION
+HEAD_REVISION = "f4b8d2a6c9e1"  # account deletion and purge; later than REVISION
 PREVIOUS_REVISION = "b9e4c2d7a1f3"
 BASE = 991_700
 WORKSPACE = BASE

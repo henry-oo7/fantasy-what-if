@@ -85,6 +85,7 @@ class BackgroundJobType(StrEnum):
     TRANSACTIONAL_EMAIL_DELIVERY = "transactional_email_delivery"
     LEAGUE_SEASON_SYNC = "league_season_sync"
     ACCESS_REVERIFICATION = "access_reverification"
+    ORPHAN_LEAGUE_PURGE = "orphan_league_purge"
 
 
 class BackgroundJobStatus(StrEnum):
@@ -109,6 +110,7 @@ class TransactionalEmailEventType(StrEnum):
     WORKSPACE_DELETION_REMINDER = "workspace_deletion_reminder"
     WORKSPACE_DELETION_COMPLETED = "workspace_deletion_completed"
     WORKSPACE_DELETION_CANCELED = "workspace_deletion_canceled"
+    ACCOUNT_DELETION_COMPLETED = "account_deletion_completed"
 
 
 class TransactionalEmailDeliveryStatus(StrEnum):

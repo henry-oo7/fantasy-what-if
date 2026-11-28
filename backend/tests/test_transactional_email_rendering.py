@@ -25,6 +25,7 @@ CONTEXTS: dict[Event, dict[str, object]] = {
     Event.WORKSPACE_DELETION_REMINDER: {"scheduled_for": date(2030, 2, 1)},
     Event.WORKSPACE_DELETION_COMPLETED: {},
     Event.WORKSPACE_DELETION_CANCELED: {},
+    Event.ACCOUNT_DELETION_COMPLETED: {},
 }
 
 

@@ -40,6 +40,7 @@ _ALLOWED_FIELDS: dict[Event, frozenset[str]] = {
     Event.WORKSPACE_DELETION_REMINDER: frozenset({"scheduled_for"}),
     Event.WORKSPACE_DELETION_COMPLETED: frozenset(),
     Event.WORKSPACE_DELETION_CANCELED: frozenset(),
+    Event.ACCOUNT_DELETION_COMPLETED: frozenset(),
 }
 
 
@@ -140,6 +141,18 @@ def render_transactional_email(
                 subject=f"Your {PRODUCT_NAME} workspace was deleted",
                 paragraphs=("Your league workspace and its accounts were permanently deleted.",),
                 closing="No further action is needed.",
+            )
+        case Event.ACCOUNT_DELETION_COMPLETED:
+            return _compose(
+                subject=f"Your {PRODUCT_NAME} account was deleted",
+                paragraphs=(
+                    "Your account, sign-in sessions, saved preferences, and the provider "
+                    "credentials you stored were deleted.",
+                    "League data that is shared with other accounts, or that is still within "
+                    "its retention period, may remain and is removed later according to "
+                    "our retention policy.",
+                ),
+                closing="No further action is needed. You can register again at any time.",
             )
         case Event.WORKSPACE_DELETION_CANCELED:
             return _compose(

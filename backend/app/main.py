@@ -6,11 +6,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
+from app.api.account_deletion import router as account_deletion_router
 from app.api.admin import router as admin_router
 from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.auth_dependencies import SessionReplacedError, WorkspaceAccessError
 from app.api.league_imports import router as league_imports_router
+from app.api.league_removal import router as league_removal_router
 from app.api.leagues import router as leagues_router
 from app.api.onboarding import router as onboarding_router
 from app.api.personal_leagues import router as personal_leagues_router
@@ -125,8 +127,10 @@ app.include_router(admin_router)
 app.include_router(workspace_deletion_router)
 app.include_router(leagues_router)
 app.include_router(league_imports_router)
+app.include_router(league_removal_router)
 app.include_router(analytics_router)
 app.include_router(personal_leagues_router)
+app.include_router(account_deletion_router)
 
 
 @app.get("/health")

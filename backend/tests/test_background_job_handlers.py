@@ -483,6 +483,7 @@ def test_handler_registry_contains_sync_deletion_and_email_jobs() -> None:
     assert set(handlers) == {
         BackgroundJobType.LEAGUE_SEASON_SYNC,
         BackgroundJobType.ACCESS_REVERIFICATION,
+        BackgroundJobType.ORPHAN_LEAGUE_PURGE,
         BackgroundJobType.INCREMENTAL_SEASON_SYNC,
         BackgroundJobType.FULL_SEASON_SYNC,
         BackgroundJobType.INITIAL_WORKSPACE_SYNC,

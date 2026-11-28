@@ -177,4 +177,5 @@ export type AuthenticationNotice =
   | "session_replaced"
   | "password_reset_completed"
   | "league_already_claimed"
-  | "workspace_deletion_canceled";
+  | "workspace_deletion_canceled"
+  | "account_deleted";

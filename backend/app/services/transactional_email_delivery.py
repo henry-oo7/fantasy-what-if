@@ -36,13 +36,14 @@ from app.auth.security import generate_account_token
 from app.core.settings import Settings
 from app.db.auth_models import User, UserRole
 from app.db.platform_enums import (
+    BackgroundJobStatus,
     OnboardingStage,
     TransactionalEmailDeliveryStatus,
     TransactionalEmailEventType,
     TransactionalEmailScope,
     WorkspaceRegistrationStatus,
 )
-from app.db.platform_models import Installation, TransactionalEmailDelivery
+from app.db.platform_models import BackgroundJob, Installation, TransactionalEmailDelivery
 from app.notifications.delivery_job_contract import validate_transactional_email_job_payload
 from app.notifications.email_provider import (
     EmailAcceptance,
@@ -65,6 +66,7 @@ from app.notifications.recipient_encryption import (
 from app.notifications.resend_transport import DEFAULT_MAXIMUM_DEFERRAL, ResendTransport
 from app.repositories.account_token_repository import AccountTokenRepository
 from app.repositories.transactional_email_delivery_repository import (
+    COMPLETION_EVENT_TYPES,
     NONTERMINAL_STATUSES,
     TransactionalEmailDeliveryRepository,
 )
@@ -92,6 +94,13 @@ DEFAULT_RATE_LIMIT_WAIT = timedelta(seconds=60)
 MAXIMUM_QUOTA_DEFERRAL = timedelta(days=32)
 
 CODE_INVALID_PAYLOAD = "invalid_job_payload"
+# A job in one of these states never sends: it was canceled on purpose or already finished.
+_JOB_NO_LONGER_ACTIVE = (
+    BackgroundJobStatus.CANCELED,
+    BackgroundJobStatus.SUCCEEDED,
+    BackgroundJobStatus.FAILED,
+)
+
 CODE_DELIVERY_MISSING = "delivery_missing"
 CODE_OWNERSHIP_MISMATCH = "delivery_ownership_mismatch"
 CODE_DELIVERY_NOT_DUE = "delivery_not_due"
@@ -232,8 +241,19 @@ class TransactionalEmailDeliveryHandler:
         job: BackgroundJobSnapshot,
         delivery_id: int,
     ) -> _PreparedAttempt | None:
+        # Lock order is delivery, then (read only) the job: reset completion, suppression
+        # and account deletion all lock deliveries before touching jobs, so a plain job
+        # read here can never deadlock with them. The delivery lock also holds back an
+        # account deletion until this phase commits, so a job read as active stays so.
         deliveries = TransactionalEmailDeliveryRepository(session)
         delivery = deliveries.get(delivery_id, for_update=True)
+        row = session.get(BackgroundJob, job.id, populate_existing=True)
+
+        # Authority before any recipient, token or send: an intentionally canceled
+        # job (account deletion) or a vanished row is a quiet stale outcome.
+        if row is None or row.status in _JOB_NO_LONGER_ACTIVE:
+            LOGGER.info("Transactional email job no longer active: job_id=%s.", job.id)
+            return None
 
         if delivery is None:
             if job.workspace_id is not None:
@@ -245,6 +265,9 @@ class TransactionalEmailDeliveryHandler:
                 )
                 return None
 
+            # An unscoped delivery is removed on purpose only together with its job
+            # (account deletion cancels it first), so an active job with no delivery
+            # is an unexpected loss and stays observable.
             raise _permanent(CODE_DELIVERY_MISSING)
 
         if not job_owns_delivery(job.workspace_id, delivery):
@@ -471,7 +494,7 @@ class TransactionalEmailDeliveryHandler:
 
         event = delivery.event_type
 
-        if event is TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED:
+        if event in COMPLETION_EVENT_TYPES:
             return self._decrypt_completion_recipient(delivery), {}
 
         if delivery.scope is TransactionalEmailScope.UNSCOPED and delivery.user_id is not None:

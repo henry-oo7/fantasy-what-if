@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "e8c3a6d1f4b7"
+HEAD_REVISION = "f4b8d2a6c9e1"  # account deletion and purge; later than REVISION
 PREVIOUS_REVISION = "d3a7e5b1c9f2"
 KEY = "access-reverification:991001:991002"
 PAYLOAD = '{"version": 1, "user_id": 991001, "season_id": 991002}'
@@ -118,12 +119,12 @@ def restore_head() -> Iterator[None]:
 
 
 def test_head_schema_shape() -> None:
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     heads = alembic("heads").stdout.strip().splitlines()
-    assert len(heads) == 1 and heads[0].startswith(REVISION)
+    assert len(heads) == 1 and heads[0].startswith(HEAD_REVISION)
     assert alembic("check").returncode == 0
 
-    assert job_types()[-2:] == ["league_season_sync", "access_reverification"]
+    assert job_types()[-3:-1] == ["league_season_sync", "access_reverification"]
     jobs = {column["name"]: column for column in inspect(engine).get_columns("background_jobs")}
     assert jobs["workspace_id"]["nullable"] is True
     checks = check_definitions()
@@ -176,7 +177,7 @@ def test_downgrade_refuses_while_a_reverification_job_exists() -> None:
     assert result.returncode != 0
     assert "Refusing to downgrade" in result.stderr
     assert "access_reverification background job(s) exist" in result.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     assert "access_reverification" in job_types()
     assert scalar(f"SELECT count(*) FROM background_jobs WHERE idempotency_key = '{KEY}'") == 1
 
@@ -201,6 +202,6 @@ def test_round_trip_restores_prior_constraints_and_keeps_existing_jobs() -> None
 
     upgraded = alembic("upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     assert alembic("check").returncode == 0
     reverification_job()

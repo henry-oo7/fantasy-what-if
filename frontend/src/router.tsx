@@ -18,6 +18,7 @@ import { LoginPage } from "./pages/account/LoginPage";
 import { RegisterPage } from "./pages/account/RegisterPage";
 import { ResetPasswordPage } from "./pages/account/ResetPasswordPage";
 import { VerifyEmailPage } from "./pages/account/VerifyEmailPage";
+import { AccountSettingsPage } from "./pages/personal/AccountSettingsPage";
 import { ImportLeaguePage } from "./pages/personal/ImportLeaguePage";
 import { PersonalLanding } from "./pages/personal/PersonalLanding";
 import { PersonalSeasonLayout } from "./pages/personal/PersonalSeasonLayout";
@@ -74,6 +75,8 @@ export function AppRouter() {
         <Route index element={<PersonalLanding />} />
 
         <Route path="import" element={<ImportLeaguePage />} />
+
+        <Route path="settings" element={<AccountSettingsPage />} />
 
         <Route path="seasons/:seasonId" element={<PersonalSeasonLayout />}>
           <Route index element={<App />} />
