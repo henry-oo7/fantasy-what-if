@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "b9e4c2d7a1f3"
-HEAD_REVISION = "d3a7e5b1c9f2"  # personal account identity; later than REVISION
+HEAD_REVISION = "e8c3a6d1f4b7"  # access reverification; later than REVISION
 PREVIOUS_REVISION = "f1b6d2c8a9e4"
 ID = 990_601
 SEASON_KEY = f"league-season-sync:{ID}"
@@ -152,7 +152,7 @@ def test_head_schema_shape() -> None:
     assert len(heads) == 1 and heads[0].startswith(HEAD_REVISION)
     assert alembic("check").returncode == 0
 
-    assert job_types()[-1] == "league_season_sync"
+    assert "league_season_sync" in job_types()
     jobs = {column["name"]: column for column in inspect(engine).get_columns("background_jobs")}
     assert jobs["workspace_id"]["nullable"] is True
     checks = check_definitions()

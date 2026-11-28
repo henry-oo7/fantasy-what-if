@@ -20,6 +20,11 @@ from app.services.scheduled_synchronization_jobs import (
     enqueue_scheduled_synchronization,
     enqueue_scheduled_synchronization_batch,
 )
+from app.services.season_maintenance import (
+    MAINTENANCE_SCAN_INTERVAL,
+    MaintenanceBatch,
+    enqueue_maintenance,
+)
 from app.services.sync_schedule import (
     calculate_next_sync_time,
     seconds_until,
@@ -108,6 +113,32 @@ def enqueue_scheduled_batch(
     return batch
 
 
+def enqueue_maintenance_batch(
+    *,
+    now: datetime,
+) -> MaintenanceBatch | None:
+    """Create one committed batch of personal refresh and reverification jobs."""
+
+    try:
+        with SessionFactory() as session:
+            batch = enqueue_maintenance(session, now=now)
+            session.commit()
+    except Exception:
+        LOGGER.exception("Personal maintenance job dispatch failed.")
+        return None
+
+    LOGGER.info(
+        "Personal maintenance jobs committed: sync_created=%s, sync_existing=%s, "
+        "reverification_created=%s, reverification_existing=%s.",
+        batch.sync_created,
+        batch.sync_existing,
+        batch.reverification_created,
+        batch.reverification_existing,
+    )
+
+    return batch
+
+
 def enqueue_workspace_now(
     *,
     workspace_id: int,
@@ -190,6 +221,10 @@ def run_scheduler(
         settings.sync_scheduler_poll_seconds,
     )
 
+    # Personal maintenance is independent of the workspace window and runs on
+    # its own cadence, first at start (restarts are safe: every job is idempotent).
+    next_maintenance_at = datetime.now(UTC)
+
     while not SHUTDOWN_EVENT.is_set():
         now = datetime.now(UTC)
         target = next_scheduled_time(
@@ -198,7 +233,7 @@ def run_scheduler(
         )
         delay = seconds_until(
             now=now,
-            target=target,
+            target=min(target, next_maintenance_at),
         )
 
         LOGGER.info(
@@ -215,9 +250,16 @@ def run_scheduler(
         if SHUTDOWN_EVENT.is_set():
             break
 
-        enqueue_scheduled_batch(
-            scheduled_for=target,
-        )
+        now = datetime.now(UTC)
+
+        if now >= next_maintenance_at:
+            enqueue_maintenance_batch(now=now)
+            next_maintenance_at = now + MAINTENANCE_SCAN_INTERVAL
+
+        if now >= target:
+            enqueue_scheduled_batch(
+                scheduled_for=target,
+            )
 
     LOGGER.info("Synchronization scheduler stopped.")
 

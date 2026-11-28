@@ -23,7 +23,7 @@ from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "c4e8a1f7d3b9"
 PREVIOUS_REVISION = "b7d41e9c2a10"
-HEAD_REVISION = "d3a7e5b1c9f2"  # personal account identity; later than REVISION
+HEAD_REVISION = "e8c3a6d1f4b7"  # access reverification; later than REVISION
 WORKSPACE_ID = 990_101
 USER_ID = 990_101
 ORIGINAL_REVOCATION_REASONS = [

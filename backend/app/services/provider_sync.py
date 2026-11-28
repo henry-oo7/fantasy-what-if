@@ -354,7 +354,7 @@ def _prepare_in_transaction(
         reconcile_stale_active_season(session, workspace_id=workspace_id)
 
     context = _load_context(repository, season_id, lock=True)
-    _require_job_authority(session, job_authority)
+    require_job_authority(session, job_authority)
 
     source = _select_credential_source(session, repository, context, requirement=requirement)
     marker = credential_marker(source.connection) if source.connection is not None else None
@@ -668,7 +668,7 @@ def _persist_in_transaction(
 
     repository = ProviderSyncRepository(session)
     context = _load_context(repository, plan.season_id, lock=True)
-    _require_job_authority(session, plan.job_authority)
+    require_job_authority(session, plan.job_authority)
 
     try:
         acquire_season_sync_lock(session, season_id=plan.season_id)
@@ -910,7 +910,7 @@ def _require_workspace_eligible(
         )
 
 
-def _require_job_authority(
+def require_job_authority(
     session: Session,
     authority: SyncJobAuthority | None,
 ) -> None:

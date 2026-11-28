@@ -10,8 +10,10 @@ from app.db.models import Season
 from app.db.platform_enums import BackgroundJobType
 from app.db.platform_models import Installation
 from app.notifications.recipient_encryption import TransactionalEmailRecipientCipher
+from app.providers.espn.league_access import HttpGet
 from app.providers.registry import ProviderRegistry
 from app.repositories.provider_league_claim_repository import claimed_workspace_id
+from app.services.access_reverification import reverify_access
 from app.services.background_job_worker import (
     BackgroundJobExecutionError,
     BackgroundJobHandler,
@@ -22,8 +24,10 @@ from app.services.provider_sync import SyncJobAuthority, synchronize_season
 from app.services.season_sync_jobs import enqueue_season_sync
 from app.services.synchronization_job_contract import (
     SYNCHRONIZATION_JOB_PAYLOAD_VERSION,
+    InvalidAccessReverificationPayloadError,
     InvalidSeasonSyncPayloadError,
     synchronization_payload_contains_prohibited_names,
+    validate_access_reverification_payload,
     validate_season_sync_payload,
 )
 from app.services.transactional_email_delivery import TransactionalEmailDeliveryHandler
@@ -68,6 +72,48 @@ class SeasonSynchronizationJobHandler:
             settings=self.settings,
             registry=self.registry,
             job_authority=SyncJobAuthority(job_id=job.id, attempt_count=job.attempt_count),
+        )
+
+
+class AccessReverificationJobHandler:
+    """Reverify one user's access to one Season (ADR 0010).
+
+    The user and Season come only from the exact payload. Provider proof runs
+    through :func:`reverify_access` with no transaction open.
+    """
+
+    def __init__(
+        self,
+        *,
+        session_factory: sessionmaker[Session],
+        settings: Settings,
+        http_get: HttpGet | None = None,
+    ) -> None:
+        self.session_factory = session_factory
+        self.settings = settings
+        self.http_get = http_get
+
+    def __call__(
+        self,
+        job: BackgroundJobSnapshot,
+    ) -> None:
+        try:
+            user_id, season_id = validate_access_reverification_payload(
+                job.payload, payload_version=job.payload_version
+            )
+        except InvalidAccessReverificationPayloadError as exc:
+            raise BackgroundJobExecutionError(
+                safe_error_code="invalid_job_payload",
+                safe_error_message="The background job payload is invalid.",
+            ) from exc
+
+        reverify_access(
+            session_factory=self.session_factory,
+            user_id=user_id,
+            season_id=season_id,
+            settings=self.settings,
+            job_authority=SyncJobAuthority(job_id=job.id, attempt_count=job.attempt_count),
+            http_get=self.http_get,
         )
 
 
@@ -129,6 +175,10 @@ def build_background_job_handlers(
             session_factory=session_factory,
             settings=settings,
             registry=registry,
+        ),
+        BackgroundJobType.ACCESS_REVERIFICATION: AccessReverificationJobHandler(
+            session_factory=session_factory,
+            settings=settings,
         ),
         BackgroundJobType.INCREMENTAL_SEASON_SYNC: LegacySynchronizationJobAdapter(
             session_factory=session_factory,

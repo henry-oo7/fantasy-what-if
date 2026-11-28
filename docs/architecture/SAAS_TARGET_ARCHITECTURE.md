@@ -203,6 +203,8 @@ Same-user repeats are idempotent. Concurrent imports yield one league, one seaso
 
 Private access is reverified every seven days initially. Expired credentials, HTTP 401 alone, timeouts, outages, rate limits, generic authentication failure, and ambiguous ESPN 403 or 404 mark the connection invalid or set `reverification_required`. Only definitive provider evidence revokes access. A previously public season that becomes private requires private proof.
 
+Implemented for ESPN as the durable `access_reverification` job, one per user and season (`access-reverification:{user_id}:{season_id}`). ESPN cannot distinguish removed membership from an unavailable target, so automation never sets `revoked`; the terminal automated state is `reverification_required`, retried weekly. Proof is anonymous first, then only the user's own stored credentials, outside any transaction, and a result is persisted only if the access row, user, connection and job lease are unchanged since preparation. Rejected credentials invalidate only the owner's connection; anonymous success moves the user to public proof without deleting the connection.
+
 ## Provider Architecture
 
 Provider adapters implement the canonical provider contract and live under `backend/app/providers/`.
@@ -251,7 +253,7 @@ The season advisory transaction lock serializes persistence per season. The per-
 
 ## Scheduler Design
 
-The scheduler enqueues refreshes for stale seasons, periodic access reverification, orphan-purge sweeps, and email maintenance. Scheduled work uses jitter and respects provider concurrency.
+The scheduler enqueues refreshes for stale seasons, periodic access reverification, orphan-purge sweeps, and email maintenance. Scheduled work uses jitter and respects provider concurrency. The personal-maintenance scan runs every six hours independently of workspaces, enqueues at most 100 season refreshes and 100 reverifications per scan, and staggers their availability by ten seconds each.
 
 ## Provider Concurrency
 

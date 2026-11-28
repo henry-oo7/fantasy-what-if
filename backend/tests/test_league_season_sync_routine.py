@@ -247,7 +247,12 @@ def test_repository_requires_season_idempotency_key(
     [
         job_type
         for job_type in BackgroundJobType
-        if job_type not in (EMAIL, BackgroundJobType.LEAGUE_SEASON_SYNC)
+        if job_type
+        not in (
+            EMAIL,
+            BackgroundJobType.LEAGUE_SEASON_SYNC,
+            BackgroundJobType.ACCESS_REVERIFICATION,
+        )
     ],
 )
 def test_repository_rejects_other_job_types_without_workspace(
