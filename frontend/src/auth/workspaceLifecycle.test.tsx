@@ -6,10 +6,12 @@ import { AppRouter } from "../router";
 import {
   ADMIN_USER,
   GENERIC_UNAUTHENTICATED,
+  PERSONAL_USER,
   SESSION_REPLACED_BODY,
   SPECTATOR_USER,
   createApiMock,
   jsonResponse,
+  legacyWorkspaceOf,
   renderWithProviders,
   signInAs,
   type ApiMock,
@@ -114,7 +116,10 @@ describe("GET /api/auth/me is the lifecycle source", () => {
     // spectator must be blocked rather than offered onboarding.
     api.reply("GET /api/auth/me", 200, {
       ...SPECTATOR_USER,
-      workspace: { ...SPECTATOR_USER.workspace, workspace_access: "provisional" },
+      legacy_workspace: {
+        role: "spectator",
+        workspace: { ...legacyWorkspaceOf(SPECTATOR_USER), workspace_access: "provisional" },
+      },
     });
 
     renderWithProviders(<AppRouter />, "/onboarding");
@@ -127,7 +132,10 @@ describe("GET /api/auth/me is the lifecycle source", () => {
     const api = createApiMock();
     api.reply("GET /api/auth/me", 200, {
       ...ADMIN_USER,
-      workspace: { ...ADMIN_USER.workspace, workspace_access: "frozen" },
+      legacy_workspace: {
+        role: "admin",
+        workspace: { ...legacyWorkspaceOf(ADMIN_USER), workspace_access: "frozen" },
+      },
     });
 
     renderWithProviders(<AppRouter />, "/");
@@ -138,10 +146,42 @@ describe("GET /api/auth/me is the lifecycle source", () => {
 
 describe("workspaceAccessFor and onboardingStageMessage", () => {
   it("maps malformed /me payloads to inactive", () => {
-    const missing = { ...ADMIN_USER, workspace: undefined } as unknown as AuthenticatedUser;
+    const missing = {
+      ...ADMIN_USER,
+      legacy_workspace: { role: "admin", workspace: undefined },
+    } as unknown as AuthenticatedUser;
 
     expect(workspaceAccessFor(missing)).toBe("inactive");
     expect(workspaceAccessFor(ADMIN_USER)).toBe("active");
+  });
+
+  it("returns personal for an account without a legacy workspace", () => {
+    expect(workspaceAccessFor(PERSONAL_USER)).toBe("personal");
+  });
+
+  it.each([
+    ["active", ADMIN_USER, "active"],
+    ["provisional", ADMIN_USER, "provisional"],
+    ["suspended", ADMIN_USER, "suspended"],
+    ["inactive", ADMIN_USER, "inactive"],
+    ["provisional", SPECTATOR_USER, "inactive"],
+  ] as const)("keeps legacy %s workspace access for the right role", (workspaceAccess, account, expected) => {
+    const legacy = account.legacy_workspace;
+    const user: AuthenticatedUser = {
+      ...account,
+      legacy_workspace: {
+        role: legacy!.role,
+        workspace: { ...legacyWorkspaceOf(account), workspace_access: workspaceAccess },
+      },
+    };
+
+    expect(workspaceAccessFor(user)).toBe(expected);
+  });
+
+  it("routes a deletion-recovery administrator to deletion_recovery", () => {
+    expect(
+      workspaceAccessFor({ ...ADMIN_USER, session_purpose: "deletion_recovery" }),
+    ).toBe("deletion_recovery");
   });
 
   it("never returns raw or unknown stage values", () => {
@@ -158,7 +198,17 @@ describe("authentication makes exactly one /me request and no probe", () => {
     api.on("POST /api/auth/admin/login", () => {
       signInAs(api, ADMIN_USER, "provisional");
 
-      return jsonResponse(200, { user: { ...ADMIN_USER, workspace_id: 7 }, csrf_token: "c" });
+      return jsonResponse(200, {
+        user: {
+          display_name: ADMIN_USER.display_name,
+          email: ADMIN_USER.email,
+          email_verified: true,
+          is_active: true,
+          workspace_id: 7,
+          role: "admin",
+        },
+        csrf_token: "c",
+      });
     });
     const user = userEvent.setup();
 
@@ -181,7 +231,13 @@ describe("authentication makes exactly one /me request and no probe", () => {
       signInAs(api, SPECTATOR_USER);
 
       return jsonResponse(200, {
-        user: { ...SPECTATOR_USER, workspace_id: 7, workspace_slug: "alpha-league" },
+        user: {
+          workspace_id: 7,
+          workspace_slug: "alpha-league",
+          display_name: SPECTATOR_USER.display_name,
+          role: "spectator",
+          is_active: true,
+        },
         csrf_token: "c",
       });
     });
@@ -207,12 +263,10 @@ describe("authentication makes exactly one /me request and no probe", () => {
       signInAs(api, ADMIN_USER, "provisional");
 
       return jsonResponse(200, {
-        workspace_slug: "alpha-league",
         display_name: ADMIN_USER.display_name,
         email: ADMIN_USER.email,
-        role: "admin",
-        registration_status: "provisional",
-        onboarding_stage: "provider_setup_pending",
+        email_verified: true,
+        navigation_state: "legacy_workspace",
         csrf_token: "session-csrf",
       });
     });
@@ -249,6 +303,116 @@ describe("session endings are unchanged", () => {
 
     expect(await screen.findByRole("heading", { name: "Sign in to continue" })).toBeInTheDocument();
     expect(screen.queryByText(SESSION_REPLACED_MESSAGE)).not.toBeInTheDocument();
+    expectNoLifecycleProbe(api);
+  });
+});
+
+describe("personal accounts", () => {
+  const PERSONAL_HEADING = "personal-account-heading";
+
+  function expectNoWorkspaceSurface() {
+    expect(screen.queryByRole("heading", { name: ONBOARDING_HEADING })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Application home" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Administration" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("app-shell")).not.toBeInTheDocument();
+  }
+
+  it.each(["/", "/onboarding", "/login", "/register", "/admin", "/account"])(
+    "sends a personal account at %s to /account without workspace pages",
+    async (path) => {
+      const api = createApiMock();
+      signInAs(api, { ...PERSONAL_USER, navigation_state: "import_required" });
+
+      renderWithProviders(<AppRouter />, path);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("location")).toHaveTextContent(/^\/account$/);
+      });
+      expect(await screen.findByText(/League setup is ready for the next interface slice/)).toBeInTheDocument();
+      expect(document.getElementById(PERSONAL_HEADING)).not.toBeNull();
+      expectNoWorkspaceSurface();
+      expectNoLifecycleProbe(api);
+    },
+  );
+
+  it("shows the import_required message and a sign-out button", async () => {
+    const api = createApiMock();
+    signInAs(api, { ...PERSONAL_USER, navigation_state: "import_required" });
+
+    renderWithProviders(<AppRouter />, "/account");
+
+    expect(
+      await screen.findByText(/League setup is ready for the next interface slice/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
+  });
+
+  it("shows the personal_dashboard message and a sign-out button", async () => {
+    const api = createApiMock();
+    signInAs(api, PERSONAL_USER);
+
+    renderWithProviders(<AppRouter />, "/account");
+
+    expect(await screen.findByText(/Your leagues are available/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
+  });
+
+  it("keeps legacy users away from /account", async () => {
+    const api = createApiMock();
+    signInAs(api, ADMIN_USER);
+
+    renderWithProviders(<AppRouter />, "/account");
+
+    expect(await screen.findByRole("heading", { name: "Application home" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/);
+  });
+
+  it("signs out from the personal page", async () => {
+    const api = createApiMock();
+    signInAs(api, PERSONAL_USER);
+    api.reply("POST /api/auth/logout", 200, { logged_out: true });
+    document.cookie = "fantasy_session_csrf=synthetic-session-csrf; path=/";
+    const user = userEvent.setup();
+
+    renderWithProviders(<AppRouter />, "/account");
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/login");
+    });
+    expect(api.calls("POST /api/auth/logout")).toHaveLength(1);
+    document.cookie = "fantasy_session_csrf=; path=/; max-age=0";
+  });
+
+  it("login of a personal user with no workspace or role ends at /account", async () => {
+    const api = createApiMock();
+    api.on("POST /api/auth/admin/login", () => {
+      signInAs(api, PERSONAL_USER);
+
+      return jsonResponse(200, {
+        user: {
+          display_name: PERSONAL_USER.display_name,
+          email: PERSONAL_USER.email,
+          email_verified: true,
+          is_active: true,
+        },
+        csrf_token: "c",
+      });
+    });
+    const user = userEvent.setup();
+
+    renderWithProviders(<AppRouter />, "/login");
+    await screen.findByRole("heading", { name: "Sign in to continue" });
+    const initialMeCalls = api.calls("GET /api/auth/me").length;
+
+    await user.type(screen.getByLabelText("Email"), "person@example.test");
+    await user.type(screen.getByLabelText("Password"), "correct horse battery");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText(/Your leagues are available/)).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/account$/);
+    expect(api.calls("GET /api/auth/me").length - initialMeCalls).toBe(1);
+    expectNoWorkspaceSurface();
     expectNoLifecycleProbe(api);
   });
 });

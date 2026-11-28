@@ -124,7 +124,11 @@ function purgeAuthenticatedQueries(queryClient: QueryClient): void {
 }
 
 function identityKey(user: AuthenticatedUser): string {
-  return `${user.role}:${user.id}`;
+  // Email is unique per personal account; a legacy spectator has none, so its
+  // workspace distinguishes it.
+  return `${user.legacy_workspace?.role ?? "personal"}:${
+    user.legacy_workspace?.workspace.workspace_id ?? "-"
+  }:${user.email ?? user.display_name}`;
 }
 
 /**

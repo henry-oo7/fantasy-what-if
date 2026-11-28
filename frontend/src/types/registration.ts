@@ -1,16 +1,14 @@
+import type { NavigationState } from "./auth";
+
 /** POST /api/registration */
-export interface AdministratorRegistrationRequest {
-  workspace_name: string;
-  workspace_slug: string;
+export interface RegistrationRequest {
   display_name: string;
   email: string;
   password: string;
+  confirm_password: string;
 }
 
-export interface AdministratorRegistrationResponse {
-  workspace_slug: string;
-  registration_status: "provisional";
-  onboarding_stage: "email_verification_pending";
+export interface RegistrationResponse {
   verification_required: true;
 }
 
@@ -20,12 +18,10 @@ export interface EmailVerificationRequest {
 }
 
 export interface EmailVerificationResponse {
-  workspace_slug: string;
   display_name: string;
   email: string;
-  role: "admin";
-  registration_status: "provisional";
-  onboarding_stage: "provider_setup_pending";
+  email_verified: true;
+  navigation_state: NavigationState;
   csrf_token: string;
 }
 

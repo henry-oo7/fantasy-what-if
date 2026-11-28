@@ -16,24 +16,33 @@ from app.db.auth_models import (
     EmailVerificationToken,
     RegistrationRateLimit,
     User,
+    UserRole,
 )
 from app.db.platform_enums import (
+    InstallationStatus,
     OnboardingStage,
     RegistrationMode,
+    TransactionalEmailScope,
     WorkspaceRegistrationStatus,
 )
-from app.db.platform_models import BackgroundJob, Installation, TransactionalEmailDelivery
+from app.db.platform_models import (
+    BackgroundJob,
+    Installation,
+    ProviderConnection,
+    ProviderLeagueClaim,
+    TransactionalEmailDelivery,
+)
 from app.db.session import SessionFactory
 from app.main import app
-from app.services.administrator_registration import (
-    register_provisional_administrator,
-)
+from app.repositories.auth_repository import AuthenticationRepository
 from app.services.identity_email import (
+    queue_registration_verification,
     registration_verification_key,
     verification_resend_key,
 )
 from tests.support.identity_email import (
     VERIFICATION,
+    delete_users,
     deliver_and_extract_token,
     email_jobs_for,
     forbid_provider_and_network,
@@ -99,11 +108,10 @@ def registration_payload() -> dict[str, str]:
     suffix = uuid4().hex[:12]
 
     return {
-        "workspace_name": "API Registration League",
-        "workspace_slug": f"api-register-{suffix}",
-        "display_name": "API Administrator",
+        "display_name": "API Account Holder",
         "email": f"api-register-{suffix}@example.com",
         "password": "correct horse battery staple",
+        "confirm_password": "correct horse battery staple",
     }
 
 
@@ -128,7 +136,7 @@ def delete_registration(
             return
 
         workspace_id = user.workspace_id
-        session.delete(user)
+        delete_users(session, [user.id])
         session.flush()
 
         if workspace_id is not None:
@@ -213,6 +221,9 @@ def test_open_registration_commits_before_email_delivery(
     csrf_token = issue_csrf(client)
 
     try:
+        with SessionFactory() as session:
+            owned_rows_before = personal_account_side_rows(session)
+
         response = client.post(
             "/api/registration",
             headers={
@@ -223,38 +234,33 @@ def test_open_registration_commits_before_email_delivery(
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "workspace_slug": payload["workspace_slug"],
-            "registration_status": "provisional",
-            "onboarding_stage": ("email_verification_pending"),
-            "verification_required": True,
-        }
+        assert response.json() == {"verification_required": True}
 
         serialized = response.text
 
         assert payload["password"] not in serialized
         assert "verification_token" not in serialized
         assert "username" not in serialized
+        assert "workspace" not in serialized
 
         with SessionFactory() as session:
             user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
 
             assert user is not None
-            assert user.workspace_id is not None
-
-            workspace = session.get(
-                Installation,
-                user.workspace_id,
-            )
-
-            assert workspace is not None
-            assert workspace.slug == payload["workspace_slug"]
+            assert user.workspace_id is None
+            assert user.role is None
+            assert user.username is None
+            assert user.email_verified_at is None
+            assert user.display_name == payload["display_name"]
+            assert personal_account_side_rows(session) == owned_rows_before
 
             deliveries = identity_deliveries(session, user.id)
 
             assert len(deliveries) == 1
             assert deliveries[0].event_type is VERIFICATION
-            assert deliveries[0].workspace_id == user.workspace_id
+            assert deliveries[0].scope is TransactionalEmailScope.UNSCOPED
+            assert deliveries[0].workspace_id is None
+            assert deliveries[0].user_id == user.id
 
             jobs = email_jobs_for(session, [deliveries[0].id])
 
@@ -270,6 +276,70 @@ def test_open_registration_commits_before_email_delivery(
         delete_registration(
             email=payload["email"],
         )
+
+
+def personal_account_side_rows(session) -> tuple[int, int, int]:
+    """Return global (installations, provider connections, claims) counts."""
+
+    return (
+        int(session.scalar(select(func.count(Installation.id))) or 0),
+        int(session.scalar(select(func.count(ProviderConnection.id))) or 0),
+        int(session.scalar(select(func.count(ProviderLeagueClaim.id))) or 0),
+    )
+
+
+def test_registration_ignores_legacy_workspace_fields(
+    client: TestClient,
+) -> None:
+    payload = registration_payload() | {
+        "workspace_name": "Ignored League",
+        "workspace_slug": f"ignored-{uuid4().hex[:12]}",
+    }
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+
+    try:
+        response = post_registration(client, payload)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == {"verification_required": True}
+
+        with SessionFactory() as session:
+            user = session.scalar(select(User).where(User.normalized_email == payload["email"]))
+
+            assert user is not None
+            assert user.workspace_id is None
+            assert (
+                session.scalar(
+                    select(func.count(Installation.id)).where(
+                        Installation.normalized_slug == payload["workspace_slug"]
+                    )
+                )
+                == 0
+            )
+    finally:
+        delete_registration(email=payload["email"])
+
+
+def test_registration_rejects_mismatched_password_confirmation(
+    client: TestClient,
+) -> None:
+    payload = registration_payload() | {"confirm_password": "a different passphrase!"}
+
+    app.dependency_overrides[get_settings] = open_registration_settings
+
+    try:
+        response = post_registration(client, payload)
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+        with SessionFactory() as session:
+            assert (
+                session.scalar(select(User).where(User.normalized_email == payload["email"]))
+                is None
+            )
+    finally:
+        delete_registration(email=payload["email"])
 
 
 def test_registration_succeeds_when_transactional_email_is_disabled(
@@ -297,12 +367,7 @@ def test_registration_succeeds_when_transactional_email_is_disabled(
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "workspace_slug": payload["workspace_slug"],
-            "registration_status": "provisional",
-            "onboarding_stage": ("email_verification_pending"),
-            "verification_required": True,
-        }
+        assert response.json() == {"verification_required": True}
         assert "email_delivery_unavailable" not in response.text
 
         with SessionFactory() as session:
@@ -316,46 +381,7 @@ def test_registration_succeeds_when_transactional_email_is_disabled(
         )
 
 
-def test_duplicate_slug_returns_stable_conflict(
-    client: TestClient,
-) -> None:
-    first = registration_payload()
-    second = registration_payload()
-    second["workspace_slug"] = first["workspace_slug"]
-
-    app.dependency_overrides[get_settings] = open_registration_settings
-
-    try:
-        for payload in (first, second):
-            csrf_token = issue_csrf(client)
-            response = client.post(
-                "/api/registration",
-                headers={
-                    "Origin": TRUSTED_ORIGIN,
-                    "X-CSRF-Token": csrf_token,
-                },
-                json=payload,
-            )
-
-            if payload is first:
-                assert response.status_code == (status.HTTP_201_CREATED)
-            else:
-                assert response.status_code == (status.HTTP_409_CONFLICT)
-                assert response.json() == {
-                    "detail": ("That workspace slug is unavailable."),
-                    "code": "registration_conflict",
-                    "retryable": False,
-                }
-    finally:
-        delete_registration(
-            email=first["email"],
-        )
-        delete_registration(
-            email=second["email"],
-        )
-
-
-def test_registration_response_never_exposes_internal_username(
+def test_registration_response_never_exposes_internal_identifiers(
     client: TestClient,
 ) -> None:
     payload = registration_payload()
@@ -375,9 +401,7 @@ def test_registration_response_never_exposes_internal_username(
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert "username" not in response.json()
-        assert "administrator_id" not in response.json()
-        assert "verification_token" not in response.json()
+        assert set(response.json()) == {"verification_required"}
     finally:
         delete_registration(
             email=payload["email"],
@@ -461,7 +485,7 @@ def test_email_verification_rejects_untrusted_origin(
     }
 
 
-def test_email_verification_creates_onboarding_session(
+def test_email_verification_creates_personal_session(
     client: TestClient,
 ) -> None:
     payload, verification_token = register_for_verification(client)
@@ -482,12 +506,10 @@ def test_email_verification_creates_onboarding_session(
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
-            "workspace_slug": payload["workspace_slug"],
             "display_name": payload["display_name"],
             "email": payload["email"],
-            "role": "admin",
-            "registration_status": "provisional",
-            "onboarding_stage": "provider_setup_pending",
+            "email_verified": True,
+            "navigation_state": "import_required",
             "csrf_token": response.json()["csrf_token"],
         }
 
@@ -502,6 +524,37 @@ def test_email_verification_creates_onboarding_session(
         assert "fantasy_preauth_csrf" not in client.cookies
 
         with SessionFactory() as session:
+            account = session.scalar(select(User).where(User.normalized_email == payload["email"]))
+
+            assert account is not None
+            assert account.email_verified_at is not None
+            assert account.workspace_id is None
+            assert account.role is None
+    finally:
+        delete_registration(
+            email=payload["email"],
+        )
+
+
+def test_email_verification_for_legacy_provisional_administrator(
+    client: TestClient,
+) -> None:
+    payload, verification_token = committed_provisional_registration()
+
+    try:
+        response = post_verification(client, verification_token)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "display_name": payload["display_name"],
+            "email": payload["email"],
+            "email_verified": True,
+            "navigation_state": "legacy_workspace",
+            "csrf_token": response.json()["csrf_token"],
+        }
+        assert verification_token not in response.text
+
+        with SessionFactory() as session:
             administrator = session.scalar(
                 select(User).where(User.normalized_email == payload["email"])
             )
@@ -510,18 +563,13 @@ def test_email_verification_creates_onboarding_session(
             assert administrator.email_verified_at is not None
             assert administrator.workspace_id is not None
 
-            workspace = session.get(
-                Installation,
-                administrator.workspace_id,
-            )
+            workspace = session.get(Installation, administrator.workspace_id)
 
             assert workspace is not None
-            assert workspace.registration_status.value == ("provisional")
-            assert workspace.onboarding_stage.value == ("provider_setup_pending")
+            assert workspace.registration_status is WorkspaceRegistrationStatus.PROVISIONAL
+            assert workspace.onboarding_stage is OnboardingStage.PROVIDER_SETUP_PENDING
     finally:
-        delete_registration(
-            email=payload["email"],
-        )
+        delete_registration(email=payload["email"])
 
 
 def test_email_verification_token_is_single_use_at_api_boundary(
@@ -595,7 +643,7 @@ def test_invalid_email_verification_returns_stable_error(
     }
 
 
-def test_verified_onboarding_session_cannot_access_analytics(
+def test_verified_personal_session_cannot_access_workspace_analytics(
     client: TestClient,
 ) -> None:
     payload, verification_token = register_for_verification(client)
@@ -701,7 +749,7 @@ def test_verification_resend_rejects_untrusted_origin(
 
 RESEND_ACCEPTED_BODY = {
     "detail": (
-        "If an eligible administrator account exists for that email "
+        "If an eligible account exists for that email "
         "address, verification instructions will be sent. Check your "
         "email for the next step."
     ),
@@ -925,7 +973,7 @@ def mark_administrator(email: str, *, verified: bool, active: bool) -> None:
         ),
     ],
 )
-def test_ineligible_resend_creates_nothing_and_returns_identical_response(
+def test_ineligible_legacy_resend_creates_nothing_and_returns_identical_response(
     client: TestClient,
     verified: bool,
     active: bool,
@@ -947,6 +995,37 @@ def test_ineligible_resend_creates_nothing_and_returns_identical_response(
         assert response.json() == RESEND_ACCEPTED_BODY
         assert resend_state(payload["email"]) == before
         # The registration delivery and its job are the only rows.
+        assert before[:2] == (1, 1)
+    finally:
+        delete_registration(email=payload["email"])
+
+
+@pytest.mark.parametrize(
+    ("verified", "active"),
+    [
+        pytest.param(True, True, id="verified-personal"),
+        pytest.param(False, False, id="inactive-personal"),
+    ],
+)
+def test_ineligible_personal_resend_creates_nothing_and_returns_identical_response(
+    client: TestClient,
+    verified: bool,
+    active: bool,
+) -> None:
+    payload = registration_payload()
+    app.dependency_overrides[get_settings] = open_registration_settings
+
+    try:
+        assert post_registration(client, payload).status_code == status.HTTP_201_CREATED
+
+        mark_administrator(payload["email"], verified=verified, active=active)
+        before = resend_state(payload["email"])
+
+        response = resend_verification(client, email=payload["email"])
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json() == RESEND_ACCEPTED_BODY
+        assert resend_state(payload["email"]) == before
         assert before[:2] == (1, 1)
     finally:
         delete_registration(email=payload["email"])
@@ -1025,18 +1104,12 @@ def post_registration(
 def registration_row_counts(
     *,
     email: str,
-    slugs: tuple[str, ...],
-) -> tuple[int, int, int, int, int]:
-    """Return (workspaces, users, tokens, deliveries, jobs) for a registration."""
+) -> tuple[int, int, int, int]:
+    """Return (users, tokens, deliveries, jobs) for a registration."""
 
     with SessionFactory() as session:
         users = session.scalars(select(User).where(User.normalized_email == email)).all()
         user_ids = [user.id for user in users]
-        workspace_count = len(
-            session.scalars(select(Installation).where(Installation.normalized_slug.in_(slugs)))
-            .unique()
-            .all()
-        )
         token_total = sum(token_count(session, user_id) for user_id in user_ids)
         delivery_ids = [
             delivery.id
@@ -1045,7 +1118,7 @@ def registration_row_counts(
         ]
         job_total = len(email_jobs_for(session, delivery_ids))
 
-    return workspace_count, len(user_ids), token_total, len(delivery_ids), job_total
+    return len(user_ids), token_total, len(delivery_ids), job_total
 
 
 def test_duplicate_email_registration_is_indistinguishable(
@@ -1053,59 +1126,22 @@ def test_duplicate_email_registration_is_indistinguishable(
 ) -> None:
     first = registration_payload()
     second = registration_payload()
-    second["email"] = first["email"]
+    second["email"] = first["email"].upper()
 
     app.dependency_overrides[get_settings] = open_registration_settings
 
     try:
         created = post_registration(client, first)
         assert created.status_code == status.HTTP_201_CREATED
-        before = registration_row_counts(
-            email=first["email"],
-            slugs=(first["workspace_slug"], second["workspace_slug"]),
-        )
-        assert before == (1, 1, 0, 1, 1)
+        before = registration_row_counts(email=first["email"])
+        assert before == (1, 0, 1, 1)
 
         duplicate = post_registration(client, second)
 
         assert duplicate.status_code == created.status_code
         assert duplicate.headers["content-type"] == created.headers["content-type"]
-        assert duplicate.json() == {
-            **created.json(),
-            "workspace_slug": second["workspace_slug"],
-        }
-        assert set(duplicate.json()) == set(created.json())
-        assert (
-            registration_row_counts(
-                email=first["email"],
-                slugs=(first["workspace_slug"], second["workspace_slug"]),
-            )
-            == before
-        )
-        # No informational email is queued yet for duplicate attempts.
-        assert before[2:] == (0, 1, 1)
-    finally:
-        delete_registration(email=first["email"])
-
-
-def test_duplicate_slug_still_returns_conflict_with_duplicate_email(
-    client: TestClient,
-) -> None:
-    first = registration_payload()
-    second = registration_payload()
-    second["email"] = first["email"]
-    second["workspace_slug"] = first["workspace_slug"]
-
-    app.dependency_overrides[get_settings] = open_registration_settings
-
-    try:
-        assert post_registration(client, first).status_code == status.HTTP_201_CREATED
-
-        response = post_registration(client, second)
-
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["code"] == "registration_conflict"
-        assert response.json()["detail"] == "That workspace slug is unavailable."
+        assert duplicate.json() == created.json() == {"verification_required": True}
+        assert registration_row_counts(email=first["email"]) == before
     finally:
         delete_registration(email=first["email"])
 
@@ -1141,18 +1177,10 @@ def test_concurrent_duplicate_email_registrations_create_one_identity(
             status.HTTP_201_CREATED,
         ]
 
-        for response, payload in zip(responses, payloads, strict=True):
-            assert response.json() == {
-                "workspace_slug": payload["workspace_slug"],
-                "registration_status": "provisional",
-                "onboarding_stage": "email_verification_pending",
-                "verification_required": True,
-            }
+        for response in responses:
+            assert response.json() == {"verification_required": True}
 
-        assert registration_row_counts(
-            email=email,
-            slugs=tuple(payload["workspace_slug"] for payload in payloads),
-        ) == (1, 1, 0, 1, 1)
+        assert registration_row_counts(email=email) == (1, 0, 1, 1)
     finally:
         for browser in browsers:
             browser.close()
@@ -1181,10 +1209,7 @@ def test_registration_submissions_are_throttled_per_source(
             "code": "registration_throttled",
             "retryable": True,
         }
-        assert registration_row_counts(
-            email=over_limit["email"],
-            slugs=(over_limit["workspace_slug"],),
-        ) == (0, 0, 0, 0, 0)
+        assert registration_row_counts(email=over_limit["email"]) == (0, 0, 0, 0)
     finally:
         for payload in payloads:
             delete_registration(email=payload["email"])
@@ -1209,24 +1234,38 @@ def committed_provisional_registration(
     workspace_status: WorkspaceRegistrationStatus = WorkspaceRegistrationStatus.PROVISIONAL,
     onboarding_stage: OnboardingStage = OnboardingStage.EMAIL_VERIFICATION_PENDING,
 ) -> tuple[dict[str, str], str]:
+    """Seed a legacy provisional administrator (no longer producible by the API)."""
+
     payload = registration_payload()
+    slug = f"api-legacy-{uuid4().hex[:12]}"
 
     with SessionFactory() as session:
-        result = register_provisional_administrator(
-            session,
-            registration_mode=RegistrationMode.OPEN,
-            workspace_name=payload["workspace_name"],
-            workspace_slug=payload["workspace_slug"],
-            administrator_display_name=payload["display_name"],
-            administrator_email=payload["email"],
-            administrator_password=payload["password"],
+        workspace = Installation(
+            application_name="API Legacy League",
+            slug=slug,
+            normalized_slug=slug,
+            timezone="America/Chicago",
+            status=InstallationStatus.SETUP_IN_PROGRESS,
+            registration_status=workspace_status,
+            onboarding_stage=onboarding_stage,
         )
-        result.workspace.registration_status = workspace_status
-        result.workspace.onboarding_stage = onboarding_stage
+        session.add(workspace)
+        session.flush()
+        administrator = AuthenticationRepository(session).create_user(
+            username=f"internal-{uuid4().hex[:12]}",
+            display_name=payload["display_name"],
+            email=payload["email"],
+            password=payload["password"],
+            role=UserRole.ADMIN,
+            workspace_id=workspace.id,
+        )
+        queue_registration_verification(
+            session, user_id=administrator.id, workspace_id=workspace.id
+        )
         session.flush()
         issued = issue_email_verification_token(
             session,
-            user=result.administrator,
+            user=administrator,
             lifetime_hours=24,
         )
         session.commit()

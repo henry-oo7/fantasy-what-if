@@ -1,4 +1,8 @@
-"""API contract for replaced administrator sessions (session_replaced)."""
+"""API contract for replaced sessions (session_replaced).
+
+The REPLACED state is produced by SessionRepository.replace_user_sessions
+(used by deletion-recovery login); ordinary email login never replaces.
+"""
 
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -186,6 +190,26 @@ def administrator_login(
     return response
 
 
+def replace_administrator_sessions(
+    seeded: SeededWorkspace,
+    *,
+    user_agent: str | None = None,
+) -> str:
+    """Displace every active session with reason REPLACED (as deletion recovery does)."""
+
+    with SessionFactory() as session:
+        administrator = session.get(User, seeded.administrator_id)
+        assert administrator is not None
+        created = SessionRepository(session).replace_user_sessions(
+            user=administrator,
+            lifetime_hours=1,
+            user_agent=user_agent,
+        )
+        session.commit()
+
+        return created.session_token
+
+
 def spectator_login(client: TestClient, seeded: SeededWorkspace):
     response = client.post(
         "/api/auth/spectator/login",
@@ -225,7 +249,10 @@ def test_replaced_browser_receives_session_replaced(
         administrator_login(browser_a, seeded_workspace)
         assert browser_a.get("/api/auth/me").status_code == status.HTTP_200_OK
 
-        administrator_login(browser_b, seeded_workspace, user_agent=REPLACING_USER_AGENT)
+        set_session_cookie(
+            browser_b,
+            replace_administrator_sessions(seeded_workspace, user_agent=REPLACING_USER_AGENT),
+        )
 
         response = browser_a.get(path)
 
@@ -239,7 +266,10 @@ def test_session_replaced_response_discloses_no_device_details(
 ) -> None:
     with TestClient(app) as browser_a, TestClient(app) as browser_b:
         administrator_login(browser_a, seeded_workspace)
-        administrator_login(browser_b, seeded_workspace, user_agent=REPLACING_USER_AGENT)
+        set_session_cookie(
+            browser_b,
+            replace_administrator_sessions(seeded_workspace, user_agent=REPLACING_USER_AGENT),
+        )
 
         response = browser_a.get("/api/auth/me")
 
@@ -261,10 +291,10 @@ def test_session_replaced_response_discloses_no_device_details(
 def test_session_replaced_survives_new_connections(
     seeded_workspace: SeededWorkspace,
 ) -> None:
-    with TestClient(app) as browser_a, TestClient(app) as browser_b:
+    with TestClient(app) as browser_a:
         administrator_login(browser_a, seeded_workspace)
         stale_token = browser_a.cookies.get(session_cookie_name())
-        administrator_login(browser_b, seeded_workspace)
+        replace_administrator_sessions(seeded_workspace)
 
     # Drop every pooled connection: the reason is read from the database,
     # not from any in-process state, so it survives a process restart.
@@ -370,7 +400,7 @@ def test_replaced_session_in_suspended_workspace_is_reported_as_replaced(
 ) -> None:
     with TestClient(app) as browser_a, TestClient(app) as browser_b:
         administrator_login(browser_a, seeded_workspace)
-        administrator_login(browser_b, seeded_workspace)
+        set_session_cookie(browser_b, replace_administrator_sessions(seeded_workspace))
 
         with SessionFactory() as session:
             workspace = session.get(Installation, seeded_workspace.workspace_id)
@@ -382,6 +412,26 @@ def test_replaced_session_in_suspended_workspace_is_reported_as_replaced(
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json() == SESSION_REPLACED
+
+
+def test_second_email_login_does_not_replace_session(
+    seeded_workspace: SeededWorkspace,
+) -> None:
+    with TestClient(app) as browser_a, TestClient(app) as browser_b:
+        administrator_login(browser_a, seeded_workspace)
+        administrator_login(browser_b, seeded_workspace)
+
+        assert browser_a.get("/api/auth/me").status_code == status.HTTP_200_OK
+        assert browser_b.get("/api/auth/me").status_code == status.HTTP_200_OK
+
+    with SessionFactory() as session:
+        stored = session.scalars(
+            select(AuthSession).where(AuthSession.user_id == seeded_workspace.administrator_id)
+        ).all()
+
+    assert len(stored) == 2
+    assert all(row.revoked_at is None for row in stored)
+    assert all(row.revocation_reason is None for row in stored)
 
 
 def test_spectator_sessions_remain_concurrent_and_unaffected(

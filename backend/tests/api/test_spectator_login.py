@@ -415,8 +415,11 @@ def test_auth_me_works_for_active_spectator(
 
     assert response.status_code == status.HTTP_200_OK
     body = response.json()
-    assert body["id"] == seeded.spectator_id
-    assert body["role"] == "spectator"
+    assert "id" not in body and "role" not in body
+    assert body["authenticated"] is True
+    assert body["navigation_state"] == "legacy_workspace"
+    assert body["legacy_workspace"]["role"] == "spectator"
+    assert body["legacy_workspace"]["workspace"]["workspace_id"] == seeded.workspace_id
 
 
 def test_authenticated_spectator_loses_access_after_workspace_suspension(

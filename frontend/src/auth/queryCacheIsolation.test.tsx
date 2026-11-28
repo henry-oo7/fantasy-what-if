@@ -189,7 +189,6 @@ describe("authenticated query-cache isolation", () => {
     // after verifying a different registration in this browser).
     const otherAdministrator: AuthenticatedUser = {
       ...ADMIN_USER,
-      id: 99,
       display_name: "Other Administrator",
       email: "other@example.test",
     };

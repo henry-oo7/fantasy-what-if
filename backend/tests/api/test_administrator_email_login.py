@@ -163,10 +163,10 @@ def test_administrator_email_login_creates_session(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["user"] == {
-        "id": administrator_id,
         "workspace_id": response.json()["user"]["workspace_id"],
         "display_name": "Email Administrator",
         "email": email,
+        "email_verified": True,
         "role": "admin",
         "is_active": True,
     }
@@ -229,7 +229,7 @@ def test_failed_login_preserves_existing_admin_session(
     assert client.cookies.get("fantasy_session") == existing_cookie
 
 
-def test_second_admin_login_replaces_first_session(
+def test_second_admin_login_keeps_both_sessions_active(
     active_administrator: tuple[str, str, int],
 ) -> None:
     email, password, administrator_id = active_administrator
@@ -262,8 +262,8 @@ def test_second_admin_login_replaces_first_session(
             ).all()
 
         assert len(sessions) == 2
-        assert sessions[0].revoked_at is not None
-        assert sessions[1].revoked_at is None
+        assert all(item.revoked_at is None for item in sessions)
+        assert all(item.revocation_reason is None for item in sessions)
 
 
 def test_unverified_admin_login_is_generic(

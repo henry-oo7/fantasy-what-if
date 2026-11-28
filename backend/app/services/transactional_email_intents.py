@@ -65,6 +65,27 @@ def queue_workspace_email(
     return _finish(session, result, commit=commit)
 
 
+def queue_user_email(
+    session: Session,
+    *,
+    user_id: int,
+    event_type: TransactionalEmailEventType,
+    idempotency_key: str,
+    available_at: datetime | None = None,
+    commit: bool = False,
+) -> QueuedTransactionalEmail:
+    """Queue a workspace-free personal identity email for one user."""
+
+    result = TransactionalEmailDeliveryRepository(session).create_user_delivery(
+        user_id=user_id,
+        event_type=event_type,
+        idempotency_key=idempotency_key,
+        available_at=available_at,
+    )
+
+    return _finish(session, result, commit=commit)
+
+
 def queue_unscoped_completion_email(
     session: Session,
     *,

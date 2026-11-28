@@ -169,7 +169,7 @@ class Caller:
     session_id: int
     session_token: str
     csrf_token: str
-    workspace_id: int
+    workspace_id: int | None
 
 
 @dataclass
@@ -178,6 +178,8 @@ class Registry:
     league_ids: list[str] = field(default_factory=list)
     # Seasons removed during a test (purge simulation) whose jobs must still go.
     season_ids: list[int] = field(default_factory=list)
+    # Workspace-free personal accounts (no workspace to cascade from).
+    user_ids: list[int] = field(default_factory=list)
 
 
 def create_caller(
@@ -190,13 +192,24 @@ def create_caller(
     registration_status: WorkspaceRegistrationStatus | None = WorkspaceRegistrationStatus.ACTIVE,
     installation_status: InstallationStatus = InstallationStatus.ACTIVE,
     workspace_id: int | None = None,
+    personal: bool = False,
 ) -> Caller:
-    """One user with one session, in a new workspace unless ``workspace_id`` is given."""
+    """One user with one session, in a new workspace unless ``workspace_id`` is given.
+
+    ``personal=True`` creates a workspace-free personal account instead.
+    """
 
     suffix = uuid4().hex[:12]
 
     with SessionFactory() as session:
-        if workspace_id is None:
+        if personal:
+            user = AuthenticationRepository(session).create_personal_user(
+                display_name="Synthetic Personal",
+                email=f"personal-{suffix}@example.com",
+                password="correct horse battery staple",
+            )
+            registry.user_ids.append(user.id)
+        elif workspace_id is None:
             pending = registration_status is WorkspaceRegistrationStatus.DELETION_PENDING
             workspace = Installation(
                 application_name="League Import Workspace",
@@ -214,14 +227,15 @@ def create_caller(
             workspace_id = workspace.id
             registry.workspaces.append(workspace_id)
 
-        user = AuthenticationRepository(session).create_user(
-            username=f"import-{role.value}-{suffix}",
-            display_name="Synthetic Importer",
-            email=f"import-{suffix}@example.com" if role is UserRole.ADMIN else None,
-            password="correct horse battery staple",
-            role=role,
-            workspace_id=workspace_id,
-        )
+        if not personal:
+            user = AuthenticationRepository(session).create_user(
+                username=f"import-{role.value}-{suffix}",
+                display_name="Synthetic Importer",
+                email=f"import-{suffix}@example.com" if role is UserRole.ADMIN else None,
+                password="correct horse battery staple",
+                role=role,
+                workspace_id=workspace_id,
+            )
         user.email_verified_at = datetime.now(UTC) if verified else None
         session.flush()
         created = SessionRepository(session).create_session(
@@ -268,7 +282,7 @@ def cleanup(registry: Registry) -> None:
                 League.provider_league_id.in_(registry.league_ids),
             )
         )
-        user_ids = list(
+        user_ids = registry.user_ids + list(
             session.scalars(select(User.id).where(User.workspace_id.in_(registry.workspaces)))
         )
         session.execute(

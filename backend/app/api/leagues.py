@@ -158,7 +158,13 @@ def import_another_season(
         Depends(get_season_importer),
     ],
 ) -> ImportSeasonResponse:
-    """Import another season for the authenticated workspace's league."""
+    """Import another season for the authenticated workspace's league (legacy)."""
+
+    if context.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access is unavailable.",
+        )
 
     try:
         result = importer(

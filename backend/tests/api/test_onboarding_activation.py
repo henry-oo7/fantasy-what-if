@@ -584,7 +584,7 @@ def test_activation_sets_lifecycle_and_active_selection(
         client.cookies.set(get_settings().session_cookie_name, seeded.administrator.session_token)
         me = client.get("/api/auth/me").json()
 
-    assert me["workspace"]["workspace_access"] == "active"
+    assert me["legacy_workspace"]["workspace"]["workspace_access"] == "active"
 
 
 def test_completed_historical_season_leaves_no_active_season(

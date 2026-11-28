@@ -15,7 +15,7 @@ from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "d7f2b9a4c6e1"
 PREVIOUS_REVISION = "c4e8a1f7d3b9"
-HEAD_REVISION = "b9e4c2d7a1f3"  # League-Season sync job; later than REVISION
+HEAD_REVISION = "d3a7e5b1c9f2"  # personal account identity; later than REVISION
 WORKSPACE_ID = 990_201
 PREVIOUS_JOB_TYPES = [
     "initial_workspace_sync",

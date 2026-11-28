@@ -230,6 +230,26 @@ class LeagueAccessRepository:
             )
         ]
 
+    def has_access_with_status(
+        self,
+        *,
+        user_id: int,
+        statuses: Collection[UserSeasonAccessStatus],
+    ) -> bool:
+        """Cheap existence check: no League or Season data is loaded."""
+
+        return (
+            self.session.scalar(
+                select(UserLeagueSeasonAccess.id)
+                .where(
+                    UserLeagueSeasonAccess.user_id == user_id,
+                    UserLeagueSeasonAccess.status.in_(statuses),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
     def get_default_season_id(self, *, user_id: int) -> int | None:
         return self.session.scalar(
             select(UserPreference.default_league_season_id).where(UserPreference.user_id == user_id)

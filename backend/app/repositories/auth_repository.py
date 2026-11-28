@@ -39,24 +39,20 @@ class AuthenticationRepository:
 
         return self.session.scalar(select(User).where(func.lower(User.email) == normalized_email))
 
-    def get_administrator_by_email(
+    def get_user_by_login_email(
         self,
         email: str,
     ) -> User | None:
-        """Return the administrator owning one normalized email.
+        """Return the one user owning a normalized email, whatever its shape.
 
-        Uses the indexed ``normalized_email`` column and the administrator
-        role, matching the ``uq_users_admin_normalized_email`` constraint.
+        ``uq_users_normalized_email`` guarantees at most one row. Callers
+        decide eligibility (see ``can_log_in_by_email``); a spectator never
+        carries an email.
         """
 
         normalized_email = normalize_email(email)
 
-        return self.session.scalar(
-            select(User).where(
-                User.normalized_email == normalized_email,
-                User.role == UserRole.ADMIN,
-            )
-        )
+        return self.session.scalar(select(User).where(User.normalized_email == normalized_email))
 
     def username_exists(
         self,
@@ -110,6 +106,33 @@ class AuthenticationRepository:
             password_hash=hash_password(password),
             role=role,
             is_active=is_active,
+        )
+
+        self.session.add(user)
+        self.session.flush()
+
+        return user
+
+    def create_personal_user(
+        self,
+        *,
+        display_name: str,
+        email: str,
+        password: str,
+    ) -> User:
+        """Create a workspace-free personal account (no role, no username)."""
+
+        normalized_email = normalize_email(email)
+
+        if self.email_exists(normalized_email):
+            raise DuplicateEmailError("That email address is already registered.")
+
+        user = User(
+            display_name=normalize_display_name(display_name),
+            email=normalized_email,
+            normalized_email=normalized_email,
+            password_hash=hash_password(password),
+            is_active=True,
         )
 
         self.session.add(user)

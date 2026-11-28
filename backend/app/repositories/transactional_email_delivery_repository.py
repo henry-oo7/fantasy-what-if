@@ -181,6 +181,50 @@ class TransactionalEmailDeliveryRepository:
             user_id=user_id,
         )
 
+    def create_user_delivery(
+        self,
+        *,
+        user_id: int,
+        event_type: TransactionalEmailEventType,
+        idempotency_key: str,
+        available_at: datetime | None = None,
+        maximum_attempts: int = 5,
+    ) -> CreateDeliveryResult:
+        """Create or return a workspace-free personal identity delivery.
+
+        Stored as ``unscoped`` with ``workspace_id`` NULL and ``user_id`` set.
+        The recipient is resolved from that user at send time, never stored.
+        """
+
+        if user_id < 1:
+            raise ValueError("user_id must be positive.")
+
+        if event_type not in IDENTITY_EVENT_TYPES:
+            raise ValueError("Only identity email events may be user-scoped.")
+
+        key = normalize_delivery_idempotency_key(idempotency_key)
+
+        def build() -> TransactionalEmailDelivery:
+            return TransactionalEmailDelivery(
+                scope=TransactionalEmailScope.UNSCOPED,
+                workspace_id=None,
+                user_id=user_id,
+                event_type=event_type,
+                idempotency_key=key,
+                status=TransactionalEmailDeliveryStatus.PENDING,
+                available_at=available_at or datetime.now(UTC),
+                maximum_attempts=maximum_attempts,
+            )
+
+        return self._create_or_get(
+            key,
+            build,
+            scope=TransactionalEmailScope.UNSCOPED,
+            event_type=event_type,
+            workspace_id=None,
+            user_id=user_id,
+        )
+
     def create_unscoped_completion_delivery(
         self,
         *,

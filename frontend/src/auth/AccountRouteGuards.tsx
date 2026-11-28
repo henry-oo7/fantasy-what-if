@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 import { OnboardingPage } from "../pages/account/OnboardingPage";
+import { PersonalAccountPage } from "../pages/account/PersonalAccountPage";
 import {
   WorkspaceDeletionRecoveryPage,
   WorkspaceDeletionScheduledPage,
@@ -34,6 +35,15 @@ export function PublicOnlyRoute({
     auth.workspaceAccess === "checking"
   ) {
     return children;
+  }
+
+  if (auth.workspaceAccess === "personal") {
+    return (
+      <Navigate
+        to="/account"
+        replace
+      />
+    );
   }
 
   if (auth.workspaceAccess === "provisional") {
@@ -100,6 +110,10 @@ export function OnboardingRoute() {
     return <SessionCheckScreen />;
   }
 
+  if (auth.workspaceAccess === "personal") {
+    return <Navigate to="/account" replace />;
+  }
+
   if (auth.workspaceAccess === "deletion_recovery") {
     return <Navigate to="/workspace-deletion" replace />;
   }
@@ -112,7 +126,7 @@ export function OnboardingRoute() {
   }
 
   if (
-    auth.user.role !== "admin" ||
+    auth.user.legacy_workspace?.role !== "admin" ||
     auth.workspaceAccess !== "provisional"
   ) {
     return (
@@ -169,4 +183,34 @@ export function WorkspaceDeletionRoute() {
   }
 
   return <WorkspaceDeletionRecoveryPage />;
+}
+
+/**
+ * Temporary home of a workspace-free personal account. Everyone else is
+ * routed to the workspace experience they already have.
+ */
+export function PersonalAccountRoute() {
+  const auth = useAuth();
+
+  if (auth.status === "loading") {
+    return <SessionCheckScreen />;
+  }
+
+  if (auth.status === "error") {
+    return <SessionErrorScreen />;
+  }
+
+  if (auth.status !== "authenticated" || auth.user === null) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (auth.workspaceAccess === "checking") {
+    return <SessionCheckScreen />;
+  }
+
+  if (auth.workspaceAccess !== "personal") {
+    return <Navigate to="/" replace />;
+  }
+
+  return <PersonalAccountPage />;
 }

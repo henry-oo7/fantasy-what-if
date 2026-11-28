@@ -94,6 +94,15 @@ export function ProtectedRoute({
     return <SessionCheckScreen />;
   }
 
+  if (auth.workspaceAccess === "personal") {
+    return (
+      <Navigate
+        to="/account"
+        replace
+      />
+    );
+  }
+
   if (auth.workspaceAccess === "provisional") {
     return (
       <Navigate

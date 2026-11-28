@@ -16,23 +16,34 @@ export function workspaceAccessFor(
   user: AuthenticatedUser,
 ): RoutedWorkspaceAccess {
   const purpose: unknown = user.session_purpose;
+  const legacy = user.legacy_workspace;
 
-  if (purpose === "deletion_recovery") {
-    return user.role === "admin" ? "deletion_recovery" : "inactive";
+  // A personal account has no workspace to gate (ADR 0010); the server's
+  // navigation_state decides where it goes next.
+  if (legacy === null || legacy === undefined) {
+    return "personal";
   }
 
-  const access: unknown = user.workspace?.workspace_access;
+  if (purpose === "deletion_recovery") {
+    return legacy.role === "admin" ? "deletion_recovery" : "inactive";
+  }
 
+  const access: unknown = legacy.workspace?.workspace_access;
   switch (access) {
     case "active":
     case "suspended":
     case "inactive":
       return access;
     case "provisional":
-      return user.role === "admin" ? "provisional" : "inactive";
+      return legacy.role === "admin" ? "provisional" : "inactive";
     default:
       return "inactive";
   }
+}
+
+/** Legacy role, or null for a personal account. */
+export function legacyRole(user: AuthenticatedUser | null) {
+  return user?.legacy_workspace?.role ?? null;
 }
 
 const ONBOARDING_STAGE_MESSAGES: Record<OnboardingStage, string> = {

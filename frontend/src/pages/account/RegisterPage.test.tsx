@@ -13,9 +13,6 @@ vi.mock("../../App", () => ({
 }));
 
 const ACCEPTED = {
-  workspace_slug: "example-league",
-  registration_status: "provisional",
-  onboarding_stage: "email_verification_pending",
   verification_required: true,
 };
 
@@ -30,10 +27,8 @@ async function fillRegistration(
   overrides: Partial<Record<string, string>> = {},
 ) {
   const values = {
-    "Workspace name": "Example League",
-    "Workspace address": "example-league",
-    "Your display name": "Example Administrator",
-    Email: "administrator@example.test",
+    "Display name": "Example Person",
+    Email: "person@example.test",
     Password: "correct horse battery",
     "Confirm password": "correct horse battery",
     ...overrides,
@@ -53,24 +48,23 @@ async function fillRegistration(
 async function openRegistration() {
   renderWithProviders(<AppRouter />, "/register");
 
-  return screen.findByRole("heading", { name: "Create your workspace" });
+  return screen.findByRole("heading", { name: "Create your account" });
 }
 
-describe("administrator registration", () => {
+describe("personal account registration", () => {
   it("requires every field and connects errors to their fields", async () => {
     const api = createApiMock();
     const user = userEvent.setup();
 
     await openRegistration();
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
-    const workspaceName = screen.getByLabelText("Workspace name");
-    expect(workspaceName).toHaveAttribute("aria-invalid", "true");
-    expect(workspaceName).toHaveAccessibleDescription("Enter a workspace name.");
-    expect(workspaceName).toHaveFocus();
-    expect(screen.getByLabelText("Workspace address")).toHaveAccessibleDescription(
-      expect.stringContaining("Enter a workspace address."),
-    );
+    const displayName = screen.getByLabelText("Display name");
+    expect(displayName).toHaveAttribute("aria-invalid", "true");
+    expect(displayName).toHaveFocus();
+    expect(displayName).toHaveAccessibleDescription(expect.stringMatching(/\S/));
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByLabelText(/Workspace/i)).not.toBeInTheDocument();
     expect(api.calls("POST /api/registration")).toHaveLength(0);
   });
 
@@ -80,7 +74,7 @@ describe("administrator registration", () => {
 
     await openRegistration();
     await fillRegistration(user, { "Confirm password": "different horse battery" });
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(screen.getByLabelText("Confirm password")).toHaveAccessibleDescription(
       "Passwords do not match.",
@@ -95,7 +89,7 @@ describe("administrator registration", () => {
 
     await openRegistration();
     await fillRegistration(user);
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(await screen.findByRole("heading", { name: "Check your inbox" })).toBeInTheDocument();
 
@@ -106,11 +100,10 @@ describe("administrator registration", () => {
 
     const [request] = api.calls("POST /api/registration");
     expect(request.body).toEqual({
-      workspace_name: "Example League",
-      workspace_slug: "example-league",
-      display_name: "Example Administrator",
-      email: "administrator@example.test",
+      display_name: "Example Person",
+      email: "person@example.test",
       password: "correct horse battery",
+      confirm_password: "correct horse battery",
     });
     expect(request.headers.get("X-CSRF-Token")).toBe("pre-auth-csrf");
 
@@ -129,9 +122,9 @@ describe("administrator registration", () => {
       const user = userEvent.setup();
       const view = renderWithProviders(<AppRouter />, "/register");
 
-      await screen.findByRole("heading", { name: "Create your workspace" });
+      await screen.findByRole("heading", { name: "Create your account" });
       await fillRegistration(user, { Email: email });
-      await user.click(screen.getByRole("button", { name: "Create workspace" }));
+      await user.click(screen.getByRole("button", { name: "Create account" }));
       await screen.findByRole("heading", { name: "Check your inbox" });
 
       const markup = view.container.innerHTML.replaceAll(email, "EMAIL");
@@ -158,38 +151,16 @@ describe("administrator registration", () => {
 
     await openRegistration();
     await fillRegistration(user);
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).not.toMatch(/provider|resend|delivery|queued/i);
     expect(
       screen.queryByRole("heading", { name: "Check your inbox" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toHaveValue("administrator@example.test");
+    expect(screen.getByLabelText("Email")).toHaveValue("person@example.test");
     expect(document.body.textContent).not.toMatch(/will be sent/i);
     expect(api.calls("POST /api/registration")).toHaveLength(1);
-  });
-
-  it("shows a slug conflict on the workspace address field", async () => {
-    const api = createApiMock();
-    api.reply("POST /api/registration", 409, {
-      detail: "That workspace slug is unavailable.",
-      code: "registration_conflict",
-      retryable: false,
-    });
-    const user = userEvent.setup();
-
-    await openRegistration();
-    await fillRegistration(user);
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
-
-    const slug = await screen.findByLabelText("Workspace address");
-    expect(await screen.findByText("That workspace slug is unavailable.")).toBeInTheDocument();
-    expect(slug).toHaveAttribute("aria-invalid", "true");
-    expect(slug).toHaveAccessibleDescription(
-      expect.stringContaining("That workspace slug is unavailable."),
-    );
-    expect(screen.getByLabelText("Email")).toHaveValue("administrator@example.test");
   });
 
   it("shows closed registration safely", async () => {
@@ -203,7 +174,7 @@ describe("administrator registration", () => {
 
     await openRegistration();
     await fillRegistration(user);
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Registration is currently closed. Try again later.",
@@ -222,7 +193,7 @@ describe("administrator registration", () => {
 
     await openRegistration();
     await fillRegistration(user);
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Too many registration attempts. Try again in 45 seconds.",
@@ -242,9 +213,9 @@ describe("administrator registration", () => {
 
     await openRegistration();
     await fillRegistration(user);
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
-    const busy = await screen.findByRole("button", { name: "Creating workspace…" });
+    const busy = await screen.findByRole("button", { name: "Creating account…" });
     expect(busy).toBeDisabled();
     await user.click(busy);
     expect(api.calls("POST /api/registration")).toHaveLength(1);
@@ -261,12 +232,12 @@ describe("administrator registration", () => {
 
     await openRegistration();
     await fillRegistration(user);
-    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
     await user.click(await screen.findByRole("button", { name: "Resend verification email" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(RESEND_ACCEPTED.detail);
     expect(api.calls("POST /api/registration/resend-verification")[0].body).toEqual({
-      email: "administrator@example.test",
+      email: "person@example.test",
     });
   });
 });

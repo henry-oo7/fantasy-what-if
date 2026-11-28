@@ -58,9 +58,9 @@ from app.repositories.session_repository import SessionRepository
 from app.repositories.transactional_email_delivery_repository import (
     TransactionalEmailDeliveryRepository,
 )
-from app.services.administrator_registration import (
-    DuplicateAdministratorEmailError,
-    register_provisional_administrator,
+from app.services.account_registration import (
+    DuplicateAccountEmailError,
+    register_personal_account,
 )
 from app.services.identity_email import (
     password_changed_key,
@@ -70,12 +70,13 @@ from app.services.identity_email import (
     registration_verification_key,
     verification_resend_key,
 )
-from app.services.password_recovery import reset_administrator_password
+from app.services.password_recovery import reset_password
 from app.services.transactional_email_intents import queue_workspace_email
 from tests.support.identity_email import (
     PASSWORD_CHANGED,
     PASSWORD_RESET,
     VERIFICATION,
+    delete_users,
     deliver_and_extract_token,
     email_jobs_for,
     forbid_provider_and_network,
@@ -145,11 +146,10 @@ def post(client: TestClient, path: str, body: dict[str, object]):
 def registration_body() -> dict[str, str]:
     suffix = uuid4().hex[:12]
     return {
-        "workspace_name": "Durable Identity League",
-        "workspace_slug": f"durable-{suffix}",
-        "display_name": "Durable Administrator",
+        "display_name": "Durable Account",
         "email": f"durable-{suffix}@example.com",
         "password": PASSWORD,
+        "confirm_password": PASSWORD,
     }
 
 
@@ -170,11 +170,13 @@ def delete_workspaces(workspace_ids: list[int]) -> None:
 
 def delete_by_email(email: str) -> None:
     with SessionFactory() as session:
-        ids = list(
-            session.scalars(select(User.workspace_id).where(User.normalized_email == email)).all()
-        )
+        users = list(session.scalars(select(User).where(User.normalized_email == email)).all())
+        workspace_ids = [user.workspace_id for user in users if user.workspace_id is not None]
 
-    delete_workspaces([workspace_id for workspace_id in ids if workspace_id is not None])
+        delete_users(session, [user.id for user in users if user.workspace_id is None])
+        session.commit()
+
+    delete_workspaces(workspace_ids)
 
 
 def create_administrator(*, provisional: bool) -> tuple[int, int, str]:
@@ -293,27 +295,23 @@ def test_registration_atomically_queues_verification_without_token(
         response = post(client, "/api/registration", body)
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "workspace_slug": body["workspace_slug"],
-            "registration_status": "provisional",
-            "onboarding_stage": "email_verification_pending",
-            "verification_required": True,
-        }
+        assert response.json() == {"verification_required": True}
 
         with SessionFactory() as session:
             user = session.scalar(select(User).where(User.normalized_email == body["email"]))
-            assert user is not None and user.workspace_id is not None
+            assert user is not None and user.workspace_id is None
             deliveries = identity_deliveries(session, user.id)
             jobs = email_jobs_for(session, [delivery.id for delivery in deliveries])
 
             assert len(deliveries) == 1
             delivery = deliveries[0]
             assert delivery.event_type is VERIFICATION
-            assert delivery.workspace_id == user.workspace_id
+            assert delivery.workspace_id is None
+            assert delivery.user_id == user.id
             assert delivery.idempotency_key == registration_verification_key(user.id)
             assert delivery.status is TransactionalEmailDeliveryStatus.PENDING
             assert len(jobs) == 1
-            assert jobs[0].workspace_id == user.workspace_id
+            assert jobs[0].workspace_id is None
             assert jobs[0].payload == {"version": 1, "delivery_id": delivery.id}
             # Token creation belongs to the worker only.
             assert token_count(session, user.id) == 0
@@ -361,7 +359,7 @@ def test_registration_rolls_back_everything_when_intent_creation_fails(
         raise SQLAlchemyError("synthetic local intent failure")
 
     if failure_point == "delivery":
-        monkeypatch.setattr(TransactionalEmailDeliveryRepository, "create_workspace_delivery", fail)
+        monkeypatch.setattr(TransactionalEmailDeliveryRepository, "create_user_delivery", fail)
     else:
         # The delivery row is flushed first; the job write then fails.
         monkeypatch.setattr(BackgroundJobRepository, "enqueue", fail)
@@ -378,14 +376,6 @@ def test_registration_rolls_back_everything_when_intent_creation_fails(
         assert body["email"] not in caplog.text
 
         with SessionFactory() as session:
-            assert (
-                session.scalar(
-                    select(Installation).where(
-                        Installation.normalized_slug == body["workspace_slug"]
-                    )
-                )
-                is None
-            )
             assert (
                 session.scalar(select(User).where(User.normalized_email == body["email"])) is None
             )
@@ -422,7 +412,7 @@ def test_duplicate_email_registration_creates_nothing_and_matches_response(
         duplicate = post(client, "/api/registration", second)
 
         assert duplicate.status_code == created.status_code
-        assert duplicate.json() == {**created.json(), "workspace_slug": second["workspace_slug"]}
+        assert duplicate.json() == created.json()
         assert (max_id(Installation), max_id(User), max_id(TransactionalEmailDelivery)) == before
         assert max_id(BackgroundJob) == before_jobs
 
@@ -435,39 +425,34 @@ def test_duplicate_email_registration_creates_nothing_and_matches_response(
 
 def test_concurrent_same_email_registration_queues_exactly_one_delivery() -> None:
     email = f"concurrent-durable-{uuid4().hex[:12]}@example.com"
-    slugs = [f"concurrent-durable-{uuid4().hex[:12]}" for _ in range(THREADS)]
 
-    def register(index: int) -> object:
+    def register(_index: int) -> object:
         with SessionFactory() as session:
-            result = register_provisional_administrator(
+            result = register_personal_account(
                 session,
                 registration_mode=RegistrationMode.OPEN,
-                workspace_name="Concurrent Durable League",
-                workspace_slug=slugs[index],
-                administrator_display_name="Concurrent Administrator",
-                administrator_email=email,
-                administrator_password=PASSWORD,
+                display_name="Concurrent Account",
+                email=email,
+                password=PASSWORD,
             )
             session.commit()
-            return result.administrator.id
+            return result.user.id
 
     try:
         results = run_concurrently(register)
         winners = [result for result in results if isinstance(result, int)]
-        losers = [r for r in results if isinstance(r, DuplicateAdministratorEmailError)]
+        losers = [r for r in results if isinstance(r, DuplicateAccountEmailError)]
 
         assert len(winners) == 1, results
         assert len(losers) == THREADS - 1, results
 
         with SessionFactory() as session:
-            workspaces = session.scalars(
-                select(Installation).where(Installation.normalized_slug.in_(slugs))
-            ).all()
+            users = session.scalars(select(User).where(User.normalized_email == email)).all()
             deliveries = identity_deliveries(session, winners[0])
 
-            assert len(workspaces) == 1
+            assert len(users) == 1
             assert len(deliveries) == 1
-            assert deliveries[0].workspace_id == workspaces[0].id
+            assert deliveries[0].workspace_id is None
             assert len(email_jobs_for(session, [deliveries[0].id])) == 1
             assert token_count(session, winners[0]) == 0
     finally:
@@ -500,7 +485,7 @@ def test_concurrent_issuance_is_bounded_then_allows_deliberate_reissue(
     def issue(_index: int) -> object:
         with SessionFactory() as session:
             administrator = session.get(User, user_id)
-            queued = queue(session, administrator=administrator)
+            queued = queue(session, user=administrator)
             session.commit()
             return queued.delivery.id
 
@@ -768,7 +753,7 @@ def test_completion_changes_password_and_queues_tokenless_notice_atomically(
         consumed_id = session.scalar(
             select(PasswordResetToken.id).where(PasswordResetToken.user_id == user_id)
         )
-        queued = queue_password_reset(session, administrator=user)
+        queued = queue_password_reset(session, user=user)
         AccountTokenRepository(session).create_delivery_password_reset_token(
             user_id=user_id,
             raw_token=f"synthetic-other-{uuid4().hex}",
@@ -884,7 +869,7 @@ def test_concurrent_completion_with_one_token_queues_one_notice(
 
     def complete(index: int) -> object:
         with SessionFactory() as session:
-            reset_administrator_password(
+            reset_password(
                 session, raw_token=legacy.raw_token, new_password=f"{NEW_PASSWORD} {index}"
             )
             session.commit()

@@ -6,7 +6,7 @@ import {
 import { Link } from "react-router-dom";
 import { MailCheck, UserPlus } from "lucide-react";
 
-import { registerAdministrator } from "../../api/auth";
+import { registerAccount } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import {
   throttledMessage,
@@ -21,8 +21,6 @@ import { ResendVerification } from "../../components/account/ResendVerification"
 const MINIMUM_PASSWORD_LENGTH = 12;
 
 type FieldName =
-  | "workspaceName"
-  | "workspaceSlug"
   | "displayName"
   | "email"
   | "password"
@@ -31,8 +29,6 @@ type FieldName =
 type FieldErrors = Partial<Record<FieldName, string>>;
 
 const FIELD_ORDER: FieldName[] = [
-  "workspaceName",
-  "workspaceSlug",
   "displayName",
   "email",
   "password",
@@ -40,8 +36,6 @@ const FIELD_ORDER: FieldName[] = [
 ];
 
 const FIELD_IDS: Record<FieldName, string> = {
-  workspaceName: "register-workspace-name",
-  workspaceSlug: "register-workspace-slug",
   displayName: "register-display-name",
   email: "register-email",
   password: "register-password",
@@ -58,14 +52,6 @@ interface PendingVerification {
  */
 function validate(values: Record<FieldName, string>): FieldErrors {
   const errors: FieldErrors = {};
-
-  if (!values.workspaceName.trim()) {
-    errors.workspaceName = "Enter a workspace name.";
-  }
-
-  if (!values.workspaceSlug.trim()) {
-    errors.workspaceSlug = "Enter a workspace address.";
-  }
 
   if (!values.displayName.trim()) {
     errors.displayName = "Enter your display name.";
@@ -90,8 +76,6 @@ function validate(values: Record<FieldName, string>): FieldErrors {
 
 export function RegisterPage() {
   const [values, setValues] = useState<Record<FieldName, string>>({
-    workspaceName: "",
-    workspaceSlug: "",
     displayName: "",
     email: "",
     password: "",
@@ -148,24 +132,17 @@ export function RegisterPage() {
     try {
       // A duplicate email returns the same response as a new
       // registration, so success is rendered identically.
-      await registerAdministrator({
-        workspace_name: values.workspaceName,
-        workspace_slug: values.workspaceSlug,
+      await registerAccount({
         display_name: values.displayName,
         email,
         password: values.password,
+        confirm_password: values.confirmPassword,
       });
 
       clearPasswords();
       setPending({ email });
     } catch (error) {
       if (error instanceof ApiError) {
-        if (error.code === "registration_conflict") {
-          setFieldErrors({ workspaceSlug: error.detail });
-          focusField("workspaceSlug");
-          return;
-        }
-
         if (error.code === "registration_unavailable") {
           setFormError(
             "Registration is currently closed. Try again later.",
@@ -204,8 +181,8 @@ export function RegisterPage() {
           <>
             <p>
               If <span className="auth-email">{pending.email}</span> can be
-              used for a new league workspace, an email with a verification
-              link will be sent. Check your email for the next step.
+              used for a new account, an email with a verification link will
+              be sent. Check your email for the next step.
             </p>
             <p>The link expires after 24 hours.</p>
           </>
@@ -225,61 +202,28 @@ export function RegisterPage() {
   return (
     <AccountLayout
       headingId="register-heading"
-      label="New league workspace"
-      title="Create your workspace"
+      label="New account"
+      title="Create your account"
       icon={<UserPlus aria-hidden="true" />}
       description={
         <p>
-          Register as your league&apos;s administrator. You will verify your
-          email before connecting a fantasy provider.
+          Create your own account. You will verify your email before
+          importing a fantasy league.
         </p>
       }
     >
       <form
         ref={formRef}
         className="auth-form"
-        aria-label="Create a league workspace"
+        aria-label="Create an account"
         noValidate
         onSubmit={(event) => {
           void handleSubmit(event);
         }}
       >
         <FormField
-          id={FIELD_IDS.workspaceName}
-          label="Workspace name"
-          name="workspace_name"
-          type="text"
-          autoComplete="organization"
-          required
-          maxLength={120}
-          value={values.workspaceName}
-          error={fieldErrors.workspaceName}
-          onChange={(event) => {
-            update("workspaceName", event.target.value);
-          }}
-        />
-
-        <FormField
-          id={FIELD_IDS.workspaceSlug}
-          label="Workspace address"
-          name="workspace_slug"
-          type="text"
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          required
-          maxLength={50}
-          hint="Lowercase letters, numbers, and single hyphens. Spectators use this to sign in."
-          value={values.workspaceSlug}
-          error={fieldErrors.workspaceSlug}
-          onChange={(event) => {
-            update("workspaceSlug", event.target.value);
-          }}
-        />
-
-        <FormField
           id={FIELD_IDS.displayName}
-          label="Your display name"
+          label="Display name"
           name="display_name"
           type="text"
           autoComplete="name"
@@ -346,7 +290,7 @@ export function RegisterPage() {
           disabled={submitting}
           aria-busy={submitting}
         >
-          {submitting ? "Creating workspace…" : "Create workspace"}
+          {submitting ? "Creating account…" : "Create account"}
         </button>
       </form>
 

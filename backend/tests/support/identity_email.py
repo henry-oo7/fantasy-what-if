@@ -182,3 +182,26 @@ def deliver_identity_email(
 
 def deliver_and_extract_token(delivery_id: int, **kwargs: object) -> str:
     return token_from(deliver_identity_email(delivery_id, **kwargs))  # type: ignore[arg-type]
+
+
+def delete_users(session: Session, user_ids: list[int]) -> None:
+    """Delete users and the email jobs of their deliveries.
+
+    A workspace-free delivery cascades with its user, but its job (workspace
+    NULL) has no foreign key and would otherwise stay claimable.
+    """
+
+    from sqlalchemy import delete
+
+    from app.db.auth_models import User as UserModel
+
+    delivery_ids = list(
+        session.scalars(
+            select(TransactionalEmailDelivery.id).where(
+                TransactionalEmailDelivery.user_id.in_(user_ids)
+            )
+        )
+    )
+    keys = [transactional_email_job_idempotency_key(i) for i in delivery_ids]
+    session.execute(delete(BackgroundJob).where(BackgroundJob.idempotency_key.in_(keys)))
+    session.execute(delete(UserModel).where(UserModel.id.in_(user_ids)))

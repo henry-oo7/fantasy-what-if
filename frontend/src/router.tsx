@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import App from "./App";
 import {
   OnboardingRoute,
+  PersonalAccountRoute,
   PublicOnlyRoute,
   WorkspaceDeletionRoute,
 } from "./auth/AccountRouteGuards";
@@ -63,6 +64,10 @@ export function AppRouter() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
 
       <Route path="/onboarding" element={<OnboardingRoute />} />
+
+      {/* Personal accounts have no workspace; the League experience lands with
+          feature/frontend-league-switcher. */}
+      <Route path="/account" element={<PersonalAccountRoute />} />
 
       {/* FR-20 restricted recovery; never part of the application shell. */}
       <Route path="/workspace-deletion" element={<WorkspaceDeletionRoute />} />

@@ -29,7 +29,7 @@ export function OnboardingPage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
-  const stage = auth.user?.workspace.onboarding_stage ?? null;
+  const stage = auth.user?.legacy_workspace?.workspace.onboarding_stage ?? null;
   const stageMessage = onboardingStageMessage(stage);
   const providerStep =
     stage === "provider_setup_pending" || stage === "provider_validation_failed";

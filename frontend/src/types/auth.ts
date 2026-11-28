@@ -53,14 +53,28 @@ export interface WorkspaceLifecycle {
  */
 export type SessionPurpose = "standard" | "deletion_recovery";
 
-/** GET /api/auth/me: identity plus authoritative workspace lifecycle. */
+/** Where the server says this account belongs next (GET /api/auth/me). */
+export type NavigationState =
+  | "email_verification_required"
+  | "import_required"
+  | "personal_dashboard"
+  | "legacy_workspace"
+  | "legacy_deletion_recovery";
+
+/** Legacy workspace compatibility; null for a personal account. */
+export interface LegacyWorkspaceContext {
+  role: UserRole;
+  workspace: WorkspaceLifecycle;
+}
+
+/** GET /api/auth/me: the personal account and its navigation state. */
 export interface AuthenticatedUser {
-  id: number;
+  authenticated: true;
   display_name: string;
   email: string | null;
-  role: UserRole;
-  is_active: boolean;
-  workspace: WorkspaceLifecycle;
+  email_verified: boolean;
+  navigation_state: NavigationState;
+  legacy_workspace: LegacyWorkspaceContext | null;
   /** Absent on older responses; treated as standard. */
   session_purpose?: SessionPurpose;
 }
@@ -80,12 +94,13 @@ export interface AdministratorLoginRequest {
 }
 
 export interface AdministratorAuthenticatedUser {
-  id: number;
-  workspace_id: number;
   display_name: string;
   email: string;
-  role: "admin";
+  email_verified: boolean;
   is_active: boolean;
+  /** Legacy workspace administrators only. */
+  workspace_id?: number;
+  role?: "admin";
 }
 
 export interface AdministratorAuthenticationResponse {
@@ -143,13 +158,15 @@ export interface PasswordResetCompletionResponse {
  * - provisional: administrator still in SaaS onboarding
  * - suspended: the workspace is suspended
  * - inactive: any other unusable workspace, or an unknown value
+ * - personal: a workspace-free personal account (no workspace to gate)
  * - deletion_recovery: restricted administrator session for a workspace
  *   scheduled for deletion; only the recovery screen is reachable
  * - checking: no session has been resolved yet
  */
 export type RoutedWorkspaceAccess =
   | ResolvedWorkspaceAccess
-  | "deletion_recovery";
+  | "deletion_recovery"
+  | "personal";
 
 export type WorkspaceAccess =
   | "checking"

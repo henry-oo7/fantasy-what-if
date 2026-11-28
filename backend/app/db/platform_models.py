@@ -829,12 +829,18 @@ class TransactionalEmailDelivery(TimestampMixin, Base):
             "AND encrypted_recipient IS NULL "
             "AND recipient_key_version IS NULL "
             "AND event_type <> 'workspace_deletion_completed' "
-            "WHEN scope = 'unscoped' THEN "
-            "workspace_id IS NULL "
-            "AND user_id IS NULL "
+            "WHEN scope = 'unscoped' THEN workspace_id IS NULL AND ("
+            "(user_id IS NULL "
             "AND event_type = 'workspace_deletion_completed' "
             "AND ((" + _DELIVERY_NONTERMINAL + ") "
-            "= (encrypted_recipient IS NOT NULL)) "
+            "= (encrypted_recipient IS NOT NULL))) "
+            # A personal identity delivery: user-owned, no workspace, and the
+            # recipient is resolved from the user at send time.
+            "OR (user_id IS NOT NULL "
+            "AND event_type IN ('administrator_email_verification', "
+            "'administrator_password_reset', 'administrator_password_changed') "
+            "AND encrypted_recipient IS NULL "
+            "AND recipient_key_version IS NULL)) "
             "ELSE false END",
             name="ck_transactional_email_deliveries_scope_shape",
         ),

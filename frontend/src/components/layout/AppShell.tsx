@@ -249,7 +249,7 @@ export function AppShell() {
         </nav>
 
         <div className="sidebar-account">
-          {auth.user.role === "admin" ? (
+          {auth.user.legacy_workspace?.role === "admin" ? (
             <NavLink
               to={{
                 pathname: "/admin",
