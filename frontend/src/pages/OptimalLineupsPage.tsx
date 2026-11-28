@@ -7,9 +7,9 @@ import { optimalLineupsQueryOptions } from "../api/analytics";
 import { ApiError } from "../api/client";
 import {
   currentLeagueQueryOptions,
-  importedSeasonsQueryOptions,
 } from "../api/league";
-import { seasonPresentation } from "../utils/seasonPresentation";
+import { useSeasonScope } from "../personal/seasonScope";
+import { useSeasonView } from "../personal/useSeasonView";
 import "./OptimalLineupsPage.css";
 
 function errorMessage(error: unknown): string {
@@ -39,11 +39,13 @@ function efficiencyClass(efficiency: number): string {
 export function OptimalLineupsPage() {
   const location = useLocation();
 
-  const leagueQuery = useQuery(currentLeagueQueryOptions());
+  const { seasonId, basePath } = useSeasonScope();
 
-  const lineupsQuery = useQuery(optimalLineupsQueryOptions());
+  const leagueQuery = useQuery(currentLeagueQueryOptions(seasonId));
 
-  const importedSeasonsQuery = useQuery(importedSeasonsQueryOptions());
+  const lineupsQuery = useQuery(optimalLineupsQueryOptions(seasonId));
+
+  const seasonViewer = useSeasonView();
 
   const mostMissedPoints = useMemo(() => {
     if (!lineupsQuery.data?.length) {
@@ -96,11 +98,7 @@ export function OptimalLineupsPage() {
   const league = leagueQuery.data;
   const summaries = lineupsQuery.data;
 
-  const viewedSeason = importedSeasonsQuery.data?.seasons.find(
-    (season) => season.year === league.season,
-  );
-
-  const seasonView = seasonPresentation(league, viewedSeason);
+  const { seasonView } = seasonViewer.forLeague(league);
 
   const leader = summaries[0];
 
@@ -255,7 +253,7 @@ export function OptimalLineupsPage() {
                 <Link
                   className="optimal-detail-link"
                   to={{
-                    pathname: `/optimal-lineups/${summary.team_id}`,
+                    pathname: `${basePath}/optimal-lineups/${summary.team_id}`,
                     search: location.search,
                   }}
                   aria-label={`View weekly lineup details for ${summary.team_name}`}

@@ -18,6 +18,9 @@ import { LoginPage } from "./pages/account/LoginPage";
 import { RegisterPage } from "./pages/account/RegisterPage";
 import { ResetPasswordPage } from "./pages/account/ResetPasswordPage";
 import { VerifyEmailPage } from "./pages/account/VerifyEmailPage";
+import { ImportLeaguePage } from "./pages/personal/ImportLeaguePage";
+import { PersonalLanding } from "./pages/personal/PersonalLanding";
+import { PersonalSeasonLayout } from "./pages/personal/PersonalSeasonLayout";
 import { LeagueAveragePage } from "./pages/LeagueAveragePage";
 import { OptimalLineupBreakdownPage } from "./pages/OptimalLineupBreakdownPage";
 import { OptimalLineupsPage } from "./pages/OptimalLineupsPage";
@@ -65,9 +68,28 @@ export function AppRouter() {
 
       <Route path="/onboarding" element={<OnboardingRoute />} />
 
-      {/* Personal accounts have no workspace; the League experience lands with
-          feature/frontend-league-switcher. */}
-      <Route path="/account" element={<PersonalAccountRoute />} />
+      {/* Personal accounts: no workspace, no slug. The Season id in the path is
+          only a locator; the backend authorizes every Season read. */}
+      <Route path="/account" element={<PersonalAccountRoute />}>
+        <Route index element={<PersonalLanding />} />
+
+        <Route path="import" element={<ImportLeaguePage />} />
+
+        <Route path="seasons/:seasonId" element={<PersonalSeasonLayout />}>
+          <Route index element={<App />} />
+          <Route path="all-play" element={<AllPlayPage />} />
+          <Route path="league-average" element={<LeagueAveragePage />} />
+          <Route path="schedule-swap" element={<ScheduleSwapPage />} />
+          <Route path="playoff-predictor" element={<PlayoffPredictorPage />} />
+          <Route path="optimal-lineups" element={<OptimalLineupsPage />} />
+          <Route
+            path="optimal-lineups/:teamId"
+            element={<OptimalLineupBreakdownPage />}
+          />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/account" replace />} />
+      </Route>
 
       {/* FR-20 restricted recovery; never part of the application shell. */}
       <Route path="/workspace-deletion" element={<WorkspaceDeletionRoute />} />

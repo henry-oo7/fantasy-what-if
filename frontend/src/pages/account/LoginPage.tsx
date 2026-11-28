@@ -85,6 +85,13 @@ export function LoginPage() {
       return;
     }
 
+    if (session.workspaceAccess === "personal") {
+      navigate(destination.startsWith("/account") ? destination : "/account", {
+        replace: true,
+      });
+      return;
+    }
+
     navigate(
       session.workspaceAccess === "active" ? destination : "/",
       { replace: true },

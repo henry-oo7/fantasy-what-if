@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 import { OnboardingPage } from "../pages/account/OnboardingPage";
-import { PersonalAccountPage } from "../pages/account/PersonalAccountPage";
+import { PersonalShell } from "../components/layout/PersonalShell";
+import { PersonalVerificationPage } from "../pages/personal/PersonalVerificationPage";
 import {
   WorkspaceDeletionRecoveryPage,
   WorkspaceDeletionScheduledPage,
@@ -38,9 +39,13 @@ export function PublicOnlyRoute({
   }
 
   if (auth.workspaceAccess === "personal") {
+    const personalReturn = safeReturnPath(
+      (location.state as { from?: unknown } | null)?.from,
+    );
+
     return (
       <Navigate
-        to="/account"
+        to={personalReturn?.startsWith("/account") ? personalReturn : "/account"}
         replace
       />
     );
@@ -186,11 +191,15 @@ export function WorkspaceDeletionRoute() {
 }
 
 /**
- * Temporary home of a workspace-free personal account. Everyone else is
- * routed to the workspace experience they already have.
+ * Every personal-account route (/account/**). Anonymous visitors sign in and
+ * return here; legacy workspace users are routed to the workspace they
+ * already have. GET /api/auth/me navigation_state is the only account-state
+ * authority: an unverified account sees only the verification page, and an
+ * account that must import its first League sees only the import page.
  */
 export function PersonalAccountRoute() {
   const auth = useAuth();
+  const location = useLocation();
 
   if (auth.status === "loading") {
     return <SessionCheckScreen />;
@@ -201,7 +210,13 @@ export function PersonalAccountRoute() {
   }
 
   if (auth.status !== "authenticated" || auth.user === null) {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location.pathname + location.search }}
+      />
+    );
   }
 
   if (auth.workspaceAccess === "checking") {
@@ -212,5 +227,18 @@ export function PersonalAccountRoute() {
     return <Navigate to="/" replace />;
   }
 
-  return <PersonalAccountPage />;
+  const state = auth.user.navigation_state;
+
+  if (state === "email_verification_required") {
+    return <PersonalVerificationPage />;
+  }
+
+  if (
+    state === "import_required" &&
+    location.pathname.replace(/\/+$/, "") !== "/account/import"
+  ) {
+    return <Navigate to="/account/import" replace />;
+  }
+
+  return <PersonalShell />;
 }

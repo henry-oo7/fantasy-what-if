@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { getJson } from "./client";
+import { personalQueryKeys } from "./personalLeagues";
 import type {
   LeagueAverageStanding,
   ScheduleSwapResult,
@@ -19,39 +20,63 @@ function viewedSeasonKey(): readonly number[] {
   return Number.isInteger(seasonId) && seasonId > 0 ? [seasonId] : [];
 }
 
+/** Legacy callers pass no Season; a personal Season is always explicit. */
 export const analyticsQueryKeys = {
   all: ["analytics"] as const,
 
-  leagueAverage: () =>
-    [
-      ...analyticsQueryKeys.all,
-      "league-average",
-      ...viewedSeasonKey(),
-    ] as const,
+  leagueAverage: (seasonId?: number) =>
+    seasonId === undefined
+      ? ([
+          ...analyticsQueryKeys.all,
+          "league-average",
+          ...viewedSeasonKey(),
+        ] as const)
+      : ([...personalQueryKeys.season(seasonId), "league-average"] as const),
 
-  optimalLineups: () =>
-    [
-      ...analyticsQueryKeys.all,
-      "optimal-lineups",
-      ...viewedSeasonKey(),
-    ] as const,
+  optimalLineups: (seasonId?: number) =>
+    seasonId === undefined
+      ? ([
+          ...analyticsQueryKeys.all,
+          "optimal-lineups",
+          ...viewedSeasonKey(),
+        ] as const)
+      : ([...personalQueryKeys.season(seasonId), "optimal-lineups"] as const),
 
-  optimalLineupTeam: (teamId: number) =>
-    [...analyticsQueryKeys.optimalLineups(), teamId] as const,
+  optimalLineupTeam: (teamId: number, seasonId?: number) =>
+    [...analyticsQueryKeys.optimalLineups(seasonId), teamId] as const,
 
-  scheduleSwap: (firstTeamId: number, secondTeamId: number) =>
-    [
-      ...analyticsQueryKeys.all,
-      "schedule-swap",
-      firstTeamId,
-      secondTeamId,
-      ...viewedSeasonKey(),
-    ] as const,
+  scheduleSwap: (
+    firstTeamId: number,
+    secondTeamId: number,
+    seasonId?: number,
+  ) =>
+    seasonId === undefined
+      ? ([
+          ...analyticsQueryKeys.all,
+          "schedule-swap",
+          firstTeamId,
+          secondTeamId,
+          ...viewedSeasonKey(),
+        ] as const)
+      : ([
+          ...personalQueryKeys.season(seasonId),
+          "schedule-swap",
+          firstTeamId,
+          secondTeamId,
+        ] as const),
 };
+
+/** Season-scoped analytics path: personal when a Season is given. */
+function analyticsPath(seasonId: number | undefined, suffix: string): string {
+  return seasonId === undefined
+    ? `/analytics/${suffix}`
+    : `/seasons/${seasonId}/analytics/${suffix}`;
+}
 
 export function scheduleSwapQueryOptions(
   firstTeamId: number,
   secondTeamId: number,
+  seasonId?: number,
 ) {
   const search = new URLSearchParams({
     first_team_id: String(firstTeamId),
@@ -59,10 +84,14 @@ export function scheduleSwapQueryOptions(
   });
 
   return queryOptions({
-    queryKey: analyticsQueryKeys.scheduleSwap(firstTeamId, secondTeamId),
+    queryKey: analyticsQueryKeys.scheduleSwap(
+      firstTeamId,
+      secondTeamId,
+      seasonId,
+    ),
     queryFn: ({ signal }) =>
       getJson<ScheduleSwapResult>(
-        `/analytics/schedule-swap?${search.toString()}`,
+        `${analyticsPath(seasonId, "schedule-swap")}?${search.toString()}`,
         signal,
       ),
     enabled:
@@ -71,30 +100,39 @@ export function scheduleSwapQueryOptions(
   });
 }
 
-export function leagueAverageQueryOptions() {
+export function leagueAverageQueryOptions(seasonId?: number) {
   return queryOptions({
-    queryKey: analyticsQueryKeys.leagueAverage(),
+    queryKey: analyticsQueryKeys.leagueAverage(seasonId),
     queryFn: ({ signal }) =>
-      getJson<LeagueAverageStanding[]>("/analytics/league-average", signal),
+      getJson<LeagueAverageStanding[]>(
+        analyticsPath(seasonId, "league-average"),
+        signal,
+      ),
     staleTime: 60_000,
   });
 }
 
-export function optimalLineupsQueryOptions() {
+export function optimalLineupsQueryOptions(seasonId?: number) {
   return queryOptions({
-    queryKey: analyticsQueryKeys.optimalLineups(),
+    queryKey: analyticsQueryKeys.optimalLineups(seasonId),
     queryFn: ({ signal }) =>
-      getJson<TeamOptimalLineupSummary[]>("/analytics/optimal-lineups", signal),
+      getJson<TeamOptimalLineupSummary[]>(
+        analyticsPath(seasonId, "optimal-lineups"),
+        signal,
+      ),
     staleTime: 60_000,
   });
 }
 
-export function teamOptimalLineupQueryOptions(teamId: number) {
+export function teamOptimalLineupQueryOptions(
+  teamId: number,
+  seasonId?: number,
+) {
   return queryOptions({
-    queryKey: analyticsQueryKeys.optimalLineupTeam(teamId),
+    queryKey: analyticsQueryKeys.optimalLineupTeam(teamId, seasonId),
     queryFn: ({ signal }) =>
       getJson<TeamOptimalLineupBreakdown>(
-        `/analytics/optimal-lineups/${teamId}`,
+        `${analyticsPath(seasonId, "optimal-lineups")}/${teamId}`,
         signal,
       ),
     enabled: teamId > 0,

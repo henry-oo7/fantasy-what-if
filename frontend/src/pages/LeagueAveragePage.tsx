@@ -6,10 +6,10 @@ import { leagueAverageQueryOptions } from "../api/analytics";
 import { ApiError } from "../api/client";
 import {
   currentLeagueQueryOptions,
-  importedSeasonsQueryOptions,
 } from "../api/league";
 import type { AnalyticsRecord } from "../types/analytics";
-import { seasonPresentation } from "../utils/seasonPresentation";
+import { useSeasonScope } from "../personal/seasonScope";
+import { useSeasonView } from "../personal/useSeasonView";
 import "./LeagueAveragePage.css";
 
 function errorMessage(error: unknown): string {
@@ -29,11 +29,13 @@ function recordLabel(record: AnalyticsRecord): string {
 }
 
 export function LeagueAveragePage() {
-  const leagueQuery = useQuery(currentLeagueQueryOptions());
+  const { seasonId } = useSeasonScope();
 
-  const standingsQuery = useQuery(leagueAverageQueryOptions());
+  const leagueQuery = useQuery(currentLeagueQueryOptions(seasonId));
 
-  const importedSeasonsQuery = useQuery(importedSeasonsQueryOptions());
+  const standingsQuery = useQuery(leagueAverageQueryOptions(seasonId));
+
+  const seasonViewer = useSeasonView();
 
   const latestLeagueAverage = useMemo(() => {
     const latestWeeklyResult = standingsQuery.data
@@ -101,11 +103,7 @@ export function LeagueAveragePage() {
   const league = leagueQuery.data;
   const standings = standingsQuery.data;
 
-  const viewedSeason = importedSeasonsQuery.data?.seasons.find(
-    (season) => season.year === league.season,
-  );
-
-  const seasonView = seasonPresentation(league, viewedSeason);
+  const { seasonView } = seasonViewer.forLeague(league);
 
   return (
     <div className="league-average-page">

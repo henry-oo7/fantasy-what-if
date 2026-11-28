@@ -25,7 +25,12 @@ import type {
   PredictedResult,
   PredictionSelections,
 } from "../utils/playoffPredictor";
+import { useSeasonScope } from "../personal/seasonScope";
 import "./PlayoffPredictorPage.css";
+
+// A personal Season has no administrator; the 409 detail is never shown there.
+const PERSONAL_UNAVAILABLE_MESSAGE =
+  "League data is not available yet. Check again after synchronization finishes.";
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -90,7 +95,9 @@ function weekPredictionCount(
 }
 
 export function PlayoffPredictorPage() {
-  const predictorQuery = useQuery(playoffPredictorQueryOptions());
+  const { seasonId } = useSeasonScope();
+
+  const predictorQuery = useQuery(playoffPredictorQueryOptions(seasonId));
 
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
@@ -220,13 +227,19 @@ export function PlayoffPredictorPage() {
 
         <h1>
           {configurationUnavailable
-            ? "Playoff setup needs a refresh"
+            ? seasonId === undefined
+              ? "Playoff setup needs a refresh"
+              : "Playoff data is not available yet"
             : "Unable to load the predictor"}
         </h1>
 
-        <p>{errorMessage(predictorQuery.error)}</p>
+        <p>
+          {configurationUnavailable && seasonId !== undefined
+            ? PERSONAL_UNAVAILABLE_MESSAGE
+            : errorMessage(predictorQuery.error)}
+        </p>
 
-        {configurationUnavailable ? (
+        {configurationUnavailable && seasonId === undefined ? (
           <p>
             An administrator can run a normal synchronization to import the
             league&apos;s playoff team count and seeding rule.

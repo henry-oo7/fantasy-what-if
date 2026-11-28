@@ -11,6 +11,7 @@ import type {
   MatchupResult,
   TeamWeekOptimalLineupBreakdown,
 } from "../types/analytics";
+import { useSeasonScope } from "../personal/seasonScope";
 import "./OptimalLineupBreakdownPage.css";
 
 function errorMessage(error: unknown): string {
@@ -472,10 +473,11 @@ function WeekPanel({ week, expanded, onToggle }: WeekPanelProps) {
 
 export function OptimalLineupBreakdownPage() {
   const location = useLocation();
+  const { seasonId, basePath } = useSeasonScope();
   const { teamId: teamIdParameter } = useParams();
 
   const optimalLineupsLocation = {
-    pathname: "/optimal-lineups",
+    pathname: `${basePath}/optimal-lineups`,
     search: location.search,
   };
 
@@ -484,7 +486,7 @@ export function OptimalLineupBreakdownPage() {
   const teamId =
     Number.isInteger(parsedTeamId) && parsedTeamId > 0 ? parsedTeamId : 0;
 
-  const breakdownQuery = useQuery(teamOptimalLineupQueryOptions(teamId));
+  const breakdownQuery = useQuery(teamOptimalLineupQueryOptions(teamId, seasonId));
 
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 

@@ -164,7 +164,8 @@ export async function apiRequest<T>(
 }
 
 function withViewedSeason(path: string): string {
-  if (typeof window === "undefined") {
+  // Personal Season routes carry the Season in the path, never in the query.
+  if (typeof window === "undefined" || path.startsWith("/seasons/")) {
     return path;
   }
 
@@ -223,6 +224,22 @@ export function patchJson<T>(
 ): Promise<T> {
   return apiRequest<T>(path, {
     method: "PATCH",
+    body,
+    csrfToken: options.csrfToken,
+    signal: options.signal,
+  });
+}
+
+export function putJson<T>(
+  path: string,
+  body: unknown,
+  options: {
+    csrfToken?: string | null;
+    signal?: AbortSignal;
+  } = {},
+): Promise<T> {
+  return apiRequest<T>(path, {
+    method: "PUT",
     body,
     csrfToken: options.csrfToken,
     signal: options.signal,
