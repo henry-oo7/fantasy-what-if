@@ -52,6 +52,7 @@ def test_background_job_enum_values_are_stable() -> None:
         "transactional_email_delivery",
         "league_season_sync",
         "access_reverification",
+        "orphan_league_purge",
     )
 
 

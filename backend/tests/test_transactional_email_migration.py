@@ -15,7 +15,7 @@ from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "d7f2b9a4c6e1"
 PREVIOUS_REVISION = "c4e8a1f7d3b9"
-HEAD_REVISION = "e8c3a6d1f4b7"  # access reverification; later than REVISION
+HEAD_REVISION = "f4b8d2a6c9e1"  # account deletion and purge; later than REVISION
 WORKSPACE_ID = 990_201
 PREVIOUS_JOB_TYPES = [
     "initial_workspace_sync",

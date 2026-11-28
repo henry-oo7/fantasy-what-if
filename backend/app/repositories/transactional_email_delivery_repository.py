@@ -38,6 +38,12 @@ ATTEMPTABLE_STATUSES = frozenset(
     }
 )
 
+COMPLETION_EVENT_TYPES = frozenset(
+    {
+        TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED,
+        TransactionalEmailEventType.ACCOUNT_DELETION_COMPLETED,
+    }
+)
 IDENTITY_EVENT_TYPES = frozenset(
     {
         TransactionalEmailEventType.ADMINISTRATOR_EMAIL_VERIFICATION,
@@ -152,7 +158,7 @@ class TransactionalEmailDeliveryRepository:
         if workspace_id < 1 or (user_id is not None and user_id < 1):
             raise ValueError("workspace_id and user_id must be positive.")
 
-        if event_type is TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED:
+        if event_type in COMPLETION_EVENT_TYPES:
             raise ValueError("The completion notice must be created as an unscoped delivery.")
 
         if event_type in IDENTITY_EVENT_TYPES and user_id is None:
@@ -231,13 +237,20 @@ class TransactionalEmailDeliveryRepository:
         recipient: str,
         cipher: TransactionalEmailRecipientCipher,
         idempotency_key: str,
+        event_type: TransactionalEmailEventType = (
+            TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED
+        ),
         available_at: datetime | None = None,
         maximum_attempts: int = 5,
     ) -> CreateDeliveryResult:
         """Create or return the unscoped deletion-completion delivery.
 
         The recipient is encrypted, bound to the delivery ID, before insert.
+        The row has no user or workspace owner, so it outlives both.
         """
+
+        if event_type not in COMPLETION_EVENT_TYPES:
+            raise ValueError("Only a completion event may be created as an unscoped delivery.")
 
         key = normalize_delivery_idempotency_key(idempotency_key)
 
@@ -247,7 +260,7 @@ class TransactionalEmailDeliveryRepository:
             return self._resolve_existing(
                 existing,
                 scope=TransactionalEmailScope.UNSCOPED,
-                event_type=TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED,
+                event_type=event_type,
                 workspace_id=None,
                 user_id=None,
             )
@@ -261,7 +274,7 @@ class TransactionalEmailDeliveryRepository:
                 scope=TransactionalEmailScope.UNSCOPED,
                 workspace_id=None,
                 user_id=None,
-                event_type=TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED,
+                event_type=event_type,
                 idempotency_key=key,
                 status=TransactionalEmailDeliveryStatus.PENDING,
                 available_at=available_at or datetime.now(UTC),
@@ -274,7 +287,7 @@ class TransactionalEmailDeliveryRepository:
             key,
             build,
             scope=TransactionalEmailScope.UNSCOPED,
-            event_type=TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED,
+            event_type=event_type,
             workspace_id=None,
             user_id=None,
         )

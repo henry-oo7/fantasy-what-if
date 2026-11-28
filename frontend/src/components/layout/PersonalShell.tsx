@@ -2,6 +2,7 @@ import {
   BarChart3,
   GitCompareArrows,
   LayoutDashboard,
+  Settings,
   Target,
   Trophy,
 } from "lucide-react";
@@ -51,17 +52,30 @@ export function PersonalShell() {
           </nav>
         )
       }
-      account={(_, userInitial) => (
-        <div className="sidebar-user">
-          <div className="sidebar-user-avatar" aria-hidden="true">
-            {userInitial}
-          </div>
+      account={(closeDrawer, userInitial) => (
+        <>
+          <NavLink
+            to="/account/settings"
+            onClick={closeDrawer}
+            className={({ isActive }) =>
+              isActive ? "sidebar-link sidebar-link-active" : "sidebar-link"
+            }
+          >
+            <Settings aria-hidden="true" />
+            <span>Account settings</span>
+          </NavLink>
 
-          <div className="sidebar-user-details">
-            <strong>{auth.user?.display_name}</strong>
-            <span>Personal account</span>
+          <div className="sidebar-user">
+            <div className="sidebar-user-avatar" aria-hidden="true">
+              {userInitial}
+            </div>
+
+            <div className="sidebar-user-details">
+              <strong>{auth.user?.display_name}</strong>
+              <span>Personal account</span>
+            </div>
           </div>
-        </div>
+        </>
       )}
     />
   );

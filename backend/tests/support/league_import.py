@@ -7,6 +7,7 @@ provider IDs and credentials. Every created row is tracked and removed.
 from __future__ import annotations
 
 import random
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -17,7 +18,7 @@ import pytest
 import requests
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, event, func, select
 
 from app.auth.cookies import csrf_cookie_name
 from app.core.settings import get_settings
@@ -490,6 +491,40 @@ def preference(user_id: int) -> int | None:
 
 def checked_out_connections() -> int:
     return engine.pool.checkedout()
+
+
+class CheckoutTracker:
+    """Connections checked out *since this tracker started* and not yet returned.
+
+    ``engine.pool.checkedout()`` is process-global, so an unrelated earlier test that
+    left a session unclosed (returned only when garbage is collected) can make it
+    non-zero. Pool events record only checkouts made while the tracker is installed,
+    so the count belongs to the code path under test.
+    """
+
+    def __init__(self) -> None:
+        self.held: dict[int, int] = {}
+        self.checkouts = 0
+
+    def _checkout(self, _dbapi_connection, record, _proxy) -> None:
+        self.checkouts += 1
+        self.held[id(record)] = threading.get_ident()
+
+    def _checkin(self, _dbapi_connection, record) -> None:
+        self.held.pop(id(record), None)
+
+    def __enter__(self) -> CheckoutTracker:
+        event.listen(engine, "checkout", self._checkout)
+        event.listen(engine, "checkin", self._checkin)
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        event.remove(engine, "checkout", self._checkout)
+        event.remove(engine, "checkin", self._checkin)
+
+    @property
+    def outstanding(self) -> int:
+        return len(self.held)
 
 
 @pytest.fixture

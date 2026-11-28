@@ -598,8 +598,29 @@ class BackgroundJob(TimestampMixin, Base):
         # kept so earlier migrations and their rehearsals stay valid.
         CheckConstraint(
             "workspace_id IS NOT NULL OR job_type::text IN "
-            "('transactional_email_delivery', 'league_season_sync', 'access_reverification')",
+            "('transactional_email_delivery', 'league_season_sync', 'access_reverification', "
+            "'orphan_league_purge')",
             name="ck_background_jobs_workspace_required_except_email",
+        ),
+        # Purge payloads carry exactly {version, league_id}; the active key is
+        # derived from the League, so at most one active purge job per League.
+        CheckConstraint(
+            "job_type::text <> 'orphan_league_purge' "
+            "OR COALESCE("
+            "payload_version = 1 "
+            "AND jsonb_typeof(payload) = 'object' "
+            "AND (payload - 'version' - 'league_id') = '{}'::jsonb "
+            "AND payload ->> 'version' = '1' "
+            "AND jsonb_typeof(payload -> 'league_id') = 'number' "
+            "AND payload ->> 'league_id' ~ '^[1-9][0-9]{0,9}$', "
+            "false)",
+            name="ck_background_jobs_orphan_league_purge_payload_shape",
+        ),
+        CheckConstraint(
+            "job_type::text <> 'orphan_league_purge' "
+            "OR COALESCE(idempotency_key = 'orphan-league-purge:' "
+            "|| (payload ->> 'league_id'), false)",
+            name="ck_background_jobs_orphan_league_purge_key",
         ),
         # Season-sync payloads carry exactly {"version": 1, "season_id": <positive
         # integer>}; the Season row is authoritative for everything else.
@@ -850,10 +871,12 @@ class TransactionalEmailDelivery(TimestampMixin, Base):
             "workspace_id IS NOT NULL "
             "AND encrypted_recipient IS NULL "
             "AND recipient_key_version IS NULL "
-            "AND event_type <> 'workspace_deletion_completed' "
+            "AND event_type NOT IN ('workspace_deletion_completed', "
+            "'account_deletion_completed') "
             "WHEN scope = 'unscoped' THEN workspace_id IS NULL AND ("
             "(user_id IS NULL "
-            "AND event_type = 'workspace_deletion_completed' "
+            "AND event_type IN ('workspace_deletion_completed', "
+            "'account_deletion_completed') "
             "AND ((" + _DELIVERY_NONTERMINAL + ") "
             "= (encrypted_recipient IS NOT NULL))) "
             # A personal identity delivery: user-owned, no workspace, and the

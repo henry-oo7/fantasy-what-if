@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.platform_enums import (
+    BackgroundJobStatus,
     BackgroundJobType,
 )
 from app.db.platform_models import BackgroundJob
@@ -276,6 +277,19 @@ def execute_one_background_job(
                 failed=False,
             )
 
+        if _email_job_canceled(session_factory=session_factory, snapshot=snapshot):
+            # Account deletion canceled this workspace-free identity job on purpose;
+            # the lost lease is the expected outcome, not a failure.
+            LOGGER.info("Transactional email job canceled: job_id=%s.", snapshot.id)
+
+            return BackgroundJobExecutionResult(
+                job_id=snapshot.id,
+                claimed=True,
+                succeeded=False,
+                retry_scheduled=False,
+                failed=False,
+            )
+
         if not _workspace_deletion_completed(
             session_factory=session_factory,
             snapshot=snapshot,
@@ -534,6 +548,25 @@ def _transactional_email_job_removed(
 
     with session_factory() as session:
         return session.get(BackgroundJob, snapshot.id) is None
+
+
+def _email_job_canceled(
+    *,
+    session_factory: sessionmaker[Session],
+    snapshot: BackgroundJobSnapshot,
+) -> bool:
+    """Recognize a workspace-free email job canceled while a worker held it."""
+
+    if (
+        snapshot.job_type is not BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY
+        or snapshot.workspace_id is not None
+    ):
+        return False
+
+    with session_factory() as session:
+        job = session.get(BackgroundJob, snapshot.id)
+
+        return job is not None and job.status is BackgroundJobStatus.CANCELED
 
 
 def _claim_one_job(

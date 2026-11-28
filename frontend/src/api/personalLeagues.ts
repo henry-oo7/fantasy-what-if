@@ -65,3 +65,24 @@ export function setDefaultSeason(
     { csrfToken },
   );
 }
+
+export interface LeagueRemovedResponse {
+  detail: string;
+  code: "league_access_removed";
+}
+
+/**
+ * Removes only this account's access to one League. Outcomes are shown in
+ * the form and must not change global authentication state.
+ */
+export function removeLeague(
+  providerLeagueId: string,
+  confirmation: string,
+  csrfToken: string | null,
+): Promise<LeagueRemovedResponse> {
+  return postJson<LeagueRemovedResponse>(
+    `/leagues/espn/${encodeURIComponent(providerLeagueId)}/removal`,
+    { confirmation },
+    { csrfToken, reportErrors: false },
+  );
+}

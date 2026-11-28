@@ -13,6 +13,7 @@ import { LockKeyhole } from "lucide-react";
 import { ApiError } from "../../api/client";
 import { useAuth, type EstablishedSession } from "../../auth/AuthProvider";
 import {
+  ACCOUNT_DELETED_MESSAGE,
   PASSWORD_RESET_COMPLETED_MESSAGE,
   SESSION_REPLACED_MESSAGE,
   WORKSPACE_DELETION_CANCELED_MESSAGE,
@@ -141,7 +142,9 @@ export function LoginPage() {
         ? PASSWORD_RESET_COMPLETED_MESSAGE
         : auth.notice === "workspace_deletion_canceled"
           ? WORKSPACE_DELETION_CANCELED_MESSAGE
-          : null;
+          : auth.notice === "account_deleted"
+            ? ACCOUNT_DELETED_MESSAGE
+            : null;
 
   return (
     <AccountLayout

@@ -20,6 +20,7 @@ from app.services.background_job_worker import (
     BackgroundJobSnapshot,
 )
 from app.services.onboarding_initial_sync import InitialWorkspaceSyncHandler
+from app.services.orphan_league_purge import OrphanLeaguePurgeJobHandler
 from app.services.provider_sync import SyncJobAuthority, synchronize_season
 from app.services.season_sync_jobs import enqueue_season_sync
 from app.services.synchronization_job_contract import (
@@ -179,6 +180,9 @@ def build_background_job_handlers(
         BackgroundJobType.ACCESS_REVERIFICATION: AccessReverificationJobHandler(
             session_factory=session_factory,
             settings=settings,
+        ),
+        BackgroundJobType.ORPHAN_LEAGUE_PURGE: OrphanLeaguePurgeJobHandler(
+            session_factory=session_factory,
         ),
         BackgroundJobType.INCREMENTAL_SEASON_SYNC: LegacySynchronizationJobAdapter(
             session_factory=session_factory,

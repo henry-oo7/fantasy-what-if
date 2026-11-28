@@ -9,6 +9,9 @@ export const PASSWORD_RESET_COMPLETED_MESSAGE =
 export const WORKSPACE_DELETION_CANCELED_MESSAGE =
   "Deletion canceled. Sign in again to continue.";
 
+export const ACCOUNT_DELETED_MESSAGE =
+  "Your account was deleted and you were signed out. League data shared with other accounts may remain for a limited time. Register again to start over.";
+
 export const WORKSPACE_NOT_RESTORABLE_MESSAGE =
   "This workspace can no longer be restored.";
 

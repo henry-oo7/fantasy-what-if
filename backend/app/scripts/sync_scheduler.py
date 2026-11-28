@@ -13,6 +13,7 @@ from app.db.session import SessionFactory
 from app.services.active_season_context import (
     resolve_active_season_context,
 )
+from app.services.orphan_league_purge import enqueue_due_orphan_purges
 from app.services.scheduled_synchronization_jobs import (
     ScheduledSynchronizationBatch,
     ScheduledSynchronizationJob,
@@ -139,6 +140,25 @@ def enqueue_maintenance_batch(
     return batch
 
 
+def enqueue_orphan_purge_batch(
+    *,
+    now: datetime,
+) -> int | None:
+    """Create one committed batch of due orphan-League purge jobs."""
+
+    try:
+        with SessionFactory() as session:
+            created = enqueue_due_orphan_purges(session, now=now)
+            session.commit()
+    except Exception:
+        LOGGER.exception("Orphan League purge job dispatch failed.")
+        return None
+
+    LOGGER.info("Orphan League purge jobs committed: created=%s.", created)
+
+    return created
+
+
 def enqueue_workspace_now(
     *,
     workspace_id: int,
@@ -254,6 +274,7 @@ def run_scheduler(
 
         if now >= next_maintenance_at:
             enqueue_maintenance_batch(now=now)
+            enqueue_orphan_purge_batch(now=now)
             next_maintenance_at = now + MAINTENANCE_SCAN_INTERVAL
 
         if now >= target:

@@ -92,6 +92,9 @@ def queue_unscoped_completion_email(
     recipient: str,
     cipher: TransactionalEmailRecipientCipher,
     idempotency_key: str,
+    event_type: TransactionalEmailEventType = (
+        TransactionalEmailEventType.WORKSPACE_DELETION_COMPLETED
+    ),
     available_at: datetime | None = None,
     commit: bool = False,
 ) -> QueuedTransactionalEmail:
@@ -99,6 +102,7 @@ def queue_unscoped_completion_email(
         recipient=recipient,
         cipher=cipher,
         idempotency_key=idempotency_key,
+        event_type=event_type,
         available_at=available_at,
     )
 

@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "b9e4c2d7a1f3"
-HEAD_REVISION = "e8c3a6d1f4b7"  # access reverification; later than REVISION
+HEAD_REVISION = "f4b8d2a6c9e1"  # account deletion and purge; later than REVISION
 PREVIOUS_REVISION = "f1b6d2c8a9e4"
 ID = 990_601
 SEASON_KEY = f"league-season-sync:{ID}"

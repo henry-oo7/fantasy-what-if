@@ -18,8 +18,10 @@ from app.notifications.delivery_job_contract import (
 )
 from app.services.synchronization_job_contract import (
     access_reverification_idempotency_key,
+    orphan_league_purge_idempotency_key,
     season_sync_idempotency_key,
     validate_access_reverification_payload,
+    validate_orphan_league_purge_payload,
     validate_season_sync_payload,
 )
 
@@ -36,6 +38,7 @@ UNSCOPED_JOB_TYPES = (
     BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY,
     BackgroundJobType.LEAGUE_SEASON_SYNC,
     BackgroundJobType.ACCESS_REVERIFICATION,
+    BackgroundJobType.ORPHAN_LEAGUE_PURGE,
 )
 
 QUEUED_JOB_STATUSES = (
@@ -111,6 +114,14 @@ class BackgroundJobRepository:
 
             if idempotency_key != access_reverification_idempotency_key(user_id, season_id):
                 raise ValueError("Reverification jobs must use their user and Season key.")
+
+        if job_type is BackgroundJobType.ORPHAN_LEAGUE_PURGE:
+            league_id = validate_orphan_league_purge_payload(
+                payload, payload_version=payload_version
+            )
+
+            if idempotency_key != orphan_league_purge_idempotency_key(league_id):
+                raise ValueError("Purge jobs must use their League idempotency key.")
 
         if payload_version < 1:
             raise ValueError("payload_version must be positive.")

@@ -50,11 +50,11 @@ from tests.support.league_import import (  # noqa: F401 - fixtures
     SYNTHETIC_S2,
     WRONG_S2,
     Caller,
+    CheckoutTracker,
     FakeEspn,
     Registry,
     access_row,
     api_espn,
-    checked_out_connections,
     create_caller,
     credentials_body,
     espn,
@@ -837,14 +837,57 @@ def test_provider_proof_runs_with_no_checked_out_database_connection(
     caller = create_caller(registry)
     observed: list[int] = []
     api_espn.mode = "private"
-    api_espn.before_respond = lambda: observed.append(checked_out_connections())
 
-    response = post_import(caller, import_body(league_id, credentials=credentials_body()))
+    with CheckoutTracker() as tracker:
+        # Evaluated inside every provider call, with no database transaction open.
+        api_espn.before_respond = lambda: observed.append(tracker.outstanding)
+
+        response = post_import(caller, import_body(league_id, credentials=credentials_body()))
+
+        # The request did use the database before and after the proof (not vacuous)...
+        assert tracker.checkouts >= 2
+        # ...and returned every connection it checked out.
+        assert tracker.outstanding == 0
 
     assert response.status_code == 200
     # Anonymous season and history endpoints, then the request's credentials.
     assert len(observed) == 3
     assert observed == [0, 0, 0]
+
+
+def test_connection_invariant_ignores_unrelated_connections_but_catches_a_real_leak(
+    registry: Registry, league_id: str, api_espn: FakeEspn
+) -> None:
+    """The proof invariant is path-specific: it neither flakes nor goes blind."""
+
+    from app.db.session import engine
+
+    caller = create_caller(registry)
+    api_espn.mode = "private"
+    observed: list[int] = []
+    unrelated = engine.connect()  # checked out before the path under test, never its concern
+    held: list[object] = []
+
+    try:
+        with CheckoutTracker() as tracker:
+            api_espn.before_respond = lambda: observed.append(tracker.outstanding)
+            response = post_import(caller, import_body(league_id, credentials=credentials_body()))
+
+            assert response.status_code == 200
+            assert observed == [0, 0, 0]
+
+            # Negative control: a connection held across the provider call is seen.
+            observed.clear()
+            api_espn.before_respond = lambda: (
+                held.append(engine.connect()) if not held else None,
+                observed.append(tracker.outstanding),
+            )
+            post_import(caller, import_body(league_id, credentials=credentials_body()))
+            assert max(observed) == 1
+    finally:
+        for connection in held:
+            connection.close()  # type: ignore[attr-defined]
+        unrelated.close()
 
 
 # --------------------------------------------------------------------------

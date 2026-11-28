@@ -252,6 +252,8 @@ Removing a league from an account removes that user's access to every connected 
 
 Account deletion removes the user, sessions, verification and reset records, preferences, user-owned provider connections, user-to-league-season access, and other personal account data. It must not delete shared league data while another user retains active access.
 
+Personal account deletion is confirmed and immediate. There is no recovery state and no personal grace period; the 30-day window below applies to orphaned canonical league data only. A durable completion notice that outlives the user (an unscoped delivery with an encrypted recipient, created in the deletion transaction) is the only personal data retained, until it is sent or fails.
+
 ### Orphan retention
 
 When the final active access relation disappears:

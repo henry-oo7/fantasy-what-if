@@ -51,6 +51,7 @@ def test_enum_values_are_exact() -> None:
         "workspace_deletion_reminder",
         "workspace_deletion_completed",
         "workspace_deletion_canceled",
+        "account_deletion_completed",
     ]
     assert [m.value for m in TransactionalEmailDeliveryStatus] == [
         "pending",
@@ -134,7 +135,7 @@ def test_valid_scoped_deliveries_for_every_scoped_event(
     workspace, user = workspace_and_user
 
     for event in Event:
-        if event is Event.WORKSPACE_DELETION_COMPLETED:
+        if event in (Event.WORKSPACE_DELETION_COMPLETED, Event.ACCOUNT_DELETION_COMPLETED):
             continue
 
         assert_accepted(

@@ -134,3 +134,50 @@ def validate_access_reverification_payload(
         _require_positive_id(payload["user_id"], "user_id"),
         _require_positive_id(payload["season_id"], "season_id"),
     )
+
+
+ORPHAN_LEAGUE_PURGE_PAYLOAD_VERSION = 1
+ORPHAN_LEAGUE_PURGE_IDEMPOTENCY_PREFIX = "orphan-league-purge:"
+
+
+class InvalidOrphanLeaguePurgePayloadError(ValueError):
+    """A purge payload is not exactly {version, league_id}."""
+
+
+def _require_league_id(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise InvalidOrphanLeaguePurgePayloadError("league_id must be a positive integer.")
+
+    return value
+
+
+def orphan_league_purge_idempotency_key(league_id: int) -> str:
+    """The single active-job key for one League's purge."""
+
+    return f"{ORPHAN_LEAGUE_PURGE_IDEMPOTENCY_PREFIX}{_require_league_id(league_id)}"
+
+
+def build_orphan_league_purge_payload(league_id: int) -> dict[str, int]:
+    """The complete payload: no user, email, credential, connection or workspace."""
+
+    return {
+        "version": ORPHAN_LEAGUE_PURGE_PAYLOAD_VERSION,
+        "league_id": _require_league_id(league_id),
+    }
+
+
+def validate_orphan_league_purge_payload(
+    payload: Mapping[str, Any], *, payload_version: int
+) -> int:
+    """Return the League ID, or raise when the payload is not exact."""
+
+    if (
+        isinstance(payload_version, bool)
+        or payload_version != ORPHAN_LEAGUE_PURGE_PAYLOAD_VERSION
+        or set(payload) != {"version", "league_id"}
+        or isinstance(payload["version"], bool)
+        or payload["version"] != ORPHAN_LEAGUE_PURGE_PAYLOAD_VERSION
+    ):
+        raise InvalidOrphanLeaguePurgePayloadError("The purge payload is invalid.")
+
+    return _require_league_id(payload["league_id"])
