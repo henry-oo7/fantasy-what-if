@@ -53,6 +53,15 @@ function expectNoLifecycleProbe(api: ApiMock) {
   ).toHaveLength(0);
 }
 
+/** Personal accounts legitimately read GET /api/leagues; the workspace routes stay unreachable. */
+function expectNoWorkspaceProbe(api: ApiMock) {
+  expect(
+    api.requests.filter(
+      (request) => request.path.startsWith("/api/leagues/") || request.path.startsWith("/api/admin"),
+    ),
+  ).toHaveLength(0);
+}
+
 describe("GET /api/auth/me is the lifecycle source", () => {
   it("resolves an active administrator from one /me request and no league probe", async () => {
     const api = createApiMock();
@@ -308,7 +317,7 @@ describe("session endings are unchanged", () => {
 });
 
 describe("personal accounts", () => {
-  const PERSONAL_HEADING = "personal-account-heading";
+  const IMPORT_HEADING = "Import your first League";
 
   function expectNoWorkspaceSurface() {
     expect(screen.queryByRole("heading", { name: ONBOARDING_HEADING })).not.toBeInTheDocument();
@@ -325,35 +334,32 @@ describe("personal accounts", () => {
 
       renderWithProviders(<AppRouter />, path);
 
-      await waitFor(() => {
-        expect(screen.getByTestId("location")).toHaveTextContent(/^\/account$/);
-      });
-      expect(await screen.findByText(/League setup is ready for the next interface slice/)).toBeInTheDocument();
-      expect(document.getElementById(PERSONAL_HEADING)).not.toBeNull();
+      expect(await screen.findByRole("heading", { name: IMPORT_HEADING })).toBeInTheDocument();
+      expect(screen.getByTestId("location")).toHaveTextContent(/^\/account\/import$/);
       expectNoWorkspaceSurface();
-      expectNoLifecycleProbe(api);
+      expectNoWorkspaceProbe(api);
     },
   );
 
-  it("shows the import_required message and a sign-out button", async () => {
+  it("shows the first-League import and a sign-out button for import_required", async () => {
     const api = createApiMock();
     signInAs(api, { ...PERSONAL_USER, navigation_state: "import_required" });
+    api.reply("GET /api/leagues", 200, { default_season_id: null, leagues: [] });
 
     renderWithProviders(<AppRouter />, "/account");
 
-    expect(
-      await screen.findByText(/League setup is ready for the next interface slice/),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: IMPORT_HEADING })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
   });
 
-  it("shows the personal_dashboard message and a sign-out button", async () => {
+  it("sends an empty personal_dashboard account to the import page", async () => {
     const api = createApiMock();
     signInAs(api, PERSONAL_USER);
+    api.reply("GET /api/leagues", 200, { default_season_id: null, leagues: [] });
 
     renderWithProviders(<AppRouter />, "/account");
 
-    expect(await screen.findByText(/Your leagues are available/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: IMPORT_HEADING })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
   });
 
@@ -386,6 +392,7 @@ describe("personal accounts", () => {
 
   it("login of a personal user with no workspace or role ends at /account", async () => {
     const api = createApiMock();
+    api.reply("GET /api/leagues", 200, { default_season_id: null, leagues: [] });
     api.on("POST /api/auth/admin/login", () => {
       signInAs(api, PERSONAL_USER);
 
@@ -409,10 +416,10 @@ describe("personal accounts", () => {
     await user.type(screen.getByLabelText("Password"), "correct horse battery");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByText(/Your leagues are available/)).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/account$/);
+    expect(await screen.findByRole("heading", { name: IMPORT_HEADING })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/account\/import$/);
     expect(api.calls("GET /api/auth/me").length - initialMeCalls).toBe(1);
     expectNoWorkspaceSurface();
-    expectNoLifecycleProbe(api);
+    expectNoWorkspaceProbe(api);
   });
 });

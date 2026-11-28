@@ -19,6 +19,7 @@ import type {
   MatchupResult,
   TeamScheduleSwapResult,
 } from "../types/analytics";
+import { useSeasonScope } from "../personal/seasonScope";
 import "./ScheduleSwapPage.css";
 
 function parseTeamId(
@@ -202,14 +203,17 @@ export function ScheduleSwapPage() {
     searchParams.get("second"),
   );
 
+  const { seasonId } = useSeasonScope();
+
   const leagueQuery = useQuery(
-    currentLeagueQueryOptions(),
+    currentLeagueQueryOptions(seasonId),
   );
 
   const swapQuery = useQuery(
     scheduleSwapQueryOptions(
       firstTeamId,
       secondTeamId,
+      seasonId,
     ),
   );
 

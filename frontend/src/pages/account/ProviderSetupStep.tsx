@@ -7,13 +7,11 @@ import {
   CONNECTION_ERROR_MESSAGE,
   throttledMessage,
 } from "../../auth/accountMessages";
+import { validateProviderTarget } from "../../auth/providerTargetValidation";
 import { FormAlert } from "../../components/account/FormAlert";
 import { FormField } from "../../components/account/FormField";
 import { PasswordField } from "../../components/account/PasswordField";
 import type { ProviderValidationRequest } from "../../types/onboarding";
-
-const MINIMUM_SEASON_YEAR = 2000;
-const LEAGUE_ID_PATTERN = /^[0-9]{1,15}$/;
 
 /** Backend codes whose detail is safe and actionable to show as is. */
 const SAFE_DETAIL_CODES = new Set([
@@ -36,28 +34,6 @@ interface FieldErrors {
 interface Alert {
   tone: "error" | "notice";
   message: string;
-}
-
-function validateTarget(leagueId: string, seasonYear: string): FieldErrors {
-  const errors: FieldErrors = {};
-  const currentYear = new Date().getFullYear();
-  const trimmedId = leagueId.trim();
-
-  if (!LEAGUE_ID_PATTERN.test(trimmedId) || /^0+$/.test(trimmedId)) {
-    errors.leagueId = "Enter the numeric League ID from your ESPN league address.";
-  }
-
-  const year = Number(seasonYear.trim());
-
-  if (
-    !/^[0-9]{4}$/.test(seasonYear.trim()) ||
-    year < MINIMUM_SEASON_YEAR ||
-    year > currentYear
-  ) {
-    errors.seasonYear = `Enter a season year from ${MINIMUM_SEASON_YEAR} to ${currentYear}.`;
-  }
-
-  return errors;
 }
 
 function errorMessage(error: unknown): string {
@@ -108,7 +84,7 @@ export function ProviderSetupStep({ priorFailure }: { priorFailure: boolean }) {
       return;
     }
 
-    const errors = validateTarget(leagueId, seasonYear);
+    const errors: FieldErrors = validateProviderTarget(leagueId, seasonYear);
 
     if (needsCredentials) {
       const hasSwid = swid.trim().length > 0;

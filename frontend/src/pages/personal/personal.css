@@ -1,0 +1,30 @@
+/* Personal League workflow. Flat football surfaces: borders and color only. */
+.league-switcher { display: grid; gap: 12px; padding: 12px 16px; }
+.league-switcher ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.league-switcher-league { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 4px; font-family: "Barlow Condensed", sans-serif; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.league-switcher-league small { font-family: "Barlow", sans-serif; opacity: 0.75; }
+.league-switcher-note { margin: 0; font-size: 0.9rem; overflow-wrap: anywhere; }
+.league-switcher-season, .league-switcher-import { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 44px; padding: 8px 12px; border: 1px solid currentColor; border-radius: 2px; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+.league-switcher-season span { font-size: 0.8rem; border: 1px solid currentColor; padding: 0 6px; }
+.league-switcher-season-selected { background: #fff; color: #0b3d20; border-width: 2px; font-weight: 700; }
+.league-switcher a:focus-visible, .league-switcher button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.league-switcher-import { gap: 8px; }
+
+.personal-season { display: grid; gap: 16px; min-width: 0; }
+.personal-season-header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.personal-season-header h1 { margin: 0; overflow-wrap: anywhere; }
+.personal-season-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 0; }
+.personal-chip { border: 1px solid currentColor; padding: 2px 8px; font-size: 0.85rem; }
+.personal-secondary-button { min-height: 44px; padding: 0 16px; border: 2px solid #0b3d20; background: #fff; color: #0b3d20; border-radius: 2px; font: inherit; font-weight: 600; cursor: pointer; }
+.personal-secondary-button:disabled { opacity: 0.6; cursor: default; }
+.personal-secondary-button:focus-visible { outline: 3px solid #0b3d20; outline-offset: 2px; }
+.personal-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 12px 16px; border: 1px solid; border-left-width: 6px; border-radius: 2px; background: #fff; }
+.personal-notice svg { flex: none; width: 20px; height: 20px; }
+.personal-notice-info { border-color: #0b3d20; }
+.personal-notice-warning { border-color: #8a5a00; }
+.personal-unavailable { display: grid; justify-items: start; gap: 8px; padding: 24px 16px; border: 1px solid #c9ccd1; background: #fff; border-radius: 2px; }
+.personal-unavailable h2, .personal-import h1 { margin: 0; font-family: "Barlow Condensed", sans-serif; text-transform: uppercase; }
+.personal-import { display: grid; gap: 16px; max-width: 560px; min-width: 0; }
+.personal-checkbox { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.personal-checkbox input { width: 24px; height: 24px; }
+@media (prefers-reduced-motion: reduce) { .personal-season .spinner, .personal-unavailable .spinner { animation: none; } }

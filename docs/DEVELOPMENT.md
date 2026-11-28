@@ -203,6 +203,10 @@ uv run ruff check app tests --fix
 
 Always review automatic changes before committing.
 
+## Personal Frontend Routes
+
+Personal accounts live under `/account` (ADR 0010): `/account/import` and `/account/seasons/:seasonId/...`. Season-scoped pages call `useSeasonScope()` and pass the Season id to the query factories in `src/api/league.ts` and `src/api/analytics.ts`; with no Season they fall back to the legacy workspace endpoints. Every personal query key starts with `personalQueryKeys.season(seasonId)`, and `AuthProvider` purges the whole query cache on logout, session expiry and identity change.
+
 ## Frontend Checks
 
 Run from `frontend/`:

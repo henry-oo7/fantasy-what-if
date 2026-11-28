@@ -124,6 +124,8 @@ Connected-leagues list, league and season switcher, import another league, defau
 
 Exit: frontend tests and 320-pixel layout pass.
 
+Status: implemented on this branch with no backend, migration or infrastructure change. Personal accounts use `/account` (default or newest readable Season), `/account/import` (ESPN only; credentials live only in component state and the one request body), and `/account/seasons/:seasonId[/all-play|league-average|schedule-swap|playoff-predictor|optimal-lineups[/:teamId]]`, which reuse the existing analytics pages against `/api/seasons/{id}/...`. `GET /api/auth/me` `navigation_state` is the only account-state authority; the Season id is a locator and a missing or inaccessible Season shows one bounded state. Personal query keys all start `["personal", "season", seasonId, ...]` and the whole client cache is purged on logout, expiry or identity change. The default Season changes only through the explicit "Set as default Season" action. `reverification_required` shows a private reconnect notice with prior data intact; reconnecting is a re-import. The workspace shell and routes are unchanged; the administrator page and `/api/auth/admin/login` remain until Branch 9.
+
 ### Branch 8: `feature/account-deletion-and-league-retention`
 
 Remove league connection, account deletion with shared-data safety, orphan marking, 30-day retention, revival on re-import, and the purge job with a zero-active-access recheck under lock. Integrate durable deletion email (ADR 0009).

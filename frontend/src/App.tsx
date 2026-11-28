@@ -12,11 +12,11 @@ import { leagueAverageQueryOptions } from "./api/analytics";
 import { ApiError } from "./api/client";
 import {
   currentLeagueQueryOptions,
-  importedSeasonsQueryOptions,
 } from "./api/league";
 import { useAuth } from "./auth/AuthProvider";
 import { dashboardGreeting } from "./utils/dashboardGreeting";
-import { seasonPresentation } from "./utils/seasonPresentation";
+import { useSeasonScope } from "./personal/seasonScope";
+import { useSeasonView } from "./personal/useSeasonView";
 import "./App.css";
 
 function errorMessage(error: unknown): string {
@@ -33,9 +33,10 @@ function errorMessage(error: unknown): string {
 
 export default function App() {
   const auth = useAuth();
-  const leagueQuery = useQuery(currentLeagueQueryOptions());
-  const leagueAverageQuery = useQuery(leagueAverageQueryOptions());
-  const importedSeasonsQuery = useQuery(importedSeasonsQueryOptions());
+  const { seasonId } = useSeasonScope();
+  const leagueQuery = useQuery(currentLeagueQueryOptions(seasonId));
+  const leagueAverageQuery = useQuery(leagueAverageQueryOptions(seasonId));
+  const seasonViewer = useSeasonView();
 
   const sortedStandings = useMemo(
     () =>
@@ -91,22 +92,18 @@ export default function App() {
     (matchup) => matchup.week === latestCompletedWeek,
   );
 
-  const viewedSeason = importedSeasonsQuery.data?.seasons.find(
-    (season) => season.year === league.season,
-  );
-
-  const seasonView = seasonPresentation(league, viewedSeason);
+  const { seasonView, lastSyncedAt } = seasonViewer.forLeague(league);
 
   const lastSyncedLabel = (() => {
-    if (!viewedSeason?.last_synced_at) {
-      if (importedSeasonsQuery.isPending) {
+    if (!lastSyncedAt) {
+      if (seasonViewer.pending) {
         return "Checking last sync";
       }
 
       return "Last sync unavailable";
     }
 
-    const timestamp = new Date(viewedSeason.last_synced_at);
+    const timestamp = new Date(lastSyncedAt);
 
     if (Number.isNaN(timestamp.getTime())) {
       return "Last sync unavailable";

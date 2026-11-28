@@ -1,52 +1,16 @@
-import { useEffect, useState } from "react";
 import {
   BarChart3,
   GitCompareArrows,
   LayoutDashboard,
-  LogOut,
-  Menu,
   ShieldCheck,
   Target,
   Trophy,
-  X,
 } from "lucide-react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../../auth/AuthProvider";
 import { SeasonMenu } from "./SeasonMenu";
-import "./AppShell.css";
-
-function FootballIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M4.6 18.8C1.8 16 3.3 10.1 7.9 5.5C12.5.9 18.4-.6 21.2 2.2C24 5 22.5 10.9 17.9 15.5C13.3 20.1 7.4 21.6 4.6 18.8Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="square"
-        strokeLinejoin="miter"
-      />
-      <path
-        d="M7 17L19.4 4.6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="square"
-      />
-      <path
-        d="M9.2 9.6L14.4 14.8M11 7.8L16.2 13M12.8 6L18 11.2"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="square"
-      />
-    </svg>
-  );
-}
+import { ShellFrame } from "./ShellFrame";
 
 interface NavigationItem {
   label: string;
@@ -92,134 +56,16 @@ const navigationItems: NavigationItem[] = [
 export function AppShell() {
   const auth = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const user = auth.user;
 
-  useEffect(() => {
-    if (!drawerOpen) {
-      return;
-    }
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setDrawerOpen(false);
-      }
-    }
-
-    document.addEventListener("keydown", handleEscape);
-
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [drawerOpen]);
-
-  if (auth.user === null) {
+  if (user === null) {
     return null;
   }
 
-  async function handleLogout() {
-    setLoggingOut(true);
-    setLogoutError(null);
-
-    try {
-      await auth.logoutUser();
-
-      navigate("/login", {
-        replace: true,
-      });
-    } catch {
-      setLogoutError("Unable to sign out. Please try again.");
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-
-  const userInitial =
-    auth.user.display_name.trim().charAt(0).toUpperCase() || "U";
-
   return (
-    <div className="application-shell">
-      <header className="mobile-app-bar">
-        <button
-          className="mobile-menu-button"
-          type="button"
-          aria-label="Open navigation"
-          aria-expanded={drawerOpen}
-          aria-controls="application-sidebar"
-          onClick={() => {
-            setDrawerOpen(true);
-          }}
-        >
-          <Menu aria-hidden="true" />
-        </button>
-
-        <div className="mobile-brand">
-          <span className="brand-mark">
-            <FootballIcon aria-hidden="true" />
-          </span>
-
-          <span>Fantasy What-If</span>
-        </div>
-
-        <div className="mobile-user-avatar" aria-label={auth.user.display_name}>
-          {userInitial}
-        </div>
-      </header>
-
-      <button
-        className={
-          drawerOpen
-            ? "navigation-scrim navigation-scrim-visible"
-            : "navigation-scrim"
-        }
-        type="button"
-        aria-label="Close navigation"
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={() => {
-          setDrawerOpen(false);
-        }}
-      />
-
-      <aside
-        id="application-sidebar"
-        className={
-          drawerOpen
-            ? "application-sidebar application-sidebar-open"
-            : "application-sidebar"
-        }
-      >
-        <div className="sidebar-heading">
-          <div className="sidebar-brand">
-            <span className="brand-mark">
-              <FootballIcon aria-hidden="true" />
-            </span>
-
-            <div>
-              <strong>Fantasy</strong>
-              <span>What-If</span>
-            </div>
-          </div>
-
-          <button
-            className="drawer-close-button"
-            type="button"
-            aria-label="Close navigation"
-            onClick={() => {
-              setDrawerOpen(false);
-            }}
-          >
-            <X aria-hidden="true" />
-          </button>
-        </div>
-
-        <SeasonMenu
-          onNavigate={() => {
-            setDrawerOpen(false);
-          }}
-        />
-
+    <ShellFrame
+      context={(closeDrawer) => <SeasonMenu onNavigate={closeDrawer} />}
+      navigation={(closeDrawer) => (
         <nav className="sidebar-navigation" aria-label="Primary navigation">
           <span className="navigation-section-label">League</span>
 
@@ -235,7 +81,7 @@ export function AppShell() {
                 }}
                 end={item.end}
                 onClick={() => {
-                  setDrawerOpen(false);
+                  closeDrawer();
                 }}
                 className={({ isActive }) =>
                   isActive ? "sidebar-link sidebar-link-active" : "sidebar-link"
@@ -247,9 +93,10 @@ export function AppShell() {
             );
           })}
         </nav>
-
-        <div className="sidebar-account">
-          {auth.user.legacy_workspace?.role === "admin" ? (
+      )}
+      account={(closeDrawer, userInitial) => (
+        <>
+          {user.legacy_workspace?.role === "admin" ? (
             <NavLink
               to={{
                 pathname: "/admin",
@@ -262,7 +109,7 @@ export function AppShell() {
               }
               aria-label="Open administration"
               onClick={() => {
-                setDrawerOpen(false);
+                closeDrawer();
               }}
             >
               <div className="sidebar-user-avatar" aria-hidden="true">
@@ -270,7 +117,7 @@ export function AppShell() {
               </div>
 
               <div className="sidebar-user-details">
-                <strong>{auth.user.display_name}</strong>
+                <strong>{user.display_name}</strong>
 
                 <span>Administrator</span>
               </div>
@@ -286,37 +133,15 @@ export function AppShell() {
               </div>
 
               <div className="sidebar-user-details">
-                <strong>{auth.user.display_name}</strong>
+                <strong>{user.display_name}</strong>
 
                 <span>Spectator</span>
               </div>
             </div>
           )}
 
-          <button
-            className="sidebar-logout"
-            type="button"
-            disabled={loggingOut}
-            onClick={() => {
-              void handleLogout();
-            }}
-          >
-            <LogOut aria-hidden="true" />
-
-            {loggingOut ? "Signing out..." : "Sign out"}
-          </button>
-
-          {logoutError ? (
-            <p className="sidebar-error" role="alert">
-              {logoutError}
-            </p>
-          ) : null}
-        </div>
-      </aside>
-
-      <main className="application-content">
-        <Outlet />
-      </main>
-    </div>
+        </>
+      )}
+    />
   );
 }

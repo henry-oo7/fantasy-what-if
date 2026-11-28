@@ -6,9 +6,9 @@ import { ApiError } from "../api/client";
 import {
   allPlayQueryOptions,
   currentLeagueQueryOptions,
-  importedSeasonsQueryOptions,
 } from "../api/league";
-import { seasonPresentation } from "../utils/seasonPresentation";
+import { useSeasonScope } from "../personal/seasonScope";
+import { useSeasonView } from "../personal/useSeasonView";
 import "./AllPlayPage.css";
 
 function errorMessage(error: unknown): string {
@@ -24,11 +24,13 @@ function errorMessage(error: unknown): string {
 }
 
 export function AllPlayPage() {
-  const leagueQuery = useQuery(currentLeagueQueryOptions());
+  const { seasonId } = useSeasonScope();
 
-  const allPlayQuery = useQuery(allPlayQueryOptions());
+  const leagueQuery = useQuery(currentLeagueQueryOptions(seasonId));
 
-  const importedSeasonsQuery = useQuery(importedSeasonsQueryOptions());
+  const allPlayQuery = useQuery(allPlayQueryOptions(seasonId));
+
+  const seasonViewer = useSeasonView();
 
   const actualRankByTeam = useMemo(() => {
     const ordered = [...(leagueQuery.data?.teams ?? [])].sort(
@@ -77,11 +79,7 @@ export function AllPlayPage() {
   const league = leagueQuery.data;
   const standings = allPlayQuery.data;
 
-  const viewedSeason = importedSeasonsQuery.data?.seasons.find(
-    (season) => season.year === league.season,
-  );
-
-  const seasonView = seasonPresentation(league, viewedSeason);
+  const { seasonView } = seasonViewer.forLeague(league);
 
   const leader = standings[0];
 
