@@ -76,3 +76,61 @@ def validate_season_sync_payload(payload: Mapping[str, Any], *, payload_version:
         raise InvalidSeasonSyncPayloadError("The Season synchronization payload is invalid.")
 
     return _require_season_id(payload["season_id"])
+
+
+# --------------------------------------------------------------------------
+# Personal access reverification (ADR 0010)
+# --------------------------------------------------------------------------
+
+ACCESS_REVERIFICATION_PAYLOAD_VERSION = 1
+ACCESS_REVERIFICATION_IDEMPOTENCY_PREFIX = "access-reverification:"
+
+
+class InvalidAccessReverificationPayloadError(ValueError):
+    """A reverification payload is not exactly {version, user_id, season_id}."""
+
+
+def _require_positive_id(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise InvalidAccessReverificationPayloadError(f"{name} must be a positive integer.")
+
+    return value
+
+
+def access_reverification_idempotency_key(user_id: int, season_id: int) -> str:
+    """The single active-job key for one user's access to one Season."""
+
+    return (
+        f"{ACCESS_REVERIFICATION_IDEMPOTENCY_PREFIX}"
+        f"{_require_positive_id(user_id, 'user_id')}:{_require_positive_id(season_id, 'season_id')}"
+    )
+
+
+def build_access_reverification_payload(user_id: int, season_id: int) -> dict[str, int]:
+    """The complete payload: no workspace, email, connection, credential or flag."""
+
+    return {
+        "version": ACCESS_REVERIFICATION_PAYLOAD_VERSION,
+        "user_id": _require_positive_id(user_id, "user_id"),
+        "season_id": _require_positive_id(season_id, "season_id"),
+    }
+
+
+def validate_access_reverification_payload(
+    payload: Mapping[str, Any], *, payload_version: int
+) -> tuple[int, int]:
+    """Return ``(user_id, season_id)``, or raise when the payload is not exact."""
+
+    if (
+        isinstance(payload_version, bool)
+        or payload_version != ACCESS_REVERIFICATION_PAYLOAD_VERSION
+        or set(payload) != {"version", "user_id", "season_id"}
+        or isinstance(payload["version"], bool)
+        or payload["version"] != ACCESS_REVERIFICATION_PAYLOAD_VERSION
+    ):
+        raise InvalidAccessReverificationPayloadError("The reverification payload is invalid.")
+
+    return (
+        _require_positive_id(payload["user_id"], "user_id"),
+        _require_positive_id(payload["season_id"], "season_id"),
+    )

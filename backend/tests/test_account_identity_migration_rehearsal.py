@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.support.migration_database import RehearsalDatabase
 
 REVISION = "d3a7e5b1c9f2"
+HEAD_REVISION = "e8c3a6d1f4b7"  # access reverification; later than REVISION
 PREVIOUS_REVISION = "b9e4c2d7a1f3"
 BASE = 991_700
 WORKSPACE = BASE
@@ -156,9 +157,9 @@ def restore_head() -> Iterator[None]:
 
 
 def test_head_schema_shape() -> None:
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     heads = alembic("heads").stdout.strip().splitlines()
-    assert len(heads) == 1 and heads[0].startswith(REVISION)
+    assert len(heads) == 1 and heads[0].startswith(HEAD_REVISION)
     assert alembic("check").returncode == 0
 
     columns = {column["name"]: column for column in inspect(engine).get_columns("users")}
@@ -330,7 +331,7 @@ def test_downgrade_refuses_while_a_personal_user_exists_and_keeps_it() -> None:
 
     assert result.returncode != 0
     assert "Refusing to downgrade" in result.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     assert scalar(f"SELECT count(*) FROM users WHERE id = {BASE + 1}") == 1
 
 
@@ -342,7 +343,7 @@ def test_downgrade_refuses_a_user_owned_delivery_even_without_a_personal_user() 
 
     assert result.returncode != 0
     assert "user-owned identity delivery" in result.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
 
 
 def test_safe_downgrade_preserves_legacy_rows_and_reupgrades() -> None:
@@ -394,5 +395,5 @@ def test_safe_downgrade_preserves_legacy_rows_and_reupgrades() -> None:
 
     upgraded = alembic("upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
-    assert current_revisions() == [REVISION]
+    assert current_revisions() == [HEAD_REVISION]
     assert alembic("check").returncode == 0

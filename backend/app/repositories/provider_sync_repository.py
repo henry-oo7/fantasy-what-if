@@ -212,6 +212,9 @@ class ProviderSyncRepository:
                 ProviderConnection.is_active.is_(True),
                 ProviderConnection.encrypted_credentials.is_not(None),
                 ProviderConnection.credential_version.is_not(None),
+                # Reverification marked the credentials rejected; the owner's
+                # access is excluded with them, and nobody else is affected.
+                ProviderConnection.last_validation_error.is_(None),
                 User.is_active.is_(True),
             )
             .order_by(

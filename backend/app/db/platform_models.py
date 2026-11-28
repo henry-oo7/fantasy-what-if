@@ -598,7 +598,7 @@ class BackgroundJob(TimestampMixin, Base):
         # kept so earlier migrations and their rehearsals stay valid.
         CheckConstraint(
             "workspace_id IS NOT NULL OR job_type::text IN "
-            "('transactional_email_delivery', 'league_season_sync')",
+            "('transactional_email_delivery', 'league_season_sync', 'access_reverification')",
             name="ck_background_jobs_workspace_required_except_email",
         ),
         # Season-sync payloads carry exactly {"version": 1, "season_id": <positive
@@ -623,6 +623,28 @@ class BackgroundJob(TimestampMixin, Base):
             "OR COALESCE(idempotency_key = 'league-season-sync:' || (payload ->> 'season_id'), "
             "false)",
             name="ck_background_jobs_league_season_sync_key",
+        ),
+        # Reverification payloads carry exactly {version, user_id, season_id}; the
+        # active key is derived from them, so at most one active job per user and Season.
+        CheckConstraint(
+            "job_type::text <> 'access_reverification' "
+            "OR COALESCE("
+            "payload_version = 1 "
+            "AND jsonb_typeof(payload) = 'object' "
+            "AND (payload - 'version' - 'user_id' - 'season_id') = '{}'::jsonb "
+            "AND payload ->> 'version' = '1' "
+            "AND jsonb_typeof(payload -> 'user_id') = 'number' "
+            "AND payload ->> 'user_id' ~ '^[1-9][0-9]{0,9}$' "
+            "AND jsonb_typeof(payload -> 'season_id') = 'number' "
+            "AND payload ->> 'season_id' ~ '^[1-9][0-9]{0,9}$', "
+            "false)",
+            name="ck_background_jobs_access_reverification_payload_shape",
+        ),
+        CheckConstraint(
+            "job_type::text <> 'access_reverification' "
+            "OR COALESCE(idempotency_key = 'access-reverification:' "
+            "|| (payload ->> 'user_id') || ':' || (payload ->> 'season_id'), false)",
+            name="ck_background_jobs_access_reverification_key",
         ),
         # Email job payloads carry exactly {version, delivery_id}, both numbers.
         # COALESCE keeps every branch NULL-safe.

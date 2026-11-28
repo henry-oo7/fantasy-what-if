@@ -17,7 +17,9 @@ from app.notifications.delivery_job_contract import (
     validate_transactional_email_job_payload,
 )
 from app.services.synchronization_job_contract import (
+    access_reverification_idempotency_key,
     season_sync_idempotency_key,
+    validate_access_reverification_payload,
     validate_season_sync_payload,
 )
 
@@ -33,6 +35,7 @@ ACTIVE_IDEMPOTENCY_CONSTRAINT = "uq_background_jobs_active_idempotency_key"
 UNSCOPED_JOB_TYPES = (
     BackgroundJobType.TRANSACTIONAL_EMAIL_DELIVERY,
     BackgroundJobType.LEAGUE_SEASON_SYNC,
+    BackgroundJobType.ACCESS_REVERIFICATION,
 )
 
 QUEUED_JOB_STATUSES = (
@@ -86,7 +89,8 @@ class BackgroundJobRepository:
         if workspace_id is None:
             if job_type not in UNSCOPED_JOB_TYPES:
                 raise ValueError(
-                    "Only transactional-email and Season-sync jobs may omit workspace_id."
+                    "Only transactional-email, Season-sync and reverification jobs "
+                    "may omit workspace_id."
                 )
         elif workspace_id < 1:
             raise ValueError("workspace_id must be positive.")
@@ -99,6 +103,14 @@ class BackgroundJobRepository:
 
             if idempotency_key != season_sync_idempotency_key(season_id):
                 raise ValueError("Season-sync jobs must use their Season idempotency key.")
+
+        if job_type is BackgroundJobType.ACCESS_REVERIFICATION:
+            user_id, season_id = validate_access_reverification_payload(
+                payload, payload_version=payload_version
+            )
+
+            if idempotency_key != access_reverification_idempotency_key(user_id, season_id):
+                raise ValueError("Reverification jobs must use their user and Season key.")
 
         if payload_version < 1:
             raise ValueError("payload_version must be positive.")

@@ -84,6 +84,7 @@ class BackgroundJobType(StrEnum):
     WORKSPACE_DELETION = "workspace_deletion"
     TRANSACTIONAL_EMAIL_DELIVERY = "transactional_email_delivery"
     LEAGUE_SEASON_SYNC = "league_season_sync"
+    ACCESS_REVERIFICATION = "access_reverification"
 
 
 class BackgroundJobStatus(StrEnum):
